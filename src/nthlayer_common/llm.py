@@ -83,6 +83,10 @@ def llm_call(
 
     Returns LLMResponse with the text content, model, and provider.
     Raises LLMError on failure with provider/model context.
+
+    Note: callers that wrap llm_call() in asyncio.wait_for(timeout=T) should
+    use the same timeout value. httpx fires the network timeout first; the
+    asyncio.wait_for is a safety net for thread scheduling delays.
     """
     model = model or DEFAULT_MODEL
     _timeout = timeout if timeout is not None else TIMEOUT
@@ -163,14 +167,27 @@ def _call_openai_compat(
     Groq, Mistral, LM Studio, any OpenAI-compatible server.
     """
     base_url = os.environ.get("OPENAI_API_BASE") or _default_base_url(provider)
+    if not base_url and provider == "azure":
+        raise LLMError("AZURE_OPENAI_ENDPOINT not set", "azure", model)
     api_key = os.environ.get("OPENAI_API_KEY", "not-needed")  # Ollama/vLLM don't require keys
 
-    response = httpx.post(
-        f"{base_url}/chat/completions",
-        headers={
+    # Azure uses api-key header; everything else uses Bearer token
+    if provider == "azure":
+        headers = {
+            "api-key": api_key,
+            "content-type": "application/json",
+        }
+        url = f"{base_url}/{model}/chat/completions?api-version=2024-02-01"
+    else:
+        headers = {
             "Authorization": f"Bearer {api_key}",
             "content-type": "application/json",
-        },
+        }
+        url = f"{base_url}/chat/completions"
+
+    response = httpx.post(
+        url,
+        headers=headers,
         json={
             "model": model,
             "max_tokens": max_tokens,
@@ -201,10 +218,7 @@ def _default_base_url(provider: str) -> str:
         "together": "https://api.together.xyz/v1",
         "groq": "https://api.groq.com/openai/v1",
         "mistral": "https://api.mistral.ai/v1",
-        "azure": os.environ.get(
-            "AZURE_OPENAI_ENDPOINT",
-            "https://your-resource.openai.azure.com/openai/deployments",
-        ),
+        "azure": os.environ.get("AZURE_OPENAI_ENDPOINT", ""),
     }
     return defaults.get(provider, "https://api.openai.com/v1")
 
