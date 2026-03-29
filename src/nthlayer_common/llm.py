@@ -30,7 +30,10 @@ import httpx
 from dataclasses import dataclass
 
 DEFAULT_MODEL = os.environ.get("NTHLAYER_MODEL", "anthropic/claude-sonnet-4-20250514")
-TIMEOUT = int(os.environ.get("NTHLAYER_LLM_TIMEOUT", "60"))
+try:
+    TIMEOUT = int(os.environ.get("NTHLAYER_LLM_TIMEOUT", "60"))
+except (ValueError, TypeError):
+    TIMEOUT = 60
 
 
 @dataclass
@@ -82,7 +85,7 @@ def llm_call(
     Raises LLMError on failure with provider/model context.
     """
     model = model or DEFAULT_MODEL
-    _timeout = timeout or TIMEOUT
+    _timeout = timeout if timeout is not None else TIMEOUT
 
     # Parse provider from model string
     if "/" in model:
@@ -119,7 +122,7 @@ def llm_call(
         raise LLMError(str(e), provider, model_name, e) from e
 
 
-def _call_anthropic(system: str, user: str, model: str, max_tokens: int, timeout: int) -> str:
+def _call_anthropic(system: str, user: str, model: str, max_tokens: int, timeout: int) -> tuple[str, int | None, int | None]:
     """Call Anthropic Messages API."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -142,14 +145,17 @@ def _call_anthropic(system: str, user: str, model: str, max_tokens: int, timeout
     )
     response.raise_for_status()
     data = response.json()
-    text = data["content"][0]["text"]
+    content = data.get("content", [])
+    if not content:
+        raise LLMError("Model returned empty content", "anthropic", model)
+    text = content[0].get("text", "")
     usage = data.get("usage", {})
     return text, usage.get("input_tokens"), usage.get("output_tokens")
 
 
 def _call_openai_compat(
     system: str, user: str, model: str, provider: str, max_tokens: int, timeout: int
-) -> str:
+) -> tuple[str, int | None, int | None]:
     """
     Call OpenAI-compatible Chat Completions API.
 
@@ -177,7 +183,10 @@ def _call_openai_compat(
     )
     response.raise_for_status()
     data = response.json()
-    text = data["choices"][0]["message"]["content"]
+    choices = data.get("choices", [])
+    if not choices:
+        raise LLMError("Model returned empty choices", provider, model)
+    text = (choices[0].get("message") or {}).get("content", "")
     usage = data.get("usage", {})
     return text, usage.get("prompt_tokens"), usage.get("completion_tokens")
 
