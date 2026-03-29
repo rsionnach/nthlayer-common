@@ -29,7 +29,10 @@ def _mock_response(body: dict, status_code: int = 200) -> httpx.Response:
 class TestAnthropicPath:
     def test_successful_call(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-        mock_resp = _mock_response({"content": [{"text": "hello from claude"}]})
+        mock_resp = _mock_response({
+            "content": [{"text": "hello from claude"}],
+            "usage": {"input_tokens": 100, "output_tokens": 50},
+        })
 
         with patch("nthlayer_common.llm.httpx.post", return_value=mock_resp) as mock_post:
             result = llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514")
@@ -47,7 +50,10 @@ class TestAnthropicPath:
 class TestOpenAIPath:
     def test_successful_call(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        mock_resp = _mock_response({"choices": [{"message": {"content": "hello from gpt"}}]})
+        mock_resp = _mock_response({
+            "choices": [{"message": {"content": "hello from gpt"}}],
+            "usage": {"prompt_tokens": 80, "completion_tokens": 40},
+        })
 
         with patch("nthlayer_common.llm.httpx.post", return_value=mock_resp) as mock_post:
             result = llm_call("system", "user", model="openai/gpt-4o")
@@ -138,7 +144,10 @@ class TestGuessProvider:
 class TestLLMResponseFields:
     def test_all_fields_populated(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        mock_resp = _mock_response({"choices": [{"message": {"content": "test output"}}]})
+        mock_resp = _mock_response({
+            "choices": [{"message": {"content": "test output"}}],
+            "usage": {"prompt_tokens": 80, "completion_tokens": 40},
+        })
 
         with patch("nthlayer_common.llm.httpx.post", return_value=mock_resp):
             result = llm_call("system", "user", model="openai/gpt-4o")
@@ -147,3 +156,28 @@ class TestLLMResponseFields:
         assert result.text == "test output"
         assert result.model == "gpt-4o"
         assert result.provider == "openai"
+        assert result.input_tokens == 80
+        assert result.output_tokens == 40
+
+    def test_token_counts_from_anthropic(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        mock_resp = _mock_response({
+            "content": [{"text": "hello"}],
+            "usage": {"input_tokens": 150, "output_tokens": 75},
+        })
+
+        with patch("nthlayer_common.llm.httpx.post", return_value=mock_resp):
+            result = llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514")
+
+        assert result.input_tokens == 150
+        assert result.output_tokens == 75
+
+    def test_missing_usage_returns_none(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        mock_resp = _mock_response({"choices": [{"message": {"content": "no usage"}}]})
+
+        with patch("nthlayer_common.llm.httpx.post", return_value=mock_resp):
+            result = llm_call("system", "user", model="openai/gpt-4o")
+
+        assert result.input_tokens is None
+        assert result.output_tokens is None

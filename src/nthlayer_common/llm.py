@@ -39,6 +39,8 @@ class LLMResponse:
     text: str           # The response content
     model: str          # Model that was used
     provider: str       # Provider that was used
+    input_tokens: int | None = None   # Token count for input (if available)
+    output_tokens: int | None = None  # Token count for output (if available)
 
 
 class LLMError(Exception):
@@ -92,11 +94,14 @@ def llm_call(
 
     try:
         if provider == "anthropic":
-            text = _call_anthropic(system, user, model_name, max_tokens, _timeout)
+            text, in_tok, out_tok = _call_anthropic(system, user, model_name, max_tokens, _timeout)
         else:
-            text = _call_openai_compat(system, user, model_name, provider, max_tokens, _timeout)
+            text, in_tok, out_tok = _call_openai_compat(system, user, model_name, provider, max_tokens, _timeout)
 
-        return LLMResponse(text=text, model=model_name, provider=provider)
+        return LLMResponse(
+            text=text, model=model_name, provider=provider,
+            input_tokens=in_tok, output_tokens=out_tok,
+        )
 
     except httpx.HTTPStatusError as e:
         raise LLMError(
@@ -137,7 +142,9 @@ def _call_anthropic(system: str, user: str, model: str, max_tokens: int, timeout
     )
     response.raise_for_status()
     data = response.json()
-    return data["content"][0]["text"]
+    text = data["content"][0]["text"]
+    usage = data.get("usage", {})
+    return text, usage.get("input_tokens"), usage.get("output_tokens")
 
 
 def _call_openai_compat(
@@ -170,7 +177,9 @@ def _call_openai_compat(
     )
     response.raise_for_status()
     data = response.json()
-    return data["choices"][0]["message"]["content"]
+    text = data["choices"][0]["message"]["content"]
+    usage = data.get("usage", {})
+    return text, usage.get("prompt_tokens"), usage.get("completion_tokens")
 
 
 def _default_base_url(provider: str) -> str:
