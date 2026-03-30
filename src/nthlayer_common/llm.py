@@ -91,6 +91,15 @@ def llm_call(
     model = model or DEFAULT_MODEL
     _timeout = timeout if timeout is not None else TIMEOUT
 
+    # Guard: detect API keys accidentally used as model names
+    if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
+        raise LLMError(
+            f"'{model[:20]}...' looks like an API key, not a model name. "
+            "Set NTHLAYER_MODEL to a model (e.g. 'anthropic/claude-sonnet-4-20250514') "
+            "and ANTHROPIC_API_KEY or OPENAI_API_KEY to your key.",
+            "unknown", model,
+        )
+
     # Parse provider from model string
     if "/" in model:
         provider, _, model_name = model.partition("/")
