@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nthlayer-common"
-version = "0.1.1"
+version = "0.1.2"
 description = "Shared utilities for the NthLayer ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
