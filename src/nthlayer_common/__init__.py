@@ -8,9 +8,12 @@ from nthlayer_common.prompts import (
     validate_response,
 )
 
+from nthlayer_common.slack import SlackNotifier
+
 __all__ = [
     "llm_call", "LLMResponse", "LLMError",
     "strip_markdown_fences", "clamp",
     "load_prompt", "render_user_prompt", "validate_response",
     "extract_confidence", "PromptSpec",
+    "SlackNotifier",
 ]
