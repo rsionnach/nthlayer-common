@@ -9,6 +9,7 @@ from nthlayer_common.prompts import (
 )
 
 from nthlayer_common.slack import SlackNotifier
+from nthlayer_common.slack_web import SlackWebClient
 
 __all__ = [
     "llm_call", "LLMResponse", "LLMError",
@@ -16,4 +17,5 @@ __all__ = [
     "load_prompt", "render_user_prompt", "validate_response",
     "extract_confidence", "PromptSpec",
     "SlackNotifier",
+    "SlackWebClient",
 ]
