@@ -16,28 +16,35 @@ def client():
     return SlackWebClient("xoxb-test-token")
 
 
+def _patch_client(client, mock_response=None, side_effect=None):
+    """Inject a mock httpx client into the SlackWebClient."""
+    mock_http = MagicMock()
+    mock_http.is_closed = False
+    if side_effect:
+        mock_http.post = AsyncMock(side_effect=side_effect)
+    else:
+        mock_http.post = AsyncMock(return_value=mock_response)
+    client._client = mock_http
+    return mock_http
+
+
 async def test_post_message_returns_ts(client):
     """post_message sends to Slack Web API and returns ts."""
     mock_response = MagicMock()
     mock_response.json.return_value = {"ok": True, "ts": "1234567890.123456"}
     mock_response.raise_for_status = MagicMock()
 
-    with patch("nthlayer_common.slack_web.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
+    mock_http = _patch_client(client, mock_response=mock_response)
 
-        ts = await client.post_message(
-            channel="C12345",
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "test"}}],
-            text="test",
-        )
-        assert ts == "1234567890.123456"
-        mock_client.post.assert_called_once()
-        call_kwargs = mock_client.post.call_args
-        assert "chat.postMessage" in call_kwargs[0][0]
+    ts = await client.post_message(
+        channel="C12345",
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "test"}}],
+        text="test",
+    )
+    assert ts == "1234567890.123456"
+    mock_http.post.assert_called_once()
+    call_kwargs = mock_http.post.call_args
+    assert "chat.postMessage" in call_kwargs[0][0]
 
 
 async def test_post_message_with_thread_ts(client):
@@ -46,35 +53,25 @@ async def test_post_message_with_thread_ts(client):
     mock_response.json.return_value = {"ok": True, "ts": "111.222"}
     mock_response.raise_for_status = MagicMock()
 
-    with patch("nthlayer_common.slack_web.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
+    mock_http = _patch_client(client, mock_response=mock_response)
 
-        await client.post_message(
-            channel="C12345",
-            blocks=[],
-            text="reply",
-            thread_ts="999.888",
-        )
-        call_kwargs = mock_client.post.call_args
-        payload = call_kwargs[1]["json"]
-        assert payload["thread_ts"] == "999.888"
+    await client.post_message(
+        channel="C12345",
+        blocks=[],
+        text="reply",
+        thread_ts="999.888",
+    )
+    call_kwargs = mock_http.post.call_args
+    payload = call_kwargs[1]["json"]
+    assert payload["thread_ts"] == "999.888"
 
 
 async def test_post_message_fail_open(client):
     """post_message returns None on error, never raises."""
-    with patch("nthlayer_common.slack_web.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=Exception("network error"))
-        mock_client_cls.return_value = mock_client
+    _patch_client(client, side_effect=Exception("network error"))
 
-        ts = await client.post_message("C12345", [], "test")
-        assert ts is None
+    ts = await client.post_message("C12345", [], "test")
+    assert ts is None
 
 
 async def test_update_message(client):
@@ -83,23 +80,18 @@ async def test_update_message(client):
     mock_response.json.return_value = {"ok": True}
     mock_response.raise_for_status = MagicMock()
 
-    with patch("nthlayer_common.slack_web.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
+    mock_http = _patch_client(client, mock_response=mock_response)
 
-        await client.update_message(
-            channel="C12345",
-            ts="1234567890.123456",
-            blocks=[],
-            text="updated",
-        )
-        call_kwargs = mock_client.post.call_args
-        assert "chat.update" in call_kwargs[0][0]
-        payload = call_kwargs[1]["json"]
-        assert payload["ts"] == "1234567890.123456"
+    await client.update_message(
+        channel="C12345",
+        ts="1234567890.123456",
+        blocks=[],
+        text="updated",
+    )
+    call_kwargs = mock_http.post.call_args
+    assert "chat.update" in call_kwargs[0][0]
+    payload = call_kwargs[1]["json"]
+    assert payload["ts"] == "1234567890.123456"
 
 
 def test_verify_signature_valid():
@@ -140,3 +132,15 @@ async def test_empty_token_returns_none():
     client = SlackWebClient("")
     ts = await client.post_message("C12345", [], "test")
     assert ts is None
+
+
+async def test_close_client(client):
+    """close() closes the underlying httpx client."""
+    mock_http = MagicMock()
+    mock_http.is_closed = False
+    mock_http.aclose = AsyncMock()
+    client._client = mock_http
+
+    await client.close()
+    mock_http.aclose.assert_called_once()
+    assert client._client is None

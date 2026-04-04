@@ -23,10 +23,33 @@ SLACK_API_BASE = "https://slack.com/api"
 
 
 class SlackWebClient:
-    """Slack Web API client for interactive messages."""
+    """Slack Web API client for interactive messages.
+
+    Reuses a single httpx.AsyncClient for connection pooling across calls.
+    The client is created lazily on first use.
+    """
 
     def __init__(self, bot_token: str) -> None:
         self.bot_token = bot_token
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Return the shared httpx client, creating it on first call."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                headers={
+                    "Authorization": f"Bearer {self.bot_token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10.0,
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def post_message(
         self,
@@ -48,22 +71,17 @@ class SlackWebClient:
             payload["thread_ts"] = thread_ts
 
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{SLACK_API_BASE}/chat.postMessage",
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {self.bot_token}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=10.0,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("ok"):
-                    logger.warning("Slack API error: %s", data.get("error"))
-                    return None
-                return data.get("ts")
+            client = self._get_client()
+            resp = await client.post(
+                f"{SLACK_API_BASE}/chat.postMessage",
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("ok"):
+                logger.warning("Slack API error: %s", data.get("error"))
+                return None
+            return data.get("ts")
         except Exception as exc:
             logger.warning("Slack post_message failed: %s", exc)
             return None
@@ -87,20 +105,15 @@ class SlackWebClient:
         }
 
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{SLACK_API_BASE}/chat.update",
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {self.bot_token}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=10.0,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data.get("ok"):
-                    logger.warning("Slack chat.update error: %s", data.get("error"))
+            client = self._get_client()
+            resp = await client.post(
+                f"{SLACK_API_BASE}/chat.update",
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("ok"):
+                logger.warning("Slack chat.update error: %s", data.get("error"))
         except Exception as exc:
             logger.warning("Slack update_message failed: %s", exc)
 
