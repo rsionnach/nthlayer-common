@@ -119,7 +119,12 @@ class SlackWebClient:
         if abs(time.time() - ts) > 300:
             return False
 
-        sig_basestring = f"v0:{timestamp}:{body.decode()}"
+        try:
+            body_str = body.decode("utf-8")
+        except (UnicodeDecodeError, AttributeError):
+            return False
+
+        sig_basestring = f"v0:{timestamp}:{body_str}"
         expected = "v0=" + hmac.new(
             signing_secret.encode(), sig_basestring.encode(), hashlib.sha256
         ).hexdigest()
