@@ -427,3 +427,53 @@ class TestTimeoutBudget:
         with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
             with pytest.raises(LLMError, match="429"):
                 llm_call("system", "user", model="openai/gpt-4o", retry=3, timeout=5)
+
+
+class TestLLMErrorStatusCode:
+    def test_status_code_on_permanent_error(self, monkeypatch):
+        """LLMError carries status_code for HTTP errors."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        resp = httpx.Response(
+            status_code=401, text="Unauthorized",
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+
+        with patch("nthlayer_common.llm.httpx.post", return_value=resp):
+            with pytest.raises(LLMError) as exc_info:
+                llm_call("system", "user", model="openai/gpt-4o", retry=0)
+
+        assert exc_info.value.status_code == 401
+
+    def test_status_code_on_transient_exhaustion(self, monkeypatch):
+        """LLMError carries status_code after retry exhaustion."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        resp = httpx.Response(
+            status_code=503, text="Unavailable",
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+
+        def mock_post(*args, **kwargs):
+            raise httpx.HTTPStatusError("503", request=resp.request, response=resp)
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with patch("nthlayer_common.llm.time.sleep"):
+                with pytest.raises(LLMError) as exc_info:
+                    llm_call("system", "user", model="openai/gpt-4o", retry=1)
+
+        assert exc_info.value.status_code == 503
+
+    def test_status_code_none_on_timeout(self, monkeypatch):
+        """LLMError has no status_code for timeout errors."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=httpx.TimeoutException("timed out")):
+            with patch("nthlayer_common.llm.time.sleep"):
+                with pytest.raises(LLMError) as exc_info:
+                    llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", retry=1)
+
+        assert exc_info.value.status_code is None
+
+    def test_backward_compat_no_status_code_attr(self):
+        """LLMError without status_code defaults to None."""
+        err = LLMError("test", "provider", "model")
+        assert err.status_code is None
