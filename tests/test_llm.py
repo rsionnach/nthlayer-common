@@ -107,7 +107,7 @@ class TestTimeout:
 
         with patch("nthlayer_common.llm.httpx.post", side_effect=httpx.TimeoutException("timed out")):
             with pytest.raises(LLMError, match="Timeout"):
-                llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", timeout=5)
+                llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", timeout=5, retry=0)
 
 
 class TestHTTPError:
@@ -121,7 +121,7 @@ class TestHTTPError:
 
         with patch("nthlayer_common.llm.httpx.post", return_value=resp):
             with pytest.raises(LLMError, match="HTTP 429"):
-                llm_call("system", "user", model="openai/gpt-4o")
+                llm_call("system", "user", model="openai/gpt-4o", retry=0)
 
 
 class TestGuessProvider:
@@ -254,3 +254,176 @@ class TestParseRetryAfter:
             request=httpx.Request("POST", "https://mock"),
         )
         assert _parse_retry_after(resp) == 1.5
+
+
+class TestRetryTransient:
+    def test_429_retries_then_succeeds(self, monkeypatch):
+        """429 twice then 200 — llm_call returns successfully."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        fail_resp = httpx.Response(
+            status_code=429, text="Rate limited",
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        ok_resp = _mock_response({
+            "choices": [{"message": {"content": "finally"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        })
+        call_count = {"n": 0}
+
+        def mock_post(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] <= 2:
+                raise httpx.HTTPStatusError("429", request=fail_resp.request, response=fail_resp)
+            return ok_resp
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with patch("nthlayer_common.llm.time.sleep"):
+                result = llm_call("system", "user", model="openai/gpt-4o", retry=3)
+
+        assert result.text == "finally"
+        assert call_count["n"] == 3
+
+    def test_permanent_401_fails_immediately(self, monkeypatch):
+        """401 raises LLMError immediately — no retry."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        resp = httpx.Response(
+            status_code=401, text="Unauthorized",
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        call_count = {"n": 0}
+
+        def mock_post(*args, **kwargs):
+            call_count["n"] += 1
+            raise httpx.HTTPStatusError("401", request=resp.request, response=resp)
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with pytest.raises(LLMError, match="HTTP 401"):
+                llm_call("system", "user", model="openai/gpt-4o", retry=3)
+
+        assert call_count["n"] == 1
+
+    def test_retry_exhaustion_raises(self, monkeypatch):
+        """503 on every attempt — raises LLMError after all retries."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        resp = httpx.Response(
+            status_code=503, text="Service Unavailable",
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+
+        def mock_post(*args, **kwargs):
+            raise httpx.HTTPStatusError("503", request=resp.request, response=resp)
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with patch("nthlayer_common.llm.time.sleep"):
+                with pytest.raises(LLMError, match="HTTP 503"):
+                    llm_call("system", "user", model="openai/gpt-4o", retry=2)
+
+    def test_retry_zero_disables_retry(self, monkeypatch):
+        """retry=0 raises on first transient failure."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        resp = httpx.Response(
+            status_code=429, text="Rate limited",
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        call_count = {"n": 0}
+
+        def mock_post(*args, **kwargs):
+            call_count["n"] += 1
+            raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with pytest.raises(LLMError, match="HTTP 429"):
+                llm_call("system", "user", model="openai/gpt-4o", retry=0)
+
+        assert call_count["n"] == 1
+
+    def test_connect_error_retries(self, monkeypatch):
+        """ConnectError is transient — retries then succeeds."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        ok_resp = _mock_response({
+            "choices": [{"message": {"content": "recovered"}}],
+        })
+        call_count = {"n": 0}
+
+        def mock_post(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.ConnectError("Connection refused")
+            return ok_resp
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with patch("nthlayer_common.llm.time.sleep"):
+                result = llm_call("system", "user", model="openai/gpt-4o", retry=2)
+
+        assert result.text == "recovered"
+        assert call_count["n"] == 2
+
+    def test_timeout_retries(self, monkeypatch):
+        """TimeoutException is transient — retries then succeeds."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        ok_resp = _mock_response({
+            "content": [{"text": "recovered"}],
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        })
+        call_count = {"n": 0}
+
+        def mock_post(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.TimeoutException("timed out")
+            return ok_resp
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with patch("nthlayer_common.llm.time.sleep"):
+                result = llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", retry=2)
+
+        assert result.text == "recovered"
+
+
+class TestRetryAfterRespected:
+    def test_retry_after_header_used_as_floor(self, monkeypatch):
+        """Retry-After header sets minimum delay."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        fail_resp = httpx.Response(
+            status_code=429, text="Rate limited",
+            headers={"Retry-After": "5"},
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        ok_resp = _mock_response({"choices": [{"message": {"content": "ok"}}]})
+        call_count = {"n": 0}
+
+        def mock_post(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.HTTPStatusError("429", request=fail_resp.request, response=fail_resp)
+            return ok_resp
+
+        sleep_times = []
+
+        def mock_sleep(seconds):
+            sleep_times.append(seconds)
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with patch("nthlayer_common.llm.time.sleep", side_effect=mock_sleep):
+                result = llm_call("system", "user", model="openai/gpt-4o", retry=2, timeout=30)
+
+        assert result.text == "ok"
+        assert sleep_times[0] >= 5.0
+
+
+class TestTimeoutBudget:
+    def test_skips_retry_when_budget_exhausted(self, monkeypatch):
+        """Don't retry if remaining timeout is less than backoff delay."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        resp = httpx.Response(
+            status_code=429, text="Rate limited",
+            headers={"Retry-After": "60"},
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+
+        def mock_post(*args, **kwargs):
+            raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
+
+        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
+            with pytest.raises(LLMError, match="429"):
+                llm_call("system", "user", model="openai/gpt-4o", retry=3, timeout=5)

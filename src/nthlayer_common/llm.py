@@ -89,10 +89,11 @@ class LLMResponse:
 
 class LLMError(Exception):
     """Raised when an LLM call fails."""
-    def __init__(self, message: str, provider: str, model: str, cause: Exception | None = None):
+    def __init__(self, message: str, provider: str, model: str, cause: Exception | None = None, status_code: int | None = None):
         self.provider = provider
         self.model = model
         self.cause = cause
+        self.status_code = status_code
         super().__init__(f"[{provider}/{model}] {message}")
 
 
@@ -102,28 +103,19 @@ def llm_call(
     model: str | None = None,
     max_tokens: int = 2000,
     timeout: int | None = None,
+    retry: int = 3,
 ) -> LLMResponse:
     """
     Unified LLM call for all NthLayer agentic components.
 
     Model format: "provider/model-name"
-      - anthropic/claude-sonnet-4-20250514
-      - openai/gpt-4o
-      - ollama/llama3.1
-      - azure/my-deployment
-      - together/meta-llama/Llama-3-70b
-      - groq/llama-3.1-70b-versatile
-      - mistral/mistral-large-latest
-      - vllm/my-model
-      - lmstudio/my-model
-      - custom/my-model (with OPENAI_API_BASE set)
-
-    Provider determines the API format and endpoint:
-      - "anthropic/*"  -> Anthropic Messages API
-      - Everything else -> OpenAI-compatible Chat Completions API
-
     Returns LLMResponse with the text content, model, and provider.
     Raises LLMError on failure with provider/model context.
+
+    Transient errors (429, 502, 503, 408, connection errors, timeouts)
+    are retried with exponential backoff and full jitter. Permanent errors
+    (400, 401, 403, 404, 422) raise immediately. Default retry=3;
+    pass retry=0 to disable.
 
     Note: callers that wrap llm_call() in asyncio.wait_for(timeout=T) should
     use the same timeout value. httpx fires the network timeout first; the
@@ -145,35 +137,89 @@ def llm_call(
     if "/" in model:
         provider, _, model_name = model.partition("/")
     else:
-        # Bare model name - guess provider from known prefixes
         provider = _guess_provider(model)
         model_name = model
 
-    try:
-        if provider == "anthropic":
-            text, in_tok, out_tok = _call_anthropic(system, user, model_name, max_tokens, _timeout)
-        else:
-            text, in_tok, out_tok = _call_openai_compat(system, user, model_name, provider, max_tokens, _timeout)
+    start_time = time.monotonic()
+    last_error: Exception | None = None
+    last_status_code: int | None = None
 
-        return LLMResponse(
-            text=text, model=model_name, provider=provider,
-            input_tokens=in_tok, output_tokens=out_tok,
+    for attempt in range(retry + 1):
+        try:
+            if provider == "anthropic":
+                text, in_tok, out_tok = _call_anthropic(system, user, model_name, max_tokens, _timeout)
+            else:
+                text, in_tok, out_tok = _call_openai_compat(system, user, model_name, provider, max_tokens, _timeout)
+
+            return LLMResponse(
+                text=text, model=model_name, provider=provider,
+                input_tokens=in_tok, output_tokens=out_tok,
+            )
+
+        except httpx.HTTPStatusError as e:
+            last_status_code = e.response.status_code
+            if not _is_transient(last_status_code):
+                logger.warning(
+                    "LLM call failed (permanent, failing): HTTP %d",
+                    last_status_code,
+                )
+                raise LLMError(
+                    f"HTTP {last_status_code}: {e.response.text[:200]}",
+                    provider, model_name, e, status_code=last_status_code,
+                ) from e
+            last_error = e
+            retry_after = _parse_retry_after(e.response)
+
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            last_error = e
+            last_status_code = None
+            retry_after = 0.0
+
+        except Exception as e:
+            if isinstance(e, LLMError):
+                raise
+            raise LLMError(str(e), provider, model_name, e) from e
+
+        # Check if we have retries left
+        if attempt >= retry:
+            break
+
+        # Calculate backoff with full jitter
+        delay_cap = min(1.0 * (2 ** attempt), 30.0)
+        delay = random.uniform(0, delay_cap)
+        delay = max(delay, retry_after)
+
+        # Timeout budget check — don't sleep if we'll exceed the timeout
+        elapsed = time.monotonic() - start_time
+        remaining = _timeout - elapsed
+        if delay > remaining or remaining <= 0:
+            break
+
+        error_desc = f"HTTP {last_status_code}" if last_status_code else str(last_error)
+        logger.warning(
+            "LLM call failed (attempt %d/%d, transient, retrying in %.1fs): %s",
+            attempt + 1, retry + 1, delay, error_desc,
         )
+        time.sleep(delay)
 
-    except httpx.HTTPStatusError as e:
+    # All retries exhausted
+    if isinstance(last_error, httpx.HTTPStatusError):
         raise LLMError(
-            f"HTTP {e.response.status_code}: {e.response.text[:200]}",
-            provider, model_name, e,
-        ) from e
-    except httpx.TimeoutException as e:
+            f"HTTP {last_status_code}: {last_error.response.text[:200]}",
+            provider, model_name, last_error, status_code=last_status_code,
+        ) from last_error
+    elif isinstance(last_error, httpx.TimeoutException):
         raise LLMError(
             f"Timeout after {_timeout}s",
-            provider, model_name, e,
-        ) from e
-    except Exception as e:
-        if isinstance(e, LLMError):
-            raise
-        raise LLMError(str(e), provider, model_name, e) from e
+            provider, model_name, last_error,
+        ) from last_error
+    elif last_error is not None:
+        raise LLMError(
+            str(last_error),
+            provider, model_name, last_error,
+        ) from last_error
+    else:
+        raise LLMError("Unknown error", provider, model_name)
 
 
 def _call_anthropic(system: str, user: str, model: str, max_tokens: int, timeout: int) -> tuple[str, int | None, int | None]:
