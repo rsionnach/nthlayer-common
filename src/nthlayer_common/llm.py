@@ -24,7 +24,12 @@ Configuration via environment:
     AZURE_OPENAI_ENDPOINT   - Azure OpenAI resource URL
 """
 
+import json
+import logging
 import os
+import random
+import time
+
 import httpx
 from dataclasses import dataclass
 
@@ -33,6 +38,43 @@ try:
     TIMEOUT = int(os.environ.get("NTHLAYER_LLM_TIMEOUT", "60"))
 except (ValueError, TypeError):
     TIMEOUT = 60
+
+logger = logging.getLogger(__name__)
+
+_TRANSIENT_STATUS_CODES = frozenset({429, 408, 502, 503})
+_PERMANENT_STATUS_CODES = frozenset({400, 401, 403, 404, 422})
+
+
+def _is_transient(status_code: int) -> bool:
+    """Classify an HTTP status code as transient (retryable) or permanent.
+
+    Transient: 429, 408, 502, 503 — retry with backoff.
+    Permanent: 400, 401, 403, 404, 422 — fail immediately.
+    Unknown 5xx: assumed transient. Note: some providers return 500 for
+    genuinely permanent problems (malformed request their validation missed),
+    but we can't distinguish that from a transient internal error at the HTTP
+    layer, so retrying is the safer default.
+    """
+    if status_code in _TRANSIENT_STATUS_CODES:
+        return True
+    if status_code in _PERMANENT_STATUS_CODES:
+        return False
+    return status_code >= 500
+
+
+def _parse_retry_after(response: httpx.Response) -> float:
+    """Parse Retry-After header from an HTTP response.
+
+    Supports integer/float seconds. Returns 0.0 if header is missing or unparseable.
+    HTTP-date format is not supported (returns 0.0).
+    """
+    header = response.headers.get("Retry-After")
+    if header is None:
+        return 0.0
+    try:
+        return float(header)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 @dataclass

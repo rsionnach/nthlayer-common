@@ -11,6 +11,8 @@ from nthlayer_common.llm import (
     LLMError,
     LLMResponse,
     _guess_provider,
+    _is_transient,
+    _parse_retry_after,
     llm_call,
 )
 
@@ -180,3 +182,75 @@ class TestLLMResponseFields:
 
         assert result.input_tokens is None
         assert result.output_tokens is None
+
+
+class TestStatusCodeClassification:
+    def test_429_is_transient(self):
+        assert _is_transient(429) is True
+
+    def test_502_is_transient(self):
+        assert _is_transient(502) is True
+
+    def test_503_is_transient(self):
+        assert _is_transient(503) is True
+
+    def test_408_is_transient(self):
+        assert _is_transient(408) is True
+
+    def test_401_is_permanent(self):
+        assert _is_transient(401) is False
+
+    def test_400_is_permanent(self):
+        assert _is_transient(400) is False
+
+    def test_403_is_permanent(self):
+        assert _is_transient(403) is False
+
+    def test_404_is_permanent(self):
+        assert _is_transient(404) is False
+
+    def test_422_is_permanent(self):
+        assert _is_transient(422) is False
+
+    def test_500_is_transient(self):
+        """500 assumed transient — some providers return 500 for internal errors."""
+        assert _is_transient(500) is True
+
+    def test_504_is_transient(self):
+        assert _is_transient(504) is True
+
+    def test_200_is_not_transient(self):
+        assert _is_transient(200) is False
+
+
+class TestParseRetryAfter:
+    def test_integer_seconds(self):
+        resp = httpx.Response(
+            status_code=429, text="",
+            headers={"Retry-After": "3"},
+            request=httpx.Request("POST", "https://mock"),
+        )
+        assert _parse_retry_after(resp) == 3.0
+
+    def test_missing_header_returns_zero(self):
+        resp = httpx.Response(
+            status_code=429, text="",
+            request=httpx.Request("POST", "https://mock"),
+        )
+        assert _parse_retry_after(resp) == 0.0
+
+    def test_invalid_header_returns_zero(self):
+        resp = httpx.Response(
+            status_code=429, text="",
+            headers={"Retry-After": "not-a-number"},
+            request=httpx.Request("POST", "https://mock"),
+        )
+        assert _parse_retry_after(resp) == 0.0
+
+    def test_float_seconds(self):
+        resp = httpx.Response(
+            status_code=429, text="",
+            headers={"Retry-After": "1.5"},
+            request=httpx.Request("POST", "https://mock"),
+        )
+        assert _parse_retry_after(resp) == 1.5
