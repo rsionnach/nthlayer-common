@@ -62,6 +62,7 @@ class BaseHTTPClient:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        content: str | bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Execute HTTP request with per-instance retry and circuit breaker."""
@@ -74,7 +75,9 @@ class BaseHTTPClient:
         )
         async def _do_request() -> dict[str, Any]:
             with self._breaker:
-                return await self._execute(method, path, params=params, json=json, headers=headers)
+                return await self._execute(
+                    method, path, params=params, json=json, content=content, headers=headers,
+                )
 
         return await _do_request()
 
@@ -85,6 +88,7 @@ class BaseHTTPClient:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        content: str | bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Execute a single HTTP request (no retry/circuit wrapping)."""
@@ -100,6 +104,7 @@ class BaseHTTPClient:
                     url,
                     params=params,
                     json=json,
+                    content=content,
                     headers=req_headers,
                 )
 

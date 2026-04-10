@@ -25,7 +25,8 @@ src/nthlayer_common/
     dependency_models.py # DependencyGraph, DependencyType, BlastRadiusResult
     domain_models.py     # Run, Finding, Team, Service
     gate_models.py       # GateResult, GatePolicy, DeploymentGateCheck
-    slack.py             # SlackNotifier (webhook, fail-open), SlackWebClient (Web API)
+    slack.py             # SlackNotifier (webhook, fail-open)
+    slack_web.py         # SlackWebClient (Web API: post_message, update_message, verify_signature)
     prompts.py           # load_prompt, render_user_prompt, validate_response
     parsing.py           # Shared parsing utilities
     py.typed             # PEP 561 marker
@@ -100,9 +101,16 @@ uv run ruff check src/ tests/
 
 **Bare model name guessing** (`_guess_provider`): `claude*` → anthropic, `gpt*/o1*/o3*` → openai, `llama*/mistral*/gemma*` → ollama, else → openai.
 
-**LLMResponse fields:** `text`, `model`, `provider` — all strings.
+**LLMResponse fields:** `text` (str), `model` (str), `provider` (str), `input_tokens` (int|None), `output_tokens` (int|None) — `@dataclass`.
 
-**LLMError:** carries `provider`, `model`, `cause` attributes alongside message.
+**LLMError:** carries `provider`, `model`, `cause`, `status_code` attributes alongside message.
+
+**Retry behavior (`llm_call` default `retry=3`):**
+- Transient errors retried with exponential backoff + full jitter: 429, 408, 502, 503, connection errors, timeouts
+- Permanent errors fail immediately: 400, 401, 403, 404, 422
+- `Retry-After` header parsed and respected; timeout budget checked before each sleep
+- Pass `retry=0` to disable retries
+- API key guard: raises `LLMError` if model string starts with `sk-ant-`, `sk-`, `key-`, or `Bearer `
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: dependencies -->
@@ -122,7 +130,7 @@ uv run ruff check src/ tests/
 
 ## Public API Summary
 
-**LLM:** `llm_call(system, user, model?, temperature?)` → `LLMResponse(text, model, provider)`
+**LLM:** `llm_call(system, user, model?, max_tokens=2000, timeout?, retry=3)` → `LLMResponse(text, model, provider, input_tokens, output_tokens)`
 
 **Providers:** `PrometheusProvider`, `GrafanaProvider`, `PagerDutyProvider`, `MimirRulerProvider`, `ProviderRegistry`
 
@@ -130,7 +138,7 @@ uv run ruff check src/ tests/
 
 **HTTP Clients:** `BaseHTTPClient`, `CortexClient`, `PagerDutyClient`, `SlackAPIClient`
 
-**Slack:** `SlackNotifier` (Block Kit webhook, fail-open), `SlackWebClient` (Web API, interactive messages)
+**Slack:** `SlackNotifier` (`slack.py` — Block Kit webhook, fail-open); `SlackWebClient` (`slack_web.py` — Web API: `post_message`, `update_message`, `verify_signature`; lazy httpx client, fail-open)
 
 **Errors:** `NthLayerError` → `ConfigurationError`, `ProviderError`, `ValidationError`, `BlockedError`; `ExitCode` (SUCCESS=0, WARNING=1, BLOCKED=2, CONFIG_ERROR=10, PROVIDER_ERROR=11, VALIDATION_ERROR=12); `@main_with_error_handling()` decorator
 
