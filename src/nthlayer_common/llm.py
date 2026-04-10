@@ -25,7 +25,6 @@ Configuration via environment:
 """
 
 import os
-import json
 import httpx
 from dataclasses import dataclass
 

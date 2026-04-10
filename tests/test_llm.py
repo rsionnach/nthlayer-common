@@ -2,8 +2,7 @@
 """Unit tests for the unified LLM wrapper."""
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -86,7 +85,7 @@ class TestCustomBaseURL:
         mock_resp = _mock_response({"choices": [{"message": {"content": "custom"}}]})
 
         with patch("nthlayer_common.llm.httpx.post", return_value=mock_resp) as mock_post:
-            result = llm_call("system", "user", model="custom/my-model")
+            llm_call("system", "user", model="custom/my-model")
 
         call_args = mock_post.call_args
         assert "http://custom:1234/v1/chat/completions" == call_args.args[0]
