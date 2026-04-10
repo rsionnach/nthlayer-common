@@ -24,7 +24,6 @@ Configuration via environment:
     AZURE_OPENAI_ENDPOINT   - Azure OpenAI resource URL
 """
 
-import json
 import logging
 import os
 import random

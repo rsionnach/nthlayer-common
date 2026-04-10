@@ -109,8 +109,15 @@ uv run ruff check src/ tests/
 ## Dependencies
 
 - `httpx>=0.27` — HTTP client for all provider API calls (no `requests`, no LiteLLM)
-- `tenacity` — retry with exponential backoff + jitter for LLM and HTTP client calls
+- `pyyaml>=6.0` — YAML parsing
+- `structlog>=24.1.0` — structured logging throughout the package
+- `pydantic>=2.7.0,<3.0.0` — data validation and serialization
+- `pagerduty>=6.0.0,<7.0.0` — PagerDuty API client
+- `cachetools>=5.3.0,<7.0.0` — in-memory caching utilities
+- `tenacity>=8.2.3,<10.0.0` — retry with exponential backoff + jitter for LLM and HTTP client calls
+- `circuitbreaker>=2.0.0,<3.0.0` — circuit breaker pattern for provider calls
 - `pytest>=8.0` (dev) — test framework
+- `pytest-asyncio>=0.23` (dev) — async test support
 - `ruff>=0.8` (dev) — linter
 
 ## Public API Summary
