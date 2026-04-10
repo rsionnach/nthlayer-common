@@ -29,17 +29,19 @@ src/nthlayer_common/
     slack_web.py         # SlackWebClient (Web API: post_message, update_message, verify_signature)
     prompts.py           # load_prompt, render_user_prompt, validate_response
     parsing.py           # Shared parsing utilities
+    explanation.py       # BudgetExplanation dataclass + format_explanation() (table/json/markdown); shared across observe/respond
     py.typed             # PEP 561 marker
     clients/
         base.py          # BaseHTTPClient (httpx, retry, circuit breaker)
         cortex.py        # CortexClient
+        mimir.py         # MimirRulerProvider (canonical source); MimirRulerError, RulerPushResult — BaseHTTPClient subclass
         pagerduty.py     # PagerDutyClient
         slack.py         # SlackAPIClient
     providers/
         prometheus.py    # PrometheusProvider
         grafana.py       # GrafanaProvider
         pagerduty.py     # PagerDutyProvider
-        mimir.py         # MimirRulerProvider
+        mimir.py         # Re-export shim → nthlayer_common.clients.mimir (MimirRulerProvider, MimirRulerError, RulerPushResult, DEFAULT_USER_AGENT)
         registry.py      # ProviderRegistry
         base.py          # Provider base classes
         lock.py          # Provider locking utilities
@@ -58,6 +60,7 @@ tests/
     test_identity.py
     test_slack.py
     test_prompts.py
+    test_explanation.py
 ```
 <!-- END AUTO-MANAGED -->
 
@@ -136,7 +139,7 @@ uv run ruff check src/ tests/
 
 **Identity:** `IdentityResolver` (7-strategy), `normalize_service_name()`, `OwnershipResolver`
 
-**HTTP Clients:** `BaseHTTPClient`, `CortexClient`, `PagerDutyClient`, `SlackAPIClient`
+**HTTP Clients:** `BaseHTTPClient`, `CortexClient`, `MimirRulerProvider` (canonical: `clients.mimir`), `PagerDutyClient`, `SlackAPIClient`
 
 **Slack:** `SlackNotifier` (`slack.py` — Block Kit webhook, fail-open); `SlackWebClient` (`slack_web.py` — Web API: `post_message`, `update_message`, `verify_signature`; lazy httpx client, fail-open)
 
@@ -147,4 +150,6 @@ uv run ruff check src/ tests/
 **Data Models:** SLO (`SLO`, `ErrorBudget`, `SLOStatus`, `TimeWindow`), Dependency (`DependencyGraph`, `DependencyType`, `BlastRadiusResult`), Domain (`Run`, `Finding`, `Team`, `Service`), Gate (`GateResult`, `GatePolicy`, `DeploymentGateCheck`)
 
 **Prompts:** `load_prompt(path)`, `render_user_prompt(template, **kwargs)`, `validate_response(data, schema)`
+
+**Explanation:** `BudgetExplanation(service, slo_name, headline, body, causes, recommended_actions, severity)` dataclass; `format_explanation(explanation, fmt)` → str (fmt: "table"|"json"|"markdown"); produced by nthlayer-observe, consumable by nthlayer-respond
 <!-- END AUTO-MANAGED -->
