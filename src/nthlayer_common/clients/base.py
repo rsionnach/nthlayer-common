@@ -55,6 +55,10 @@ class BaseHTTPClient:
         """Override to provide custom headers."""
         return {"Content-Type": "application/json"}
 
+    def _auth_tuple(self) -> tuple[str, str] | None:
+        """Override to provide basic auth credentials."""
+        return None
+
     async def _request(
         self,
         method: str,
@@ -98,6 +102,7 @@ class BaseHTTPClient:
             req_headers.update(headers)
 
         try:
+            auth = self._auth_tuple()
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.request(
                     method,
@@ -105,6 +110,7 @@ class BaseHTTPClient:
                     params=params,
                     json=json,
                     content=content,
+                    auth=auth,
                     headers=req_headers,
                 )
 
@@ -118,7 +124,13 @@ class BaseHTTPClient:
                     raise RetryableHTTPError(f"HTTP {response.status_code}: {response.text}")
 
                 response.raise_for_status()
-                return response.json() if response.content else {}
+                if not response.content:
+                    return {}
+                content_type = response.headers.get("content-type", "")
+                if "application/json" in content_type:
+                    return response.json()
+                # Non-JSON success response (e.g. YAML upload acknowledgment)
+                return {}
 
         except httpx.HTTPStatusError as exc:
             if is_retryable_status(exc.response.status_code):

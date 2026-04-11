@@ -62,6 +62,10 @@ class MimirRulerProvider(BaseHTTPClient):
         self._user_agent = user_agent
         self._auth = (username, password) if username and password else None
 
+    def _auth_tuple(self) -> tuple[str, str] | None:
+        """Provide basic auth credentials if configured."""
+        return self._auth
+
     def _headers(self) -> dict[str, str]:
         """Build request headers with auth via _headers() override."""
         headers: dict[str, str] = {
