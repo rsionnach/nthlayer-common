@@ -67,7 +67,7 @@ class MimirRulerProvider(BaseHTTPClient):
         return self._auth
 
     def _headers(self) -> dict[str, str]:
-        """Build request headers with auth via _headers() override."""
+        """Build request headers including tenant ID and API key credentials."""
         headers: dict[str, str] = {
             "Content-Type": "application/json",
             "User-Agent": self._user_agent,
