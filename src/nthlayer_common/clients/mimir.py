@@ -8,9 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
-from nthlayer_common.clients.base import BaseHTTPClient
+from nthlayer_common.clients.base import BaseHTTPClient, PermanentHTTPError, RetryableHTTPError
 from nthlayer_common.errors import ProviderError
 
 DEFAULT_USER_AGENT = "nthlayer-provider-mimir/0.1.0"
@@ -93,16 +91,10 @@ class MimirRulerProvider(BaseHTTPClient):
                 message="Rules pushed successfully",
                 groups_pushed=groups_count,
             )
-        except httpx.ConnectError as e:
+        except (RetryableHTTPError, PermanentHTTPError) as e:
             raise MimirRulerError(
-                f"Failed to connect to Mimir at {self._base_url}: {e}"
+                f"Mimir push failed for {self._base_url}: {e}"
             ) from e
-        except httpx.TimeoutException as e:
-            raise MimirRulerError(
-                f"Timeout connecting to Mimir at {self._base_url}: {e}"
-            ) from e
-        except httpx.HTTPError as e:
-            raise MimirRulerError(f"HTTP error from Mimir: {e}") from e
 
     async def delete_rules(
         self, namespace: str, group_name: str | None = None
@@ -114,14 +106,14 @@ class MimirRulerProvider(BaseHTTPClient):
         try:
             await self._request("DELETE", path)
             return True
-        except httpx.HTTPError as e:
+        except (RetryableHTTPError, PermanentHTTPError) as e:
             raise MimirRulerError(f"Failed to delete rules: {e}") from e
 
     async def list_rules(self) -> dict[str, Any]:
         """List all rules across all namespaces."""
         try:
             return await self._request("GET", "/api/v1/rules")
-        except httpx.HTTPError as e:
+        except (RetryableHTTPError, PermanentHTTPError) as e:
             raise MimirRulerError(f"Failed to list rules: {e}") from e
 
     async def health_check(self) -> bool:
