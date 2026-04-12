@@ -1,0 +1,46 @@
+"""DecisionRecordStore protocol — abstract interface for decision record persistence."""
+
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from nthlayer_common.records.models import (
+    Assessment,
+    Evaluation,
+    Incident,
+    IncidentStatus,
+    Verdict,
+)
+
+__all__ = ["DecisionRecordStore"]
+
+
+class DecisionRecordStore(Protocol):
+    """Abstract interface for content-addressed decision record storage."""
+
+    def put_assessment(self, assessment: Assessment) -> None: ...
+    def put_verdict(self, verdict: Verdict) -> None: ...
+    def put_evaluation(self, evaluation: Evaluation) -> None: ...
+    def create_incident(self, incident: Incident) -> None: ...
+    def update_incident_status(self, incident_id: str, status: IncidentStatus) -> None: ...
+    def get_by_hash(self, hash: str) -> Assessment | Verdict | Evaluation | None: ...
+    def get_chain(self, record_type: str, chain_key: str, *, limit: int = 0) -> list[Assessment | Verdict | Evaluation]:
+        """Retrieve a chain ordered by timestamp.
+
+        ``chain_key`` meaning depends on ``record_type``:
+        - ``"assessment"``: the ``stream`` value (e.g. ``"sli:checkout:latency-p99"``)
+        - ``"verdict"``: the ``agent`` value (e.g. ``"triage"``)
+        - ``"evaluation"``: the ``incident_id``
+
+        ``limit``: max records (0 = unlimited).
+        """
+        ...
+    def get_chain_tail(self, record_type: str, chain_key: str) -> Assessment | Verdict | Evaluation | None:
+        """Get the most recent record in a chain. Returns None for empty chains."""
+        ...
+    def get_incident(self, incident_id: str) -> Incident | None: ...
+    def get_incident_records(self, incident_id: str) -> dict[str, list[Any]]: ...
+    def put_prompt(self, hash: str, content: str) -> None: ...
+    def put_response(self, hash: str, content: str) -> None: ...
+    def get_prompt(self, hash: str) -> str | None: ...
+    def get_response(self, hash: str) -> str | None: ...
