@@ -16,7 +16,9 @@ Exit Codes:
 
 from __future__ import annotations
 
+import asyncio
 import functools
+import inspect
 import sys
 import traceback
 from enum import IntEnum
@@ -83,6 +85,104 @@ class WarningResult(NthLayerError):
     """Raised to indicate success with warnings."""
 
     exit_code = ExitCode.WARNING
+
+
+# -- Tier-boundary errors (for inter-tier communication) --
+# These classify errors by retryability, not by CLI exit code.
+# Workers use these to decide: retry, skip, or mark output degraded.
+
+
+class TransientError(NthLayerError):
+    """Retryable error. Core temporarily unavailable, rate limited, or timed out.
+
+    Workers should retry with backoff. Maps from HTTP 502, 503, 504, 429,
+    connection refused, and timeout errors.
+    """
+
+    exit_code = ExitCode.PROVIDER_ERROR
+
+
+class PermanentError(NthLayerError):
+    """Non-retryable error. Bad input, not found, or authorization failure.
+
+    Workers should log and skip — retrying will not help.
+    Maps from HTTP 400, 401, 403, 404, 409, 422.
+    """
+
+    exit_code = ExitCode.VALIDATION_ERROR
+
+
+class DegradedError(NthLayerError):
+    """Degraded output. Worker can continue but should mark results as degraded.
+
+    Used when an LLM call fails, calibration data is unavailable, or a
+    non-critical dependency is down. The worker produces output but flags
+    it as lower confidence.
+    """
+
+    exit_code = ExitCode.WARNING
+
+
+# HTTP status code → error type mapping for CoreAPIClient consumers
+_TRANSIENT_HTTP_CODES = frozenset({502, 503, 504, 429})
+_PERMANENT_HTTP_CODES = frozenset({400, 401, 403, 404, 409, 422})
+
+
+def classify_http_error(status_code: int, message: str = "", detail: dict | None = None) -> TransientError | PermanentError:
+    """Classify an HTTP error response into TransientError or PermanentError.
+
+    Used by worker modules to convert CoreAPIClient error results into
+    typed exceptions for their error handling logic.
+    """
+    if status_code in _TRANSIENT_HTTP_CODES:
+        return TransientError(message, detail)
+    if status_code in _PERMANENT_HTTP_CODES:
+        return PermanentError(message, detail)
+    if status_code >= 500:
+        return TransientError(message, detail)  # Unknown 5xx assumed transient
+    return PermanentError(message, detail)  # Unknown 4xx assumed permanent
+
+
+def retry(
+    *,
+    on: type[Exception] | tuple[type[Exception], ...] = TransientError,
+    max_attempts: int = 3,
+    initial_backoff: float = 1.0,
+    max_backoff: float = 30.0,
+    backoff_factor: float = 2.0,
+) -> Callable:
+    """Decorator for retrying async functions on transient errors.
+
+    Usage::
+
+        @retry(on=TransientError, max_attempts=3)
+        async def call_core():
+            ...
+    """
+
+    def decorator(func: Callable) -> Callable:
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError(
+                f"@retry can only decorate async functions, got {func.__qualname__}"
+            )
+
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            backoff = initial_backoff
+            last_error: Exception | None = None
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except on as e:
+                    last_error = e
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(min(backoff, max_backoff))
+                        backoff *= backoff_factor
+            raise last_error  # type: ignore[misc]
+
+        return wrapper
+
+    return decorator
 
 
 # Type variable for decorated functions
