@@ -1,12 +1,17 @@
 from nthlayer_common.errors import (
     BlockedError,
     ConfigurationError,
+    DegradedError,
     ExitCode,
     NthLayerError,
+    PermanentError,
     ProviderError,
+    TransientError,
     ValidationError,
     WarningResult,
+    classify_http_error,
     main_with_error_handling,
+    retry,
 )
 from nthlayer_common.llm import LLMError, LLMResponse, llm_call
 from nthlayer_common.parsing import clamp, strip_markdown_fences
@@ -25,6 +30,8 @@ __all__ = [
     # Errors
     "NthLayerError", "ConfigurationError", "ProviderError", "ValidationError",
     "BlockedError", "WarningResult", "ExitCode", "main_with_error_handling",
+    "TransientError", "PermanentError", "DegradedError",
+    "classify_http_error", "retry",
     # LLM
     "llm_call", "LLMResponse", "LLMError",
     # Parsing

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nthlayer-common"
-version = "0.1.7"
+version = "0.1.8"
 description = "Shared utilities for the NthLayer ecosystem"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,11 @@ dependencies = [
     "cachetools>=5.3.0,<7.0.0",
     "tenacity>=8.2.3,<10.0.0",
     "circuitbreaker>=2.0.0,<3.0.0",
+    "instructor>=1.5",
+    "anthropic>=0.40",
+    "openai>=1.50",
+    "opentelemetry-api>=1.28",
+    "prometheus-client>=0.21",
 ]
 
 [project.optional-dependencies]
