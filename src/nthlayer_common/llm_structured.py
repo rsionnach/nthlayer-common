@@ -98,6 +98,12 @@ def structured_call(
     model = model or DEFAULT_MODEL
     _timeout = timeout if timeout is not None else TIMEOUT
 
+    # CI integration test fast-path: NTHLAYER_LLM_STUB=canned bypasses HTTP.
+    # See nthlayer_common.llm_stub for the canned-response policy.
+    from nthlayer_common.llm_stub import is_stub_enabled, stub_structured_response
+    if is_stub_enabled():
+        return stub_structured_response(response_model)
+
     if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
         raise LLMError(
             f"'{model[:20]}...' looks like an API key, not a model name. "
@@ -191,6 +197,15 @@ def structured_call_with_usage(
     """
     model = model or DEFAULT_MODEL
     _timeout = timeout if timeout is not None else TIMEOUT
+
+    # CI integration test fast-path: NTHLAYER_LLM_STUB=canned bypasses HTTP.
+    # Token usage is reported as zero — there's nothing to count.
+    from nthlayer_common.llm_stub import is_stub_enabled, stub_structured_response
+    if is_stub_enabled():
+        return StructuredCallResult(
+            data=stub_structured_response(response_model),
+            usage=StructuredCallUsage(input_tokens=0, output_tokens=0),
+        )
 
     if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
         raise LLMError(

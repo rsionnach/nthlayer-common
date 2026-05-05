@@ -123,6 +123,14 @@ def llm_call(
     model = model or DEFAULT_MODEL
     _timeout = timeout if timeout is not None else TIMEOUT
 
+    # CI integration test fast-path: NTHLAYER_LLM_STUB=canned bypasses HTTP.
+    # See nthlayer_common.llm_stub for the canned-response policy. Function-
+    # local import is cycle-safe (llm_stub imports LLMResponse from this
+    # module) and cheap on the hot path (sys.modules lookup after first call).
+    from nthlayer_common.llm_stub import is_stub_enabled, stub_text_response
+    if is_stub_enabled():
+        return stub_text_response(system, model)
+
     # Guard: detect API keys accidentally used as model names
     if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
         raise LLMError(
