@@ -10,6 +10,7 @@ from nthlayer_common.cloudevents import (
     wrap_assessment,
     wrap_verdict,
 )
+from nthlayer_common.verdicts import create as verdict_create, to_dict
 
 
 def _verdict(**overrides):
@@ -231,8 +232,6 @@ class TestEdgeCases:
 # in to_dict(Verdict) can pass these tests yet still break production.
 # These tests instead use the real Verdict model so the integration cannot
 # silently drift.
-
-from nthlayer_common.verdicts import create as verdict_create, to_dict
 
 
 class TestWrapRealVerdict:

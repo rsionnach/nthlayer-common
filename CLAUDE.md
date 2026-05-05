@@ -19,8 +19,9 @@ Shared utilities package for the NthLayer ecosystem. Provides the unified LLM in
 src/nthlayer_common/
     __init__.py          # Re-exports: errors (NthLayerError, ConfigurationError, ProviderError, ValidationError, BlockedError, WarningResult, DegradedError, TransientError, PermanentError, ExitCode, classify_http_error, main_with_error_handling, retry), llm (llm_call, LLMResponse, LLMError), parsing (clamp, strip_markdown_fences), prompts (PromptSpec, extract_confidence, load_prompt, render_user_prompt, validate_response), SlackNotifier, SlackWebClient
     config.py            # Unified config loading — Config dataclass (deployment/store/llm/prometheus/core/workers/bench); Config.load(), Config.from_dict(), Config.get(dotpath); bare/None-valued YAML sections coerced to {}; canonical import: from nthlayer_common.config import Config
-    llm.py               # Unified LLM wrapper (model-agnostic, httpx-based) — returns raw text
-    llm_structured.py    # Structured LLM outputs via Instructor — structured_call() returns validated Pydantic models
+    llm.py               # Unified LLM wrapper (model-agnostic, httpx-based) — returns raw text; lazy-imports llm_stub for CI fast-path
+    llm_structured.py    # Structured LLM outputs via Instructor — structured_call() returns validated Pydantic models; lazy-imports llm_stub for CI fast-path
+    llm_stub.py          # CI integration test stub — NTHLAYER_LLM_STUB=canned short-circuits llm_call/structured_call before any HTTP; role detection via system prompt markers; _STRUCTURED_FACTORIES registry keyed by response_model.__name__; DO NOT enable in production
     errors.py            # Error hierarchy: NthLayerError, ExitCode, @main_with_error_handling; tier-boundary errors: TransientError, PermanentError, DegradedError; classify_http_error(); @retry() decorator
     tiers.py             # Tier definitions: Tier, TIER_CONFIGS, normalize_tier, get_slo_targets
     slo_models.py        # SLO, ErrorBudget, SLOStatus, TimeWindow
@@ -33,7 +34,7 @@ src/nthlayer_common/
     parsing.py           # Shared parsing utilities
     explanation.py       # BudgetExplanation dataclass + format_explanation() (table/json/markdown); shared across observe/respond
     api_client.py        # CoreAPIClient — async httpx client for nthlayer-core API; APIResult(ok, status_code, data, error, detail); never raises on API errors; endpoints: health, verdicts (submit/get/get_verdicts/get_ancestors/get_descendants/resolve_outcome), assessments (submit/get_assessments), cases (create/get/get_cases/acquire_lease/release_lease/resolve_case), change-freezes, heartbeats, manifests (get_manifests/get_manifest), component-state, monitoring
-    cloudevents.py       # CloudEvents v1.0 envelope helpers — wrap_verdict, wrap_assessment, parse_cloudevent, validate_cloudevent; type taxonomy frozen from v1.5 onwards (spec: NTHLAYER-TELEMETRY-ENVELOPE-v1 §3); ASSESSMENT_KINDS (public): {slo_status, judgment_slo_evaluation, burn_rate, drift_signal, portfolio_status, deploy_gate, dependency_graph, correlation_snapshot, topology_drift, contract_divergence}
+    cloudevents.py       # CloudEvents v1.0 envelope helpers — wrap_verdict, wrap_assessment, parse_cloudevent, validate_cloudevent; type taxonomy frozen from v1.5 onwards (spec: NTHLAYER-TELEMETRY-ENVELOPE-v1 §3); ASSESSMENT_KINDS (public): {slo_status, judgment_slo_evaluation, burn_rate, drift_signal, portfolio_status, deploy_gate, dependency_graph, correlation_snapshot, topology_drift, contract_divergence, retrospective, calibration_signal}
     metrics.py           # Self-observability Prometheus metrics — cycle_duration_seconds, verdicts_written_total, assessments_written_total, heartbeats_emitted_total, llm_calls_total, errors_total, api_requests_total (labels: method/route/status — route=URL template, never raw path), store_size_bytes, wal_size_bytes, stuck_action_requests; render_metrics(), metrics_content_type(); canonical import: from nthlayer_common.metrics import ...; spec: NTHLAYER-COMMON-v1 §7.3
     telemetry.py         # OTel telemetry emission — emit_llm_event(*, model, provider, caller, ...) emits "nthlayer.llm.call" span event with gen_ai.* attributes; graceful no-op when OTel SDK not configured or no active recording span; is_otel_available() → bool; canonical import: from nthlayer_common.telemetry import emit_llm_event; spec: NTHLAYER-COMMON-v1 §3.4, §7
     py.typed             # PEP 561 marker
@@ -72,7 +73,7 @@ src/nthlayer_common/
         core.py          # create(), link(), resolve(), supersede() — thread-safe ID generation "vrd-{date}-{uuid8}-{seq:05d}"
         store.py         # VerdictStore(ABC), MemoryStore, VerdictFilter, AccuracyFilter
         sqlite_store.py  # SQLiteVerdictStore — WAL mode, thread-local conns, atomic conditional UPDATE for resolve()
-        serialise.py     # to_dict/to_json/from_dict/from_json — datetime↔ISO strings via dataclasses.asdict; round-trips v1.5 fields (verdict_type, pipeline_latency_ms, chain_depth, parent_ids, service, cost_currency)
+        serialise.py     # to_dict/to_json/from_dict/from_json — datetime↔ISO strings via dataclasses.asdict; to_dict renames timestamp→created_at and verdict_type→type (HTTP-canonical wire names for POST /verdicts); from_dict accepts both wire-canonical (type, created_at) and legacy internal names (verdict_type, timestamp) for compat with data written before opensrm-saun.1.2; field precedence: created_at canonical, explicit None falls back to legacy timestamp, empty string is malformed; round-trips v1.5 fields (verdict_type, pipeline_latency_ms, chain_depth, parent_ids, service, cost_currency)
     manifest/
         __init__.py      # Public API: load_manifest, is_manifest_file, ManifestLoadError, LegacyFormatWarning, OpenSRMParseError, OpenSRMV2ParseError; re-exports all model types and constants
         models.py        # Unified internal model (all dataclasses): ReliabilityManifest, SLODefinition, Dependency, Ownership, DeploymentConfig, ReliabilityContract, Instrumentation, and all sub-models; VALID_TIERS, VALID_SERVICE_TYPES, SERVICE_TYPE_ALIASES, JUDGMENT_SLO_TYPES, STANDARD_SLO_TYPES, VALID_EXHAUSTION_BEHAVIORS; SourceFormat, DependencyCriticality enums
@@ -84,7 +85,7 @@ src/nthlayer_common/
             __init__.py  # parser subpackage
             _shared.py   # parse_observability(obs_data) -> Observability | None — shared observability parsing helper used by v1 and v2 parsers
             loader.py    # load_manifest(path, environment?, format="auto", suppress_deprecation_warning?) — auto-detects srm/v1/opensrm_v2/legacy; _find_template_dir walks up 10 dirs for .nthlayer/templates/ or templates/; legacy parser inline; ManifestLoadError, LegacyFormatWarning
-            v1.py        # parse_srm_v1(data, source_file?), parse_srm_v1_file(path), resolve_template(manifest_data, template_dir) → (data, warnings); SLO type inference dict + keyword fallback; OpenSRMParseError
+            v1.py        # parse_srm_v1(data, source_file?), parse_srm_v1_file(path), resolve_template(manifest_data, template_dir) → (data, warnings); SLO type inference dict + keyword fallback; _extract_indicator_query reads canonical indicator.query nested form only (top-level query not accepted); OpenSRMParseError
             v2.py        # parse_opensrm_v2(data, source_file?, base_dir?), parse_opensrm_v2_file(path); Backstage entity ref resolution; judgment SLO parsing (8 types); contract/dependency/instrumentation parsing; resolve_v2_template with append/replace override directives; OpenSRMV2ParseError
 tests/
     test_llm.py
@@ -111,6 +112,8 @@ tests/
     test_verdicts_v15_fields.py
     test_manifest_models.py
     test_manifest_parser.py
+    test_manifest_real_specs.py  # regression: loads real demo/specs from disk; skipped if demo/specs/ absent; guards against parser silently dropping indicator.query
+    test_llm_stub.py             # 26 tests for NTHLAYER_LLM_STUB=canned: role detection, all 4 agent shapes, structured callers, env-var variants, name-collision guard
     records/
         conftest.py      # shared builders: build_test_assessment, build_test_verdict, build_test_evaluation (correct content-addressed hashes)
         test_hashing.py
@@ -173,6 +176,42 @@ uv run ruff check src/ tests/
 - API key guard: raises `LLMError` if model string starts with `sk-ant-`, `sk-`, `key-`, or `Bearer `
 <!-- END AUTO-MANAGED -->
 
+## CI integration test stub (`NTHLAYER_LLM_STUB=canned`)
+
+Module: `nthlayer_common/llm_stub.py`. Added for opensrm-saun.1 (three-tier integration test). Setting `NTHLAYER_LLM_STUB=canned` in the environment short-circuits both `llm_call()` and `structured_call()` / `structured_call_with_usage()` *before any HTTP request* and returns a deterministic canned response. **Not a behavioural fake** — every call of a given role returns the same data regardless of input. Purpose is to exercise wiring (verdict shape, lineage propagation, store writes) without a real LLM API key. **Do not enable in production.**
+
+**Activation point:** lazy `from nthlayer_common.llm_stub import …` inside the `llm_call` / `structured_call` / `structured_call_with_usage` body — the stub module is not imported during normal use; this keeps the import graph cycle-safe with `nthlayer_common.llm`.
+
+**`llm_call()` raw-text dispatch** — role detected via case-insensitive substring match in the system prompt (markers in `_ROLE_MARKERS`):
+
+| System prompt contains | Canned JSON shape |
+|---|---|
+| `"you are a triage agent"` | `{severity, blast_radius, affected_slos, assigned_team, reasoning, confidence}` |
+| `"you are a communication agent"` | `{updates: [{channel, update_type, content}], reasoning, confidence}` |
+| `"you are an investigation agent"` | `{hypotheses: [{description, confidence, evidence, change_candidate}], root_cause, root_cause_confidence, reasoning, confidence}` |
+| `"you are a remediation agent"` | `{proposed_action: "rollback", target: "fraud-detect", risk_assessment, requires_human_approval: true, reasoning, confidence}` |
+| (no marker) | `{reasoning, confidence}` |
+
+All canned text is JSON shaped to match the schema each respond agent's `_parse_json` expects (so e.g. `RemediationAgent`'s safe-action registry check accepts `"rollback"` because that action exists in the registry with `requires_approval=true`).
+
+**`structured_call()` / `structured_call_with_usage()` dispatch** — registry keyed by `response_model.__name__`:
+
+| `response_model` | Returns |
+|---|---|
+| `EvaluationResult` (measure evaluator) | one passing `DimensionScore` (score=0.85), `confidence=0.8` |
+| `SnapshotSummary` (correlate snapshot summary) | stub summary string, empty `notable_omissions` |
+| (anything else) | `NotImplementedError` — prevents new structured-call sites silently producing garbage |
+
+`structured_call_with_usage()` wraps the canned model in `StructuredCallResult(data=…, usage=StructuredCallUsage(0, 0))`.
+
+**Public helpers:** `is_stub_enabled() -> bool`, `stub_text_response(system, model) -> LLMResponse`, `stub_structured_response(response_model) -> T`. Currently only the `llm_call`/`structured_call` wrappers consume them.
+
+**Adding coverage:**
+- New agent role → extend `_ROLE_MARKERS` (ordered tuple) and `_TEXT_BY_ROLE`.
+- New structured-call site → register a factory in `_STRUCTURED_FACTORIES`.
+
+**Tests:** `tests/test_llm_stub.py` — 26 tests covering role detection (incl. `None` system, case-insensitive marker match), all four respond agent shapes, both structured callers, env-var case/whitespace variants (`CANNED`, ` canned `, `canned\n`), env-var-unset preserves HTTP path, unknown structured model raises clearly, name-collision with incompatible shape raises with qualified path.
+
 <!-- AUTO-MANAGED: dependencies -->
 ## Dependencies
 
@@ -224,25 +263,25 @@ uv run ruff check src/ tests/
 - `is_manifest_file(path) -> bool` — detects manifests by content (apiVersion, kind, or service+name+team+tier+type keys)
 - **Model (`ReliabilityManifest`):** dataclass; required: `name`, `team`, `tier` (critical/high/standard/low), `type` (api/worker/stream/ai-gate/batch/database/web); optional: `slos`, `dependencies`, `ownership`, `observability`, `deployment`, `contracts`, `instrumentation`, `alerting` (raw dict for nthlayer-generate); `source_format` (SourceFormat enum), `source_file`; `is_ai_gate()`, `get_judgment_slos()`, `get_standard_slos()`, `validate_contracts() -> list[str]`
 - **SLO (`SLODefinition`):** `name`, `target`, `slo_type` (required: availability/latency/error_rate/throughput), `window="30d"`, `indicator_query`, `total_query`/`good_query` (OpenSLO ratio); judgment SLOs: `judgment_type` (one of 8 JUDGMENT_SLO_TYPES), `measurement` (JudgmentMeasurement), `breach_actions` (list[BreachAction]), `statistical_requirements`; `source_ref` for OpenSLO $ref provenance; `is_judgment_slo() -> bool`
-- **Parsers:** `parse_srm_v1` / `parse_opensrm_v2` / `parse_openslo_slos`; format detection via `is_srm_v1_format` / `is_opensrm_v2_format`; v1 `resolve_template` (no-chaining, warn on missing); v2 `resolve_v2_template` (kind=ServiceManifestTemplate, one level, error on missing; append/replace override directives)
+- **Parsers:** `parse_srm_v1` / `parse_opensrm_v2` / `parse_openslo_slos`; format detection via `is_srm_v1_format` / `is_opensrm_v2_format`; v1 `resolve_template` (no-chaining, warn on missing); v2 `resolve_v2_template` (kind=ServiceManifestTemplate, one level, error on missing; append/replace override directives). **v1 SLO indicator parsing (opensrm-saun.1 fix):** `_extract_indicator_query` reads `indicator.query` from the nested `indicator:` object only — top-level `query` was previously also accepted but is not in any real spec and is no longer read; SLOs without an `indicator` block correctly produce `indicator_query=None` (NO_DATA at collection time)
 - **v2 specifics:** Backstage entity refs (`kind:namespace/name`) resolved at parse time — failure is a parse error; service type inferred from labels.type > judgment_slo presence > decision events; OpenSLO $refs resolved relative to manifest's directory
 - **v1_compat:** `default_statistical_requirements(judgment_type)` (95% CI, method from type); `default_measurement(judgment_type, window)` (source/method/bins per type); `convert_v1_contract(service_name, ...) -> ReliabilityContract` (name="{service_name}-api", judgment direction="below")
 - **Errors:** `ManifestLoadError`, `LegacyFormatWarning`, `OpenSRMParseError`, `OpenSRMV2ParseError`, `OpenSLOParseError`
 
 **Verdicts (`nthlayer_common.verdicts`):** Atomic AI judgment model — migrated from nthlayer-learn to break circular dependencies. Distinct from `records`: verdicts are "what did the AI decide"; records are the immutable content-addressed audit trail.
 - **Models (dataclasses):** `Verdict(id, version, timestamp, producer, subject, judgment, outcome, lineage, metadata, verdict_type, pipeline_latency_ms, chain_depth, parent_ids, service)` — v1.5 transitional fields: `verdict_type` (str|None, from VALID_VERDICT_TYPES, None for backward compat), `pipeline_latency_ms` (int|None, cumulative chain latency), `chain_depth` (int=0), `parent_ids` (list[str]=[]), `service` (str|None, denormalized); `Producer(system, instance, model, prompt_version)`; `Subject(type, ref, summary, agent, service, environment, content_hash)` — type validated against `VALID_SUBJECT_TYPES`; `Judgment(action, confidence 0.0–1.0, score, dimensions, reasoning, tags)` — action validated against `VALID_ACTIONS`; `Outcome(status="pending", ...)`, `Lineage(parent, children, context)`, `Metadata(ttl=TTL_DEFAULT=90d, cost_tokens, cost_currency, latency_ms, custom)`; `Override`, `GroundTruth`, `AccuracyReport`
-- **Constants:** `VALID_SUBJECT_TYPES` (agent_output, correlation, triage, evaluation, retrospective, …); `VALID_ACTIONS` (approve, reject, flag, escalate, defer, custom); `VALID_OUTCOME_STATUSES` (confirmed, overridden, partial, superseded, expired); `VALID_VERDICT_TYPES` (action_request/approval/capability/denial/execution/operator_note from RBAC §10; autonomy_change/quality_breach from measure; topology_drift/contract_divergence/correlation_snapshot from correlate; outcome_resolution; assessment); `TTL_DEFAULT`
+- **Constants:** `VALID_SUBJECT_TYPES` (agent_output, correlation, triage, evaluation, retrospective, …); `VALID_ACTIONS` (approve, reject, flag, escalate, defer, custom); `VALID_OUTCOME_STATUSES` (confirmed, overridden, partial, superseded, expired); `VALID_VERDICT_TYPES` (action_request/approval/capability/denial/execution/operator_note from RBAC §10; autonomy_change/quality_breach from measure; triage/investigation/communication/remediation from respond agents; outcome_resolution — topology_drift/contract_divergence/correlation_snapshot are observations → ASSESSMENT_KINDS, not verdicts; "assessment" removed in opensrm-saun.1.2); `TTL_DEFAULT`
 - **Operations:** `create(subject, judgment, producer, metadata=None) -> Verdict` (thread-safe ID "vrd-{date}-{uuid8}-{seq:05d}", pending outcome); `link(verdict, parent, context)` (mutates lineage); `resolve(verdict, status, ...)` (validates pending→resolved); `supersede(old, new) -> tuple` (bidirectional lineage)
 - **Store:** `VerdictStore(ABC)` — `put`, `get`, `query(VerdictFilter)`, `update_outcome`, `accuracy(AccuracyFilter)`, `by_lineage(verdict_id, direction="both")`, `expire() -> int`, `resolve()` (convenience); `MemoryStore` (thread-safe, BFS, expire by TTL); `SQLiteVerdictStore` (WAL, thread-local conns, atomic conditional UPDATE for resolve, `close()`/context manager); `VerdictFilter` (from_time/to_time must be timezone-aware); `AccuracyFilter`
-- **Serialisation:** `to_dict/to_json/from_dict/from_json` — dataclasses.asdict + datetime↔ISO strings
+- **Serialisation:** `to_dict/to_json/from_dict/from_json` — dataclasses.asdict + datetime↔ISO strings; `to_dict` renames `timestamp`→`created_at` and `verdict_type`→`type` at the wire boundary (HTTP-canonical names for nthlayer-core POST /verdicts); `from_dict` accepts both wire-canonical (`type`, `created_at`) and legacy internal names (`verdict_type`, `timestamp`) for round-trip compat with data written before opensrm-saun.1.2; round-trips all v1.5 fields (verdict_type, pipeline_latency_ms, chain_depth, parent_ids, service, cost_currency)
 
 **Metrics (`nthlayer_common.metrics`):** Self-observability Prometheus metrics. Spec: NTHLAYER-COMMON-v1 §7.3. Worker metrics: `cycle_duration_seconds` (Histogram, [component], buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0)), `verdicts_written_total` (Counter, [component, type]), `assessments_written_total` (Counter, [component, kind]), `heartbeats_emitted_total` (Counter, [component]), `llm_calls_total` (Counter, [component, model, outcome]), `errors_total` (Counter, [component, error_type]). Core metrics: `api_requests_total` (Counter, [method, route, status] — route=URL template e.g. `/verdicts/{id}`, never raw path), `store_size_bytes` (Gauge), `wal_size_bytes` (Gauge), `stuck_action_requests` (Gauge, [service]). Helpers: `render_metrics() -> bytes`, `metrics_content_type() -> str`.
 
 **Telemetry (`nthlayer_common.telemetry`):** OTel cost-accounting for LLM calls. Spec: NTHLAYER-COMMON-v1 §3.4, §7. `emit_llm_event(*, model, provider, caller, input_tokens?, output_tokens?, cached_tokens?, reasoning_tokens?, verdict_id?, duration_ms?, success=True, error?) -> None` — adds `"nthlayer.llm.call"` event to current span with `gen_ai.*` attributes; no-op if no active recording span or OTel not available. `is_otel_available() -> bool`.
 
 **CloudEvents (`nthlayer_common.cloudevents`):** CloudEvents v1.0 envelope helpers for NthLayer events. Canonical import: `from nthlayer_common.cloudevents import wrap_verdict, wrap_assessment`. Envelope format frozen from v1.5 onwards (spec: NTHLAYER-TELEMETRY-ENVELOPE-v1 §3). `NTHLAYER_DEPLOYMENT_ID` env var sets default deployment ID (default: "default").
-- `wrap_verdict(verdict, *, component="unknown", deployment_id=None) -> dict` — requires `id` field; sets `subject` from `service` as `"component:default/{service}"`; type from `_VERDICT_TYPES` frozenset (action_request, approval, capability, denial, execution, operator_note, autonomy_change, quality_breach, topology_drift, contract_divergence, correlation_snapshot), unknown → `io.nthlayer.verdict.unknown.v1`
-- `wrap_assessment(assessment, *, component="unknown", deployment_id=None) -> dict` — requires `id` field; kind from `ASSESSMENT_KINDS` (slo_status, judgment_slo_evaluation, burn_rate, drift_signal, portfolio_status, deploy_gate, dependency_graph, correlation_snapshot, topology_drift, contract_divergence), unknown → `io.nthlayer.assessment.unknown.v1`
+- `wrap_verdict(verdict, *, component="unknown", deployment_id=None) -> dict` — requires `id` field; sets `subject` from `service` as `"component:default/{service}"`; type from `_VERDICT_TYPES` (delegates to `VALID_VERDICT_TYPES`: action_request, approval, capability, denial, execution, operator_note, autonomy_change, quality_breach, triage, investigation, communication, remediation, outcome_resolution), unknown → `io.nthlayer.verdict.unknown.v1`
+- `wrap_assessment(assessment, *, component="unknown", deployment_id=None) -> dict` — requires `id` field; kind from `ASSESSMENT_KINDS` (slo_status, judgment_slo_evaluation, burn_rate, drift_signal, portfolio_status, deploy_gate, dependency_graph, correlation_snapshot, topology_drift, contract_divergence, retrospective, calibration_signal), unknown → `io.nthlayer.assessment.unknown.v1`
 - `parse_cloudevent(envelope) -> dict` — extracts `data` payload; validates specversion/type/source/id present and specversion=="1.0"; raises `ValueError` on missing attrs or wrong specversion; returns `{}` if no `data` key
 - `validate_cloudevent(envelope) -> list[str]` — non-raising batch validator; returns list of issues (empty = valid); checks required attrs, specversion, type matches `io.nthlayer.*`, source matches `urn:nthlayer:*`, datacontenttype is `application/json`
 
