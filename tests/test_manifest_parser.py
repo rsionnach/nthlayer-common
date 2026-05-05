@@ -39,7 +39,10 @@ def v1_manifest_data():
                 "availability": {
                     "target": 99.99,
                     "window": "30d",
-                    "query": 'sum(rate(http_requests_total{status=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))',
+                    "indicator": {
+                        "type": "availability",
+                        "query": 'sum(rate(http_requests_total{status=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))',
+                    },
                 },
             },
             "dependencies": [

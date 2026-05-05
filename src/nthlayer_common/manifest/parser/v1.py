@@ -183,6 +183,26 @@ _NAME_KEYWORDS: list[tuple[str, str]] = [
 ]
 
 
+def _extract_indicator_query(config: dict[str, Any]) -> str | None:
+    """Read the canonical SLI PromQL from ``indicator.query``.
+
+    Per nthlayer-generate's SCHEMA.md, ``indicator`` is a required object
+    with ``type`` and ``query`` fields. SLOs that omit ``indicator``
+    entirely (target-only validation SLOs) return ``None`` here and surface
+    later as NO_DATA when the SLO collector tries to query them — that's
+    correct behaviour, and the parser's job is just to round-trip the YAML
+    faithfully.
+
+    Top-level ``query`` (without ``indicator``) was previously read by this
+    parser but is not in any spec or example; it is no longer accepted.
+    """
+    indicator = config.get("indicator")
+    if not isinstance(indicator, dict):
+        return None
+    query = indicator.get("query")
+    return query if isinstance(query, str) and query else None
+
+
 def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str:
     """Infer slo_type from name, config, and service_type.
 
@@ -207,8 +227,8 @@ def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str
         if keyword in name_lower:
             return slo_type
 
-    # Check indicator query for hints
-    query = config.get("query", "")
+    # Check the canonical indicator.query for type hints (e.g. histogram_quantile → latency).
+    query = _extract_indicator_query(config) or ""
     if "histogram_quantile" in query or "duration" in query or "latency" in query:
         return "latency"
     if "error" in query or "5xx" in query or "status" in query:
@@ -275,7 +295,7 @@ def _parse_slos(
             window=config.get("window", "30d"),
             unit=config.get("unit"),
             percentile=config.get("percentile"),
-            indicator_query=config.get("query"),
+            indicator_query=_extract_indicator_query(config),
             description=config.get("description"),
             labels=config.get("labels", {}),
             judgment_type=judgment_type,
