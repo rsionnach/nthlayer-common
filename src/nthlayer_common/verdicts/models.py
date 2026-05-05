@@ -25,6 +25,10 @@ VALID_OUTCOME_STATUSES = frozenset({
 # These are judgment-bearing decisions, not observations. Observations
 # (correlation_snapshot, topology_drift, contract_divergence) are
 # assessments — see nthlayer_common.cloudevents.ASSESSMENT_KINDS.
+#
+# This is the canonical source for verdict types — nthlayer_common.cloudevents
+# imports it as the basis for CloudEvents type-attribute validation rather
+# than maintaining a parallel set.
 VALID_VERDICT_TYPES = frozenset({
     # Auth flow (RBAC §10)
     "action_request",
@@ -38,8 +42,11 @@ VALID_VERDICT_TYPES = frozenset({
     "quality_breach",
     # Core (outcome resolution — immutable, creates new verdict)
     "outcome_resolution",
-    # Assessment-like (continuous, not decisions)
-    "assessment",
+    # Respond agent roles (P3-E.1+; opensrm-saun.1.2)
+    "triage",
+    "investigation",
+    "communication",
+    "remediation",
 })
 
 TTL_DEFAULT = 90 * 24 * 60 * 60  # 90 days in seconds

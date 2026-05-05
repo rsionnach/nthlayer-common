@@ -33,8 +33,23 @@ def _prepare_value(v: Any) -> Any:
 
 
 def to_dict(verdict: Verdict) -> dict:
-    """Convert a verdict to a plain dict suitable for JSON serialisation."""
+    """Convert a verdict to a plain dict suitable for JSON serialisation.
+
+    Wire shape uses HTTP-canonical names:
+      - ``type`` (renamed from internal ``verdict_type``)
+      - ``created_at`` (renamed from internal ``timestamp``)
+
+    These are the names nthlayer-core's POST /verdicts API expects, and
+    the names the CloudEvents envelope helpers (wrap_verdict) read. The
+    Verdict dataclass keeps its internal names; this rename happens only
+    at the serialisation boundary. ``from_dict`` accepts both old and new
+    names for round-trip compat with stored data.
+    """
     d = asdict(verdict)
+    if "timestamp" in d:
+        d["created_at"] = d.pop("timestamp")
+    if "verdict_type" in d:
+        d["type"] = d.pop("verdict_type")
     return _prepare_value(d)
 
 
@@ -56,9 +71,23 @@ def _parse_datetime(value: str | None, field_name: str) -> datetime | None:
 def from_dict(data: dict) -> Verdict:
     """Reconstruct a verdict from a plain dict.
 
-    Validates required fields and schema version.
+    Accepts both the wire-canonical names (``type``, ``created_at``) emitted
+    by ``to_dict`` and the legacy internal names (``verdict_type``,
+    ``timestamp``) used by stored data written before opensrm-saun.1.2.
+    Required fields, validated under either naming.
     """
-    for required in ("id", "version", "timestamp", "producer", "subject", "judgment"):
+    # Required-fields check. Timestamp accepts either name pair so the
+    # check happens explicitly; the others are straightforward presence.
+    # Order matches pre-saun.1.2 behaviour (timestamp checked between
+    # version and producer) so existing test fixtures still pin the right
+    # message.
+    if "id" not in data:
+        raise ValueError("Missing required field: 'id'")
+    if "version" not in data:
+        raise ValueError("Missing required field: 'version'")
+    if "timestamp" not in data and "created_at" not in data:
+        raise ValueError("Missing required field: 'created_at' (or legacy 'timestamp')")
+    for required in ("producer", "subject", "judgment"):
         if required not in data:
             raise ValueError(f"Missing required field: '{required}'")
 
@@ -67,9 +96,19 @@ def from_dict(data: dict) -> Verdict:
             f"Unsupported schema version {data['version']}. This library supports version 1."
         )
 
-    timestamp = _parse_datetime(data["timestamp"], "timestamp")
+    # Field precedence: `created_at` is canonical, but explicit `None`
+    # falls back to the legacy `timestamp` (some serialisers write null
+    # rather than omitting the key, and we shouldn't treat that as
+    # authoritative). An empty string under `created_at` is taken as-is
+    # — that's malformed data, not legacy compat, so let _parse_datetime
+    # surface it as "Invalid datetime".
+    if "created_at" in data and data["created_at"] is not None:
+        raw_ts = data["created_at"]
+    else:
+        raw_ts = data.get("timestamp")
+    timestamp = _parse_datetime(raw_ts, "created_at")
     if timestamp is None:
-        raise ValueError("Field 'timestamp' must not be null")
+        raise ValueError("Field 'created_at' must not be null")
 
     producer_data = data["producer"]
     producer = Producer(
@@ -149,8 +188,10 @@ def from_dict(data: dict) -> Verdict:
         outcome=outcome,
         lineage=lineage,
         metadata=metadata,
-        # v1.5 transitional fields (optional, backward compatible)
-        verdict_type=data.get("verdict_type"),
+        # v1.5 transitional fields (optional, backward compatible).
+        # Accepts both the wire-canonical "type" and the legacy
+        # "verdict_type" key — see to_dict rename rationale.
+        verdict_type=data.get("type", data.get("verdict_type")),
         pipeline_latency_ms=data.get("pipeline_latency_ms"),
         chain_depth=data.get("chain_depth", 0),
         parent_ids=data.get("parent_ids", []),

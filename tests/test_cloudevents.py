@@ -220,3 +220,98 @@ class TestEdgeCases:
     def test_parse_none_raises(self):
         with pytest.raises(ValueError, match="Expected dict"):
             parse_cloudevent(None)
+
+
+# -----------------------------------------------------------------------------
+# Integration with the real Verdict model (opensrm-saun.1.2)
+# -----------------------------------------------------------------------------
+#
+# The fixtures above (_verdict, _assessment) are synthetic dicts. They
+# happen to match the canonical wire shape, but a parser-spec divergence
+# in to_dict(Verdict) can pass these tests yet still break production.
+# These tests instead use the real Verdict model so the integration cannot
+# silently drift.
+
+from nthlayer_common.verdicts import create as verdict_create, to_dict
+
+
+class TestWrapRealVerdict:
+    """wrap_verdict on real to_dict(Verdict) output.
+
+    Locks the end-to-end contract: a Verdict constructed via the public
+    create() factory, serialised by to_dict(), and wrapped by
+    wrap_verdict() must produce a CloudEvents envelope with a known
+    domain type — never falling through to .unknown.v1 due to a missing
+    field-name rename.
+    """
+
+    def test_quality_breach_envelope_type_matches(self):
+        v = verdict_create(
+            subject={"type": "evaluation", "ref": "fraud-detect", "summary": "breach"},
+            judgment={"action": "flag", "confidence": 0.9},
+            producer={"system": "nthlayer-measure"},
+        )
+        v.verdict_type = "quality_breach"
+        v.service = "fraud-detect"
+        env = wrap_verdict(to_dict(v), component="measure")
+        assert env["type"] == "io.nthlayer.verdict.quality_breach.v1"
+        assert env["id"] == v.id
+        # Envelope subject derives from the inner service.
+        assert env["subject"] == "component:default/fraud-detect"
+
+    @pytest.mark.parametrize("role", ["triage", "investigation", "communication", "remediation"])
+    def test_respond_role_envelope_type_matches(self, role):
+        # The opensrm-saun.1.2 taxonomy extension: respond agent roles
+        # are valid verdict types, so the envelope picks them up cleanly
+        # rather than falling through to .unknown.v1.
+        v = verdict_create(
+            subject={"type": role, "ref": "INC-1", "summary": "test"},
+            judgment={"action": "flag", "confidence": 0.85},
+            producer={"system": "nthlayer-respond"},
+        )
+        v.verdict_type = role
+        env = wrap_verdict(to_dict(v), component="respond")
+        assert env["type"] == f"io.nthlayer.verdict.{role}.v1"
+
+    def test_envelope_carries_canonical_field_names(self):
+        # to_dict produces "type" and "created_at" (HTTP-canonical), not
+        # the dataclass-internal "verdict_type" and "timestamp". This test
+        # is the regression guard for that rename.
+        v = verdict_create(
+            subject={"type": "evaluation", "ref": "x", "summary": "y"},
+            judgment={"action": "approve", "confidence": 1.0},
+            producer={"system": "test"},
+        )
+        v.verdict_type = "operator_note"
+        d = to_dict(v)
+        assert "type" in d and "created_at" in d
+        assert "verdict_type" not in d and "timestamp" not in d
+
+
+class TestEnvelopeRoundTrip:
+    """End-to-end envelope wrap → unwrap → unmarshal contract."""
+
+    def test_round_trip_preserves_inner_record(self):
+        v = verdict_create(
+            subject={"type": "remediation", "ref": "INC-1", "summary": "rollback"},
+            judgment={"action": "flag", "confidence": 0.7},
+            producer={"system": "nthlayer-respond"},
+        )
+        v.verdict_type = "remediation"
+        v.service = "fraud-detect"
+        original = to_dict(v)
+        envelope = wrap_verdict(original, component="respond")
+        unwrapped = parse_cloudevent(envelope)
+        assert unwrapped == original
+
+    def test_round_trip_assessment_preserves_inner_record(self):
+        a = {
+            "id": "asm-rt-001",
+            "kind": "slo_status",
+            "service": "fraud-detect",
+            "created_at": "2026-04-23T00:00:00Z",
+            "data": {"status": "HEALTHY", "value": 0.999},
+        }
+        envelope = wrap_assessment(a, component="observe")
+        unwrapped = parse_cloudevent(envelope)
+        assert unwrapped == a

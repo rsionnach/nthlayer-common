@@ -74,8 +74,55 @@ class TestFromDictValidation:
             from_dict({})
 
     def test_missing_timestamp_raises(self):
-        with pytest.raises(ValueError, match="Missing required field: 'timestamp'"):
+        # Error message references the canonical "created_at" name.
+        # from_dict still accepts legacy "timestamp" payloads (see
+        # test_legacy_timestamp_field_accepted) — the message is just
+        # forward-looking.
+        with pytest.raises(ValueError, match="Missing required field: 'created_at'"):
             from_dict({"id": "vrd-1", "version": 1})
+
+    def test_legacy_timestamp_field_accepted(self):
+        # Pre-opensrm-saun.1.2 stored data used "timestamp" (matching the
+        # internal Verdict dataclass field name). Round-trip compat is
+        # required: from_dict must still accept it.
+        v = from_dict({
+            "id": "vrd-legacy-1",
+            "version": 1,
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "producer": {"system": "test"},
+            "subject": {"type": "review", "ref": "r", "summary": "s"},
+            "judgment": {"action": "approve", "confidence": 0.5},
+        })
+        assert v.timestamp.year == 2026
+
+    def test_explicit_null_created_at_falls_back_to_legacy_timestamp(self):
+        # opensrm-saun.1.2 round-trip safety: a payload with both fields
+        # where created_at is explicitly null (some serialisers write
+        # null instead of omitting the key) should fall back to the
+        # legacy timestamp rather than treating null as authoritative.
+        v = from_dict({
+            "id": "vrd-mixed-1",
+            "version": 1,
+            "created_at": None,
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "producer": {"system": "test"},
+            "subject": {"type": "review", "ref": "r", "summary": "s"},
+            "judgment": {"action": "approve", "confidence": 0.5},
+        })
+        assert v.timestamp.year == 2026
+
+    def test_legacy_verdict_type_field_accepted(self):
+        # to_dict now emits "type"; from_dict accepts both for legacy data.
+        v = from_dict({
+            "id": "vrd-legacy-2",
+            "version": 1,
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "verdict_type": "quality_breach",
+            "producer": {"system": "test"},
+            "subject": {"type": "review", "ref": "r", "summary": "s"},
+            "judgment": {"action": "approve", "confidence": 0.5},
+        })
+        assert v.verdict_type == "quality_breach"
 
     def test_null_timestamp_raises(self):
         with pytest.raises(ValueError, match="must not be null"):
@@ -96,18 +143,18 @@ class TestFromDictValidation:
             })
 
     def test_malformed_datetime_raises(self):
-        with pytest.raises(ValueError, match="Invalid datetime in 'timestamp'"):
+        with pytest.raises(ValueError, match="Invalid datetime in 'created_at'"):
             from_dict({
-                "id": "vrd-1", "version": 1, "timestamp": "not-a-date",
+                "id": "vrd-1", "version": 1, "created_at": "not-a-date",
                 "producer": {"system": "test"},
                 "subject": {"type": "review", "ref": "r", "summary": "s"},
                 "judgment": {"action": "approve", "confidence": 0.5},
             })
 
     def test_empty_string_datetime_raises(self):
-        with pytest.raises(ValueError, match="Invalid datetime in 'timestamp'"):
+        with pytest.raises(ValueError, match="Invalid datetime in 'created_at'"):
             from_dict({
-                "id": "vrd-1", "version": 1, "timestamp": "",
+                "id": "vrd-1", "version": 1, "created_at": "",
                 "producer": {"system": "test"},
                 "subject": {"type": "review", "ref": "r", "summary": "s"},
                 "judgment": {"action": "approve", "confidence": 0.5},

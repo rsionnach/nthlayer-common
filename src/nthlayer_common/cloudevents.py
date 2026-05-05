@@ -15,6 +15,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from nthlayer_common.verdicts.models import VALID_VERDICT_TYPES
+
 # Deployment identity — configurable via env or passed explicitly
 _DEFAULT_DEPLOYMENT_ID = os.environ.get("NTHLAYER_DEPLOYMENT_ID", "default")
 
@@ -22,16 +24,12 @@ _DEFAULT_DEPLOYMENT_ID = os.environ.get("NTHLAYER_DEPLOYMENT_ID", "default")
 # Pattern: io.nthlayer.<category>.<subtype>.v1
 # Categories: verdict, assessment, change, audit, alert
 
-_VERDICT_TYPES = frozenset({
-    "action_request",
-    "approval",
-    "capability",
-    "denial",
-    "execution",
-    "operator_note",
-    "autonomy_change",
-    "quality_breach",
-})
+# CloudEvents type-attribute validation reuses VALID_VERDICT_TYPES as its
+# source of truth — keeps the wire format and the typed-column model in
+# lockstep. Adding a new verdict type happens once, in
+# nthlayer_common.verdicts.models, and both the typed column and the
+# CloudEvents envelope pick it up.
+_VERDICT_TYPES = VALID_VERDICT_TYPES
 
 # Public constant — canonical set of assessment kinds. Modules that need
 # to validate assessment kinds should import this rather than maintaining

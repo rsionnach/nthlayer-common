@@ -44,8 +44,18 @@ class TestValidVerdictTypes:
     def test_outcome_resolution_present(self):
         assert "outcome_resolution" in VALID_VERDICT_TYPES
 
-    def test_assessment_type_present(self):
-        assert "assessment" in VALID_VERDICT_TYPES
+    def test_assessment_type_absent(self):
+        # Removed in opensrm-saun.1.2 — verdicts are decisions, assessments
+        # are continuous observations; the entry violated this distinction.
+        # Things that are continuous and not decisions belong in
+        # ASSESSMENT_KINDS, not VALID_VERDICT_TYPES.
+        assert "assessment" not in VALID_VERDICT_TYPES
+
+    def test_respond_agent_role_types_present(self):
+        # Added in opensrm-saun.1.2 so respond agents can set
+        # verdict_type=self.role.value, matching subject.type.
+        for role in ("triage", "investigation", "communication", "remediation"):
+            assert role in VALID_VERDICT_TYPES
 
 
 class TestV15Fields:
