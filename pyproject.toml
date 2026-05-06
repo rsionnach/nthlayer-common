@@ -23,6 +23,10 @@ dependencies = [
     "openai>=1.50",
     "opentelemetry-api>=1.28",
     "prometheus-client>=0.21",
+    # Transitive pin: rich pulls pygments; CVE-2026-4539 fixed in 2.20.0
+    # (opensrm-9uow.3 dependency audit). Remove once rich's lower bound
+    # carries the fix transitively.
+    "pygments>=2.20.0",
 ]
 
 [project.optional-dependencies]
