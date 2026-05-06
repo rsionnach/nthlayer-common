@@ -45,7 +45,7 @@ src/nthlayer_common/
         pagerduty.py     # PagerDutyClient
         slack.py         # SlackAPIClient
     providers/
-        prometheus.py    # PrometheusProvider
+        prometheus.py    # PrometheusProvider — get_sli_value() returns None (empty result/malformed/non-numeric) vs 0.0 (total outage, opensrm-e1gk); get_sli_time_series() → list[{timestamp, sli_value, duration_seconds}]; _parse_step_to_seconds() suffix lookup dict (s/m/h/d) + numeric string fallback, default 300.0; health_check() uses /api/v1/query?query=up
         grafana.py       # GrafanaProvider
         pagerduty.py     # PagerDutyProvider
         mimir.py         # Re-export shim → nthlayer_common.clients.mimir (MimirRulerProvider, MimirRulerError, RulerPushResult, DEFAULT_USER_AGENT)
@@ -93,7 +93,7 @@ tests/
     test_errors.py
     test_tiers.py
     test_models.py
-    test_providers.py
+    test_providers.py          # TestGetSliValueNoneVsZero (5 async tests, opensrm-e1gk): empty→None, zero→0.0, short-tuple→None, non-numeric→None, real→float; TestPrometheusProvider: test_parse_step_to_seconds (5m/1h/30s/1d/unknown), test_parse_step_numeric_string (bare integers)
     test_identity.py
     test_slack.py
     test_prompts.py
