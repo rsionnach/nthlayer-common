@@ -109,7 +109,7 @@ class PrometheusProvider(Provider):
         self,
         query: str,
         time: datetime | None = None,
-    ) -> float:
+    ) -> float | None:
         """
         Get SLI value from a query (simplified, returns single value).
 
@@ -118,27 +118,29 @@ class PrometheusProvider(Provider):
             time: Evaluation time (defaults to now)
 
         Returns:
-            SLI value as float (0.0-1.0)
+            The numeric value Prometheus returned, or ``None`` when the
+            query produced no data (empty result set, malformed value
+            tuple, or non-numeric value). ``0.0`` is reserved for the
+            case where Prometheus actually returned the value zero
+            (total outage); callers must distinguish it from no-data.
         """
         result = await self.query(query, time)
 
-        # Extract value from result
         data = result.get("data", {})
         result_data = data.get("result", [])
 
         if not result_data:
-            return 0.0
+            return None
 
-        # Get first result's value
         value_data = result_data[0].get("value", [])
 
         if len(value_data) < 2:
-            return 0.0
+            return None
 
         try:
             return float(value_data[1])
         except (ValueError, TypeError):
-            return 0.0
+            return None
 
     async def get_sli_time_series(
         self,

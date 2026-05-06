@@ -1,5 +1,7 @@
 """Tests for nthlayer_common.providers module."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from nthlayer_common.providers.base import (
@@ -133,3 +135,55 @@ class TestPrometheusProvider:
         assert p._parse_step_to_seconds("300") == 300.0
         assert p._parse_step_to_seconds("60") == 60.0
         assert p._parse_step_to_seconds("3600.5") == 3600.5
+
+
+class TestGetSliValueNoneVsZero:
+    """Pin the no-data-vs-total-outage distinction (opensrm-e1gk).
+
+    Empty result, malformed value tuples, and non-numeric strings all
+    return None so callers can distinguish "Prometheus returned no
+    data" from "Prometheus returned 0.0" (a real total-outage SLI).
+    """
+
+    @pytest.mark.asyncio
+    async def test_empty_result_returns_none(self):
+        p = PrometheusProvider("http://localhost:9090")
+        with patch.object(p, "query", new_callable=AsyncMock) as mock_query:
+            mock_query.return_value = {"data": {"result": []}}
+            assert await p.get_sli_value("up") is None
+
+    @pytest.mark.asyncio
+    async def test_zero_value_returns_zero(self):
+        p = PrometheusProvider("http://localhost:9090")
+        with patch.object(p, "query", new_callable=AsyncMock) as mock_query:
+            mock_query.return_value = {
+                "data": {"result": [{"value": [1609459200, "0"]}]}
+            }
+            assert await p.get_sli_value("up") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_short_value_tuple_returns_none(self):
+        p = PrometheusProvider("http://localhost:9090")
+        with patch.object(p, "query", new_callable=AsyncMock) as mock_query:
+            mock_query.return_value = {
+                "data": {"result": [{"value": [1609459200]}]}
+            }
+            assert await p.get_sli_value("up") is None
+
+    @pytest.mark.asyncio
+    async def test_non_numeric_value_returns_none(self):
+        p = PrometheusProvider("http://localhost:9090")
+        with patch.object(p, "query", new_callable=AsyncMock) as mock_query:
+            mock_query.return_value = {
+                "data": {"result": [{"value": [1609459200, "not-a-number"]}]}
+            }
+            assert await p.get_sli_value("up") is None
+
+    @pytest.mark.asyncio
+    async def test_real_value_returns_float(self):
+        p = PrometheusProvider("http://localhost:9090")
+        with patch.object(p, "query", new_callable=AsyncMock) as mock_query:
+            mock_query.return_value = {
+                "data": {"result": [{"value": [1609459200, "0.9995"]}]}
+            }
+            assert await p.get_sli_value("up") == pytest.approx(0.9995)
