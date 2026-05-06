@@ -104,7 +104,7 @@ tests/
     test_verdicts_store.py
     test_llm_structured.py
     test_api_client.py
-    test_cloudevents.py
+    test_cloudevents.py          # envelope helpers (wrap_verdict, wrap_assessment, parse_cloudevent, validate_cloudevent); TestWrapRealVerdict (opensrm-saun.1.2) locks end-to-end contract: verdict_create→to_dict→wrap_verdict must produce correct CE type never .unknown.v1; TestEnvelopeRoundTrip: wrap→unwrap→unmarshal preserves inner record; ASSESSMENT_KINDS public constant coverage
     test_config.py
     test_metrics.py
     test_telemetry.py
@@ -112,7 +112,7 @@ tests/
     test_verdicts_v15_fields.py
     test_manifest_models.py
     test_manifest_parser.py
-    test_manifest_real_specs.py  # regression: loads real demo/specs from disk; skipped if demo/specs/ absent; guards against parser silently dropping indicator.query
+    test_manifest_real_specs.py  # regression: loads real demo/specs from disk (not synthetic fixtures); skipped if demo/specs/ absent; guards against parser silently dropping indicator.query; spec path resolution tries nthlayer/demo/specs (post-consolidation) then demo/specs fallback; includes test_fraud_detect_judgment_slo_round_trips asserting reversal_rate SLO has judgment_type=="reversal_rate" and indicator_query contains gen_ai_overrides_total
     test_llm_stub.py             # 26 tests for NTHLAYER_LLM_STUB=canned: role detection, all 4 agent shapes, structured callers, env-var variants, name-collision guard
     records/
         conftest.py      # shared builders: build_test_assessment, build_test_verdict, build_test_evaluation (correct content-addressed hashes)
@@ -211,6 +211,26 @@ All canned text is JSON shaped to match the schema each respond agent's `_parse_
 - New structured-call site → register a factory in `_STRUCTURED_FACTORIES`.
 
 **Tests:** `tests/test_llm_stub.py` — 26 tests covering role detection (incl. `None` system, case-insensitive marker match), all four respond agent shapes, both structured callers, env-var case/whitespace variants (`CANNED`, ` canned `, `canned\n`), env-var-unset preserves HTTP path, unknown structured model raises clearly, name-collision with incompatible shape raises with qualified path.
+
+## SLO target convention (v1.5)
+
+**Honest documentation: there is no single canonical convention.** The `manifest.SLODefinition.target` field is consumed by three subsystems with different conventions for the same value:
+
+| Consumer | Convention | Example |
+|---|---|---|
+| `observe` (worker SLO collector) | **0-100 percentage** | availability `target=99.9` for 99.9% |
+| `measure` (judgment SLO worker) | **0.0-1.0 ratio** | reversal_rate `target=0.985` for ≤1.5% threshold |
+| `slo_models.SLO` (OpenSLO model — separate dataclass) | **0.0-1.0 ratio** | OpenSLO standard |
+
+The cross-subsystem divergence is a known correctness gap tracked in **opensrm-pa2w.followup**. With the post-`opensrm-xte` `target=98.5` value on fraud-detect's reversal_rate, observe computes the right error budget (1.5%) but measure's `_classify_budget_consumption` hits its `budget = 1.0 - target = -97.5` guard and returns "critical" for every breach regardless of severity. No single value satisfies both subsystems' arithmetic.
+
+For v1.5, follow the convention of the **consumer** your manifest targets:
+
+- SLOs consumed by **observe** (classical: availability, error_rate, latency, throughput): use **0-100 percentage** (e.g. `target: 99.9`).
+- SLOs consumed by **measure** (judgment SLOs with `judgment_type` set, e.g. reversal_rate): use **0.0-1.0 ratio** (e.g. `target: 0.985`).
+- OpenSLO-shaped SLOs in `slo_models.SLO` (separate code path, ratio): unchanged.
+
+A load-time validator in `nthlayer_common.manifest.target_validation` flags likely unit errors (classical SLO with `target<1.0`, judgment SLO with `target>1.0`) via `TargetConventionWarning` (subclass of `UserWarning`). Heuristic, never rejects: filter via `warnings.filterwarnings(action, category=TargetConventionWarning)` if a particular manifest is intentionally ambiguous. Tests in `tests/test_target_validation.py` (17 tests) pin behaviour at the convention boundaries.
 
 <!-- AUTO-MANAGED: dependencies -->
 ## Dependencies

@@ -40,6 +40,9 @@ from nthlayer_common.manifest.parser.v2 import (
     parse_opensrm_v2,
     resolve_v2_template,
 )
+from nthlayer_common.manifest.target_validation import (
+    warn_target_convention_mismatches,
+)
 
 logger = structlog.get_logger()
 
@@ -99,14 +102,14 @@ def load_manifest(
             data, template_warnings = resolve_template(data, template_dir)
             for tw in template_warnings:
                 logger.warning(tw)
-            return parse_srm_v1(data, source_file=str(path))
+            manifest = parse_srm_v1(data, source_file=str(path))
         except (OpenSRMParseError, ValueError) as e:
             raise ManifestLoadError(str(e)) from e
 
     elif use_format == SourceFormat.OPENSRM_V2:
         try:
             data = resolve_v2_template(data, path.parent)
-            return parse_opensrm_v2(data, source_file=str(path), base_dir=path.parent)
+            manifest = parse_opensrm_v2(data, source_file=str(path), base_dir=path.parent)
         except (OpenSRMV2ParseError, ValueError) as e:
             raise ManifestLoadError(str(e)) from e
 
@@ -118,7 +121,13 @@ def load_manifest(
                 LegacyFormatWarning,
                 stacklevel=2,
             )
-        return _parse_legacy_to_manifest(data, str(path), environment)
+        manifest = _parse_legacy_to_manifest(data, str(path), environment)
+
+    # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits
+    # warnings via the warnings module; never rejects. See module docstring
+    # in nthlayer_common.manifest.target_validation for the heuristic.
+    warn_target_convention_mismatches(manifest)
+    return manifest
 
 
 def _detect_format(data: dict[str, Any]) -> SourceFormat:
