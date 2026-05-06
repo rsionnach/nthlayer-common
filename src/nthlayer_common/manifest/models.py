@@ -288,24 +288,21 @@ class SLODefinition:
     describes the indicator shape, not the SLO category. judgment_type
     is what discriminates them from classical SLOs.
 
-    ``target`` convention (KNOWN DIVERGENCE — opensrm-pa2w):
+    ``target`` convention: 0-100 percentage canonical (opensrm-5fff).
 
-    The ``target`` field is consumed by three subsystems with incompatible
-    arithmetic for the same value. Until opensrm-pa2w.followup unifies them:
+    All NthLayer-internal consumers (observe, measure) read ``target`` as
+    a 0-100 percentage. Examples: ``target=99.9`` for 99.9% availability,
+    ``target=98.5`` for a judgment SLO that triggers when the SLI drops
+    below 98.5%.
 
-    - Classical SLOs (slo_type in {availability, latency, error_rate,
-      throughput} without ``judgment_type``) are consumed by ``observe``
-      which uses 0-100 percentage convention. Example: target=99.9 for
-      99.9% availability.
-    - Judgment SLOs (``judgment_type`` set, consumed by ``measure``) use
-      0.0-1.0 ratio convention. Example: target=0.985 for ≤1.5% reversal
-      rate threshold.
-    - The unrelated ``slo_models.SLO`` dataclass (OpenSLO-based, used by
-      a different code path) is ratio.
+    The OpenSLO surface (``nthlayer_common.slo_models.SLO``) uses 0.0-1.0
+    ratio convention. Conversion happens at the boundary in
+    ``nthlayer-generate.slos.pipeline._build_slo_from_manifest`` which
+    divides by 100.0 unconditionally.
 
-    A load-time warning (TargetConventionWarning, see
-    nthlayer_common.manifest.target_validation) flags likely mismatches —
-    classical SLOs with target<1.0, judgment SLOs with target>1.0.
+    A load-time warning (``TargetConventionWarning``, see
+    ``nthlayer_common.manifest.target_validation``) flags targets in the
+    (0, 1) range as likely ratio author errors.
 
     Tech debt (v2): total_query + good_query + indicator_query could
     become a discriminated SLIIndicator union.

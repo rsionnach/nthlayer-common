@@ -1,39 +1,25 @@
 """SLO target convention validation for parsed manifests.
 
-The ``manifest.SLODefinition.target`` field is consumed by three different
-subsystems with different conventions for the same value:
+The ``manifest.SLODefinition.target`` field uses 0-100 percentage convention
+canonically (opensrm-5fff: decision recorded in
+docs/superpowers/decisions/ and implemented in opensrm-5fff.1):
 
-- ``observe.collector.py``: 0-100 percentage convention
-  (e.g., availability ``target=99.9``; ``error_budget = (100 - target) / 100``)
-- ``measure.worker.py`` (judgment SLOs): 0.0-1.0 ratio convention
-  (e.g., reversal_rate ``target=0.985``; ``budget = 1.0 - target``)
-- ``slo_models.SLO`` (OpenSLO model): 0.0-1.0 ratio convention
+- ``observe.collector``: ``error_budget = (100 - target) / 100``
+- ``measure.worker``: severity classifiers operate on percentage targets
+- OpenSLO surface (``slo_models.SLO``): 0.0-1.0 ratio with explicit
+  boundary conversion in ``nthlayer-generate.slos.pipeline``
 
-The cross-subsystem divergence is a known correctness gap tracked in
-``opensrm-pa2w.followup`` (unify SLO target convention across subsystems).
-Pending that decision, this module provides a load-time warning that flags
-likely unit errors — values that look like the wrong convention for the
-expected consumer.
-
-The validator never rejects a manifest. Many real manifests are ambiguous
-(e.g. ``target=1.0`` could be 100% in either convention, or a reasonable
-edge-case ratio). Rejecting would break working configurations. Warnings
-are loud enough to catch contributor mistakes; manifest authors who know
-what they're doing can ignore them or filter via Python's standard
-``warnings`` machinery.
+This module emits a load-time warning when an SLO target value looks
+like the wrong convention — typically because the author wrote a ratio
+(``0.999``) instead of a percentage (``99.9``). The warning is loud
+enough to catch contributor mistakes; it never rejects.
 
 Heuristic:
-- ``target <= 1.0`` → looks like ratio (0.0-1.0)
-- ``target > 1.0`` → looks like percentage (0-100)
-- Expected convention by SLO category:
-  - judgment SLO (``judgment_type`` set, consumed by measure) → ratio
-  - classical SLO (availability/latency/error_rate/throughput,
-    consumed by observe) → percentage
-- Mismatch between actual shape and expected convention → warning.
 
-Edge cases skipped (different concern, not a convention warning):
-- ``target == 1.0`` exactly: ambiguous (100% either way), pass through silently
-- ``target <= 0`` or ``target > 100``: invalid range, caller's responsibility
+- ``0 < target < 1.0``: looks like a ratio author error → warn.
+- ``target == 1.0``: ambiguous (100% in either convention), pass silently.
+- ``target <= 0`` or ``target > 100``: out of valid range, caller's concern.
+- ``1.0 < target <= 100``: canonical percentage, pass.
 """
 
 from __future__ import annotations
@@ -44,9 +30,13 @@ from nthlayer_common.manifest.models import ReliabilityManifest, SLODefinition
 
 
 class TargetConventionWarning(UserWarning):
-    """Warn when an SLO's target value mismatches its expected consumer convention.
+    """Warn when an SLO's target value looks like a ratio (likely author error).
 
-    Raised by :func:`warn_target_convention_mismatches` during manifest load.
+    The canonical convention for ``manifest.SLODefinition.target`` is
+    0-100 percentage. Targets in the (0, 1) range are flagged as likely
+    ratio-convention author errors; the OpenSLO surface uses ratio with
+    explicit boundary conversion.
+
     Filterable via ``warnings.filterwarnings(..., category=TargetConventionWarning)``.
     """
 
@@ -64,38 +54,25 @@ def warn_target_convention_mismatches(manifest: ReliabilityManifest) -> None:
 
 
 def _check_one(slo: SLODefinition, service_name: str) -> str | None:
-    """Return a warning message for ``slo`` if it likely mismatches its consumer's
-    convention. Return ``None`` if the SLO's target shape looks correct, is in
-    the ambiguous ``target == 1.0`` zone, or is out of range entirely.
+    """Return a warning message for ``slo`` if its target looks like a ratio.
+
+    Return ``None`` if the target is in the canonical percentage range,
+    ambiguous at exactly 1.0, or out of valid range entirely.
     """
     target = slo.target
     if target == 1.0 or target <= 0 or target > 100:
         # Ambiguous (100% in either convention) or out of valid range.
-        # Out-of-range is a different concern than convention mismatch.
+        # Out-of-range is a different concern than convention.
         return None
 
-    is_judgment = slo.is_judgment_slo()
-    looks_ratio = target < 1.0
-    looks_pct = target > 1.0
-
-    if is_judgment and looks_pct:
+    if target < 1.0:
+        kind = "judgment" if slo.is_judgment_slo() else slo.slo_type
         return (
             f"Service '{service_name}' SLO '{slo.name}' has target={target} "
-            f"(percentage convention) but is a judgment SLO consumed by measure, "
-            f"which uses ratio convention (0.0-1.0; e.g. target=0.985 for a "
-            f"≤1.5% reversal rate). See opensrm-pa2w for the cross-subsystem "
-            f"divergence; pick the convention that matches your consumer until "
-            f"unified."
-        )
-
-    if not is_judgment and looks_ratio:
-        return (
-            f"Service '{service_name}' SLO '{slo.name}' has target={target} "
-            f"(ratio convention) but is a {slo.slo_type} SLO consumed by "
-            f"observe, which uses percentage convention (0-100; e.g. "
-            f"target=99.9 for 99.9% availability). See opensrm-pa2w for the "
-            f"cross-subsystem divergence; pick the convention that matches "
-            f"your consumer until unified."
+            f"which looks like a ratio (0.0-1.0). This codebase uses 0-100 "
+            f"percentage canonical for SLO targets — write '{target * 100}' "
+            f"for a {kind} SLO. The OpenSLO surface converts to ratio at "
+            f"the boundary; manifest values stay in percentage."
         )
 
     return None

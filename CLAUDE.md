@@ -214,25 +214,20 @@ All canned text is JSON shaped to match the schema each respond agent's `_parse_
 
 **Tests:** `tests/test_llm_stub.py` — 26 tests covering role detection (incl. `None` system, case-insensitive marker match), all four respond agent shapes, both structured callers, env-var case/whitespace variants (`CANNED`, ` canned `, `canned\n`), env-var-unset preserves HTTP path, unknown structured model raises clearly, name-collision with incompatible shape raises with qualified path.
 
-## SLO target convention (v1.5)
+## SLO target convention
 
-**Honest documentation: there is no single canonical convention.** The `manifest.SLODefinition.target` field is consumed by three subsystems with different conventions for the same value:
+**0-100 percentage canonical** (opensrm-5fff, decision recorded at `nthlayer/docs/superpowers/specs/2026-05-06-slo-target-convention-decision.md`).
 
-| Consumer | Convention | Example |
-|---|---|---|
-| `observe` (worker SLO collector) | **0-100 percentage** | availability `target=99.9` for 99.9% |
-| `measure` (judgment SLO worker) | **0.0-1.0 ratio** | reversal_rate `target=0.985` for ≤1.5% threshold |
-| `slo_models.SLO` (OpenSLO model — separate dataclass) | **0.0-1.0 ratio** | OpenSLO standard |
+`manifest.SLODefinition.target` uses 0-100 percentage convention across all NthLayer-internal consumers. Examples:
 
-The cross-subsystem divergence is a known correctness gap tracked in **opensrm-pa2w.followup**. With the post-`opensrm-xte` `target=98.5` value on fraud-detect's reversal_rate, observe computes the right error budget (1.5%) but measure's `_classify_budget_consumption` hits its `budget = 1.0 - target = -97.5` guard and returns "critical" for every breach regardless of severity. No single value satisfies both subsystems' arithmetic.
+- Classical SLO: `availability target=99.9` for 99.9% availability
+- Judgment SLO: `reversal_rate target=98.5` (SLI is `1 - reversal_rate * 100`; breach when SLI drops below 98.5)
 
-For v1.5, follow the convention of the **consumer** your manifest targets:
+`observe.collector` and `measure.worker` both compute against percentage targets directly. The `measure.worker._evaluate_slo` path scales the Prometheus SLI (always 0.0-1.0 ratio from PromQL) to percentage with `current_pct = current_value * 100` before comparing to the target.
 
-- SLOs consumed by **observe** (classical: availability, error_rate, latency, throughput): use **0-100 percentage** (e.g. `target: 99.9`).
-- SLOs consumed by **measure** (judgment SLOs with `judgment_type` set, e.g. reversal_rate): use **0.0-1.0 ratio** (e.g. `target: 0.985`).
-- OpenSLO-shaped SLOs in `slo_models.SLO` (separate code path, ratio): unchanged.
+The OpenSLO surface (`nthlayer_common.slo_models.SLO`) uses 0.0-1.0 ratio. Conversion happens at the boundary in `nthlayer-generate.slos.pipeline._build_slo_from_manifest` which divides by 100.0 unconditionally.
 
-A load-time validator in `nthlayer_common.manifest.target_validation` flags likely unit errors (classical SLO with `target<1.0`, judgment SLO with `target>1.0`) via `TargetConventionWarning` (subclass of `UserWarning`). Heuristic, never rejects: filter via `warnings.filterwarnings(action, category=TargetConventionWarning)` if a particular manifest is intentionally ambiguous. Tests in `tests/test_target_validation.py` (17 tests) pin behaviour at the convention boundaries.
+A load-time validator in `nthlayer_common.manifest.target_validation` flags targets in the (0, 1) range as likely ratio author errors via `TargetConventionWarning` (subclass of `UserWarning`). Filterable via `warnings.filterwarnings(action, category=TargetConventionWarning)`. Tests in `tests/test_target_validation.py` pin behaviour at the boundaries.
 
 <!-- AUTO-MANAGED: dependencies -->
 ## Dependencies
