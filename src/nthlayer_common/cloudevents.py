@@ -24,16 +24,14 @@ _DEFAULT_DEPLOYMENT_ID = os.environ.get("NTHLAYER_DEPLOYMENT_ID", "default")
 # Pattern: io.nthlayer.<category>.<subtype>.v1
 # Categories: verdict, assessment, change, audit, alert
 
-# CloudEvents type-attribute validation reuses VALID_VERDICT_TYPES as its
-# source of truth — keeps the wire format and the typed-column model in
-# lockstep. Adding a new verdict type happens once, in
-# nthlayer_common.verdicts.models, and both the typed column and the
-# CloudEvents envelope pick it up.
+# Wire-format validation reuses VALID_VERDICT_TYPES; ASSESSMENT_KINDS is
+# the parallel canonical set for observations. Verdicts are decisions,
+# assessments are observations — adding a new kind happens here for
+# observations, in verdicts.models for decisions.
+# See docs/superpowers/decisions/verdict-assessment-taxonomy-boundary.md
 _VERDICT_TYPES = VALID_VERDICT_TYPES
 
-# Public constant — canonical set of assessment kinds. Modules that need
-# to validate assessment kinds should import this rather than maintaining
-# local copies.
+# Public constant — canonical set of assessment kinds.
 ASSESSMENT_KINDS = frozenset({
     "slo_status",
     "judgment_slo_evaluation",

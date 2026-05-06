@@ -21,14 +21,12 @@ VALID_OUTCOME_STATUSES = frozenset({
     "confirmed", "overridden", "partial", "superseded", "expired",
 })
 
-# Verdict types from OPENSRM-RBAC-EXTENSION-v2 §10 + v1.5 additions.
-# These are judgment-bearing decisions, not observations. Observations
-# (correlation_snapshot, topology_drift, contract_divergence) are
-# assessments — see nthlayer_common.cloudevents.ASSESSMENT_KINDS.
-#
-# This is the canonical source for verdict types — nthlayer_common.cloudevents
-# imports it as the basis for CloudEvents type-attribute validation rather
-# than maintaining a parallel set.
+# Canonical source for verdict types — judgment-bearing decisions only.
+# Observations (correlation_snapshot, topology_drift, contract_divergence)
+# are assessments; see nthlayer_common.cloudevents.ASSESSMENT_KINDS.
+# nthlayer_common.cloudevents imports this set as the basis for CloudEvents
+# type-attribute validation, keeping wire format and typed-column in lockstep.
+# See docs/superpowers/decisions/verdict-assessment-taxonomy-boundary.md
 VALID_VERDICT_TYPES = frozenset({
     # Auth flow (RBAC §10)
     "action_request",
