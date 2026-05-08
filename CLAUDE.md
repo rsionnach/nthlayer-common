@@ -202,6 +202,10 @@ All canned text is JSON shaped to match the schema each respond agent's `_parse_
 |---|---|
 | `EvaluationResult` (measure evaluator) | one passing `DimensionScore` (score=0.85), `confidence=0.8` |
 | `SnapshotSummary` (correlate snapshot summary) | stub summary string, empty `notable_omissions` |
+| `TriageResponse` (respond triage agent, P3-E.2) | severity=2, blast_radius=["fraud-detect"], assigned_team="payments", confidence=0.7 |
+| `InvestigationResponse` (respond investigation agent, P3-E.2) | single deploy-regression hypothesis, root_cause set, confidence=0.8 |
+| `CommunicationResponse` (respond communication agent, P3-E.2) | single status_page update, update_type="initial", confidence=0.7 |
+| `RemediationResponse` (respond remediation agent, P3-E.2) | proposed_action="rollback", target="fraud-detect", requires_human_approval=True, confidence=0.7 |
 | (anything else) | `NotImplementedError` — prevents new structured-call sites silently producing garbage |
 
 `structured_call_with_usage()` wraps the canned model in `StructuredCallResult(data=…, usage=StructuredCallUsage(0, 0))`.
