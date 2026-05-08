@@ -359,6 +359,60 @@ class TestV2Parser:
             parse_opensrm_v2(data)
 
 
+# All 8 judgment SLO types declared in OPENSRM-CORE-v2 §5.2 (opensrm-b22.1
+# acceptance criterion: "All 8 judgment SLO types parseable"). Each type
+# has a distinct target field name; the v2 parser maps them via
+# _extract_judgment_target's target_fields dict.
+_JUDGMENT_TYPE_TARGETS = [
+    ("reversal_rate", "maximum_reversal_rate", 0.05),
+    ("high_confidence_failure", "maximum_failure_rate", 0.01),
+    ("audit_sampling", "audit_completion_rate", 0.95),
+    ("outcomes", "desired_outcome_rate", 0.90),
+    ("escalation", "maximum_escalation_rate", 0.10),
+    ("segments", "maximum_variance_from_overall", 0.15),
+    ("stability", "maximum_drift", 0.05),
+    ("calibration", "maximum_brier_score", 0.20),
+]
+
+
+@pytest.mark.parametrize("judgment_type,target_field,target_value", _JUDGMENT_TYPE_TARGETS)
+def test_v2_parser_handles_each_judgment_slo_type(
+    judgment_type: str, target_field: str, target_value: float
+) -> None:
+    """Every judgment_type in OPENSRM-CORE-v2 §5.2 parses via the v2 parser.
+
+    Pins opensrm-b22.1 acceptance: "All 8 judgment SLO types parseable".
+    Each type carries its own target field name; verifies the type
+    survives the round-trip with the input target value.
+    """
+    data = {
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "svc", "labels": {"tier": "critical"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": {"name": "svc"},
+            "judgment_slo": [
+                {
+                    "metadata": {"name": f"svc-{judgment_type}"},
+                    "spec": {
+                        "judgment_type": judgment_type,
+                        "measurement": {"window": "7d", "source": "lineage"},
+                        "target": {target_field: target_value},
+                    },
+                }
+            ],
+        },
+    }
+    manifest = parse_opensrm_v2(data)
+    judgment_slos = manifest.get_judgment_slos()
+    assert len(judgment_slos) == 1
+    slo = judgment_slos[0]
+    assert slo.judgment_type == judgment_type
+    assert slo.target == target_value
+    assert slo.is_judgment_slo() is True
+
+
 # =============================================================================
 # OpenSLO Parser
 # =============================================================================
