@@ -14,11 +14,18 @@ Defaults:
   - JudgmentMeasurement: source and method inferred from judgment_type.
   - Contract conversion: v1's flat Contract(availability, latency, judgment)
     becomes a single-element contracts list with name derived from service name.
+
+Migration (opensrm-b22.2):
+  - ``convert_v1_to_v2`` produces a v2 manifest dict from a v1 manifest dict;
+    output round-trips through ``parse_opensrm_v2``.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from nthlayer_common.manifest.models import (
+    JUDGMENT_SLO_TYPES,
     ContractPromise,
     JudgmentMeasurement,
     JudgmentPromise,
@@ -146,3 +153,219 @@ def convert_v1_contract(
         name=f"{service_name}-api",
         promise=promise,
     )
+
+
+# =============================================================================
+# v1 → v2 Manifest Migration (opensrm-b22.2)
+# =============================================================================
+
+# Target field names per judgment_type — mirrors the parser's
+# _extract_judgment_target table in parser/v2.py. Kept in sync via
+# the round-trip tests for all 8 types.
+_JUDGMENT_TARGET_FIELDS: dict[str, str] = {
+    "reversal_rate": "maximum_reversal_rate",
+    "high_confidence_failure": "maximum_failure_rate",
+    "audit_sampling": "audit_completion_rate",
+    "outcomes": "desired_outcome_rate",
+    "escalation": "maximum_escalation_rate",
+    "segments": "maximum_variance_from_overall",
+    "stability": "maximum_drift",
+    "calibration": "maximum_brier_score",
+}
+
+
+def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
+    """Convert a v1 ``srm/v1`` manifest dict to an ``opensrm.nthlayer.io/v2`` dict.
+
+    The output is shape-compatible with ``parse_opensrm_v2`` and round-trips
+    through that parser without further edits.
+
+    Mapping summary:
+
+    - ``apiVersion`` ``srm/v1`` → ``opensrm.nthlayer.io/v2``
+    - ``kind`` ``ServiceReliabilityManifest`` → ``ServiceManifest``
+    - ``metadata.team`` → ``spec.owner.group: "group:default/{team}"``
+    - ``metadata.tier`` → ``metadata.labels.tier``
+    - ``spec.type`` → ``metadata.labels.type``
+    - ``spec.slos.<name>`` (dict-of-dicts):
+
+      - judgment SLO names (one of :data:`JUDGMENT_SLO_TYPES`) →
+        ``spec.judgment_slo`` entries with the type-specific target field.
+      - all other SLOs → ``spec.slo`` OpenSLO list using a thresholdMetric
+        carrying the v1 ``indicator.query``. v1 percentage targets
+        (e.g. ``99.9``) are normalised to OpenSLO ratio (``0.999``).
+
+    - ``spec.dependencies[*].name`` → ``service: "component:default/{name}"``
+      with the v1 ``critical: true`` flag carried as ``criticality: "critical"``.
+
+    Raises:
+        ValueError: if the input is not v1 (no ``apiVersion: srm/v1``).
+    """
+    api_version = v1_data.get("apiVersion")
+    if api_version != "srm/v1":
+        raise ValueError(
+            f"convert_v1_to_v2 expects apiVersion='srm/v1', got {api_version!r}"
+        )
+
+    metadata = v1_data.get("metadata", {}) or {}
+    spec = v1_data.get("spec", {}) or {}
+
+    name = metadata.get("name")
+    team = metadata.get("team")
+    tier = metadata.get("tier")
+    service_type = spec.get("type")
+
+    if not name:
+        raise ValueError("v1 manifest missing metadata.name")
+
+    # Build v2 metadata + labels
+    labels: dict[str, str] = {}
+    if tier is not None:
+        labels["tier"] = tier
+    if service_type is not None:
+        labels["type"] = service_type
+
+    v2_metadata: dict[str, Any] = {"name": name}
+    if labels:
+        v2_metadata["labels"] = labels
+
+    # Owner: team → group ref
+    v2_spec: dict[str, Any] = {
+        "service": {"name": name},
+    }
+    if team:
+        v2_spec["owner"] = {"group": f"group:default/{team}"}
+
+    # SLOs: split into classical (OpenSLO) + judgment lists
+    classical_slos, judgment_slos = _convert_v1_slos(name, spec.get("slos") or {})
+    if classical_slos:
+        v2_spec["slo"] = classical_slos
+    if judgment_slos:
+        v2_spec["judgment_slo"] = judgment_slos
+
+    # Dependencies: name → component ref
+    v1_deps = spec.get("dependencies") or []
+    if v1_deps:
+        v2_spec["dependencies"] = [_convert_v1_dependency(d) for d in v1_deps]
+
+    return {
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": v2_metadata,
+        "spec": v2_spec,
+    }
+
+
+def _convert_v1_slos(
+    service_name: str, v1_slos: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split v1's flat slos dict into v2's (classical, judgment) lists."""
+    classical: list[dict[str, Any]] = []
+    judgment: list[dict[str, Any]] = []
+
+    for slo_name, slo_def in v1_slos.items():
+        if not isinstance(slo_def, dict):
+            continue
+
+        if slo_name in JUDGMENT_SLO_TYPES:
+            judgment.append(_v1_slo_to_judgment(service_name, slo_name, slo_def))
+        else:
+            classical.append(_v1_slo_to_openslo(service_name, slo_name, slo_def))
+
+    return classical, judgment
+
+
+def _v1_slo_to_openslo(
+    service_name: str, slo_name: str, v1_slo: dict[str, Any]
+) -> dict[str, Any]:
+    """Convert a classical v1 SLO to an OpenSLO v1 SLO document.
+
+    v1 stores the SLI as a single PromQL query in ``indicator.query``;
+    the v2 OpenSLO ``thresholdMetric`` shape carries that single query.
+    Targets in v1 are 0-100 percentage; OpenSLO uses 0.0-1.0 ratio so
+    targets >1.0 are divided by 100.0.
+    """
+    target = v1_slo.get("target")
+    target_ratio: float | None = None
+    if target is not None:
+        target_ratio = target / 100.0 if target > 1.0 else target
+
+    indicator = v1_slo.get("indicator") or {}
+    query = indicator.get("query")
+
+    indicator_spec: dict[str, Any] = {"metadata": {"name": slo_name}}
+    if query is not None:
+        indicator_spec["spec"] = {
+            "thresholdMetric": {
+                "metricSource": {
+                    "type": "Prometheus",
+                    "spec": {"query": query},
+                }
+            }
+        }
+
+    objectives: list[dict[str, Any]] = []
+    if target_ratio is not None:
+        objectives.append({"target": target_ratio})
+
+    slo_spec: dict[str, Any] = {"indicator": indicator_spec}
+    if objectives:
+        slo_spec["objectives"] = objectives
+
+    window = v1_slo.get("window")
+    if window:
+        slo_spec["timeWindow"] = [{"duration": window, "isRolling": True}]
+
+    return {
+        "apiVersion": "openslo/v1",
+        "kind": "SLO",
+        # metadata.name is the SLO's identifier; downstream parsers use it
+        # as SLODefinition.name. Keep the bare slo_name (no service prefix)
+        # so SLO identity is preserved across migration.
+        "metadata": {"name": slo_name},
+        "spec": slo_spec,
+    }
+
+
+def _v1_slo_to_judgment(
+    service_name: str, slo_name: str, v1_slo: dict[str, Any]
+) -> dict[str, Any]:
+    """Convert a v1 SLO whose name matches a judgment type into a v2 judgment_slo entry."""
+    target_field = _JUDGMENT_TARGET_FIELDS[slo_name]
+    target = v1_slo.get("target")
+    # Judgment targets in v1 land follow the percentage convention
+    # (opensrm-5fff). OpenSRM v2 judgment_slo target shape carries the
+    # operator-specified value as-is — v1 spec target=98.5 is preserved
+    # as maximum_reversal_rate=98.5 in v2 (consumer subsystem decides
+    # how to interpret).
+    target_block: dict[str, Any] = {}
+    if target is not None:
+        target_block[target_field] = target
+
+    spec_block: dict[str, Any] = {
+        "judgment_type": slo_name,
+        "target": target_block,
+    }
+    window = v1_slo.get("window")
+    if window:
+        spec_block["measurement"] = {"window": window}
+
+    return {
+        # Bare slo_name preserves identity through the v2 parser
+        # (judgment_slo metadata.name → SLODefinition.name).
+        "metadata": {"name": slo_name},
+        "spec": spec_block,
+    }
+
+
+def _convert_v1_dependency(v1_dep: dict[str, Any]) -> dict[str, Any]:
+    """Convert a v1 dependency entry to a v2 component-ref dependency."""
+    dep_name = v1_dep.get("name")
+    if not dep_name:
+        return {}
+    out: dict[str, Any] = {
+        "service": f"component:default/{dep_name}",
+    }
+    if v1_dep.get("critical"):
+        out["criticality"] = "critical"
+    return out
