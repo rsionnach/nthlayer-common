@@ -172,10 +172,13 @@ def _build_evaluation_result(response_model: type[T]) -> T:
 
 
 def _build_snapshot_summary(response_model: type[T]) -> T:
-    # Used by nthlayer_workers.correlate.summary.generate_summary
+    # Used by nthlayer_workers.correlate.summary.generate_summary.
+    # confidence=0.5 reflects "stub": ungrounded but not zero — operators
+    # filtering on confidence>0 still see the canned summary land.
     return response_model(  # type: ignore[call-arg]
         summary="Stub correlation summary: events grouped by domain.",
         notable_omissions=[],
+        confidence=0.5,
     )
 
 
