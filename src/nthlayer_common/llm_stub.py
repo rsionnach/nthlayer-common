@@ -179,6 +179,66 @@ def _build_snapshot_summary(response_model: type[T]) -> T:
     )
 
 
+def _build_triage_response(response_model: type[T]) -> T:
+    # Used by nthlayer_workers.respond.agents.triage.TriageAgent (P3-E.2).
+    return response_model(  # type: ignore[call-arg]
+        severity=2,
+        blast_radius=["fraud-detect"],
+        affected_slos=["reversal_rate"],
+        assigned_team="payments",
+        reasoning="Stub triage: severity 2 from canned LLM.",
+        confidence=0.7,
+    )
+
+
+def _build_investigation_response(response_model: type[T]) -> T:
+    # Used by nthlayer_workers.respond.agents.investigation.InvestigationAgent.
+    return response_model(  # type: ignore[call-arg]
+        hypotheses=[
+            {
+                "description": "Stub hypothesis: recent deploy regressed model judgment.",
+                "confidence": 0.8,
+                "evidence": ["stub-evidence-1"],
+                "change_candidate": None,
+            }
+        ],
+        root_cause="Stub root cause: canned investigation result.",
+        root_cause_confidence=0.8,
+        reasoning="Stub investigation reasoning.",
+        confidence=0.8,
+    )
+
+
+def _build_communication_response(response_model: type[T]) -> T:
+    # Used by nthlayer_workers.respond.agents.communication.CommunicationAgent.
+    return response_model(  # type: ignore[call-arg]
+        updates=[
+            {
+                "channel": "status_page",
+                "update_type": "initial",
+                "content": "Stub status update: investigating.",
+            }
+        ],
+        reasoning="Stub communication reasoning.",
+        confidence=0.7,
+    )
+
+
+def _build_remediation_response(response_model: type[T]) -> T:
+    # Used by nthlayer_workers.respond.agents.remediation.RemediationAgent.
+    # ``rollback`` is in the safe-action registry with requires_approval=True
+    # so the agent's approval ratchet exercises correctly.
+    return response_model(  # type: ignore[call-arg]
+        proposed_action="rollback",
+        target="fraud-detect",
+        risk_assessment="Stub risk: medium",
+        requires_human_approval=True,
+        autonomy_reduction={"recommended": False, "target_agent": "", "reason": ""},
+        reasoning="Stub remediation reasoning.",
+        confidence=0.7,
+    )
+
+
 # Registry is keyed by class __name__ — keeping the test fixtures simple
 # (they reuse the production names rather than coupling to production module
 # paths). The trade-off: an unrelated class with the same name will dispatch
@@ -187,6 +247,10 @@ def _build_snapshot_summary(response_model: type[T]) -> T:
 _STRUCTURED_FACTORIES: dict[str, Callable[[type[Any]], Any]] = {
     "EvaluationResult": _build_evaluation_result,
     "SnapshotSummary": _build_snapshot_summary,
+    "TriageResponse": _build_triage_response,
+    "InvestigationResponse": _build_investigation_response,
+    "CommunicationResponse": _build_communication_response,
+    "RemediationResponse": _build_remediation_response,
 }
 
 
