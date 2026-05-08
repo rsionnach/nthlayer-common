@@ -245,6 +245,7 @@ A load-time validator in `nthlayer_common.manifest.target_validation` flags targ
 - `openai>=1.50` — OpenAI SDK (used by `structured_call` via Instructor)
 - `opentelemetry-api>=1.28` — OTel API for cost-accounting telemetry (`telemetry.py`); graceful no-op if SDK not configured
 - `prometheus-client>=0.21` — Prometheus metrics exposition for self-observability (`metrics.py`)
+- `pygments>=2.20.0` — **transitive security pin** (CVE-2026-4539, bead opensrm-9uow.3); `rich ← instructor/typer` pulls pygments; pin explicit because `rich`'s own lower bound doesn't yet carry the fix; remove once it does
 - `pytest>=8.0` (dev) — test framework
 - `pytest-asyncio>=0.23` (dev) — async test support
 - `ruff>=0.8` (dev) — linter
