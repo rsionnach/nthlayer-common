@@ -201,7 +201,7 @@ All canned text is JSON shaped to match the schema each respond agent's `_parse_
 | `response_model` | Returns |
 |---|---|
 | `EvaluationResult` (measure evaluator) | one passing `DimensionScore` (score=0.85), `confidence=0.8` |
-| `SnapshotSummary` (correlate snapshot summary) | stub summary string, empty `notable_omissions` |
+| `SnapshotSummary` (correlate snapshot summary) | stub summary string, empty `notable_omissions`, `confidence=0.5` (ungrounded but non-zero — passes confidence>0 filters) |
 | `TriageResponse` (respond triage agent, P3-E.2) | severity=2, blast_radius=["fraud-detect"], assigned_team="payments", confidence=0.7 |
 | `InvestigationResponse` (respond investigation agent, P3-E.2) | single deploy-regression hypothesis, root_cause set, confidence=0.8 |
 | `CommunicationResponse` (respond communication agent, P3-E.2) | single status_page update, update_type="initial", confidence=0.7 |
