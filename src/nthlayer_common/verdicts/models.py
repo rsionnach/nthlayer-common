@@ -114,6 +114,12 @@ class Override:
     at: datetime | None = None
     action: str | None = None
     reasoning: str | None = None
+    # Optional gen_ai.override.* audit fields (spec §4 OTel canonical form).
+    # Carried on the verdict so reversal/HCF metrics can be recomputed and
+    # incident retrospectives have provenance for every override.
+    original_action: str | None = None
+    confidence_at_decision: float | None = None
+    source_system: str | None = None
 
 
 @dataclass
