@@ -21,6 +21,7 @@ from nthlayer_common.overrides import (
 from nthlayer_common.verdicts import (
     Judgment,
     MemoryStore,
+    Outcome,
     Producer,
     Subject,
     Verdict,
@@ -220,7 +221,6 @@ class TestApplyOverride:
     def test_terminal_status_blocks_override(self):
         # A verdict already resolved with ground truth must not be
         # silently flipped to "overridden" by a late webhook.
-        from nthlayer_common.verdicts.models import Outcome
         store = MemoryStore()
         verdict = _verdict()
         verdict.outcome = Outcome(status="confirmed", resolution="confirmed")
@@ -230,6 +230,19 @@ class TestApplyOverride:
         v = store.get("vrd-test-1")
         assert v is not None
         assert v.outcome.status == "confirmed"
+
+    def test_partial_status_blocks_override(self):
+        # 'partial' is non-terminal but settled — overriding it would
+        # contradict the partial ground-truth signal already attached.
+        store = MemoryStore()
+        verdict = _verdict()
+        verdict.outcome = Outcome(status="partial")
+        store.put(verdict)
+        result = apply_override_to_verdict(store, _event())
+        assert result is None
+        v = store.get("vrd-test-1")
+        assert v is not None
+        assert v.outcome.status == "partial"
 
 
 # ---------------------------------------------------------------------------

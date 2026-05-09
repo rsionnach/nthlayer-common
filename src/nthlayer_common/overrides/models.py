@@ -83,9 +83,7 @@ class OverrideEvent:
 
     @property
     def is_high_confidence_failure(self) -> bool:
-        """True iff the agent's confidence exceeded the HCF threshold.
-
-        None confidence does not count — HCF cannot be proven without
+        """None confidence does not count — HCF cannot be proven without
         a confidence signal at decision time.
         """
         return (
@@ -94,10 +92,8 @@ class OverrideEvent:
         )
 
     def to_otel_attributes(self) -> dict[str, Any]:
-        """Flatten to the OTel ``gen_ai.override.*`` attribute dict.
-
-        For the future sidecar's OTel emission path. None-valued fields
-        are dropped so the emitted span event matches the spec example.
+        """None-valued fields are dropped so the emitted span event
+        matches the spec § 4 example shape.
         """
         attrs: dict[str, Any] = {
             "gen_ai.override.decision_id": self.decision_id,
@@ -118,14 +114,7 @@ class OverrideEvent:
 
 
 def _resolve_path(payload: dict[str, Any], dotted: str) -> Any | None:
-    """Walk a dotted path through a nested dict.
-
-    Returns None when any intermediate key is missing or a non-dict is
-    encountered. Used by ``map_webhook_to_override`` to translate
-    arbitrary webhook shapes (Jira issues, Slack reactions, etc.) into
-    the canonical OverrideEvent without each adapter writing its own
-    walker.
-    """
+    """Walk a dotted path through a nested dict; return None on any miss."""
     cursor: Any = payload
     for part in dotted.split("."):
         if not isinstance(cursor, dict):
@@ -163,9 +152,7 @@ def map_webhook_to_override(
 
     if "timestamp" in kwargs and isinstance(kwargs["timestamp"], str):
         kwargs["timestamp"] = _parse_iso_timestamp(kwargs["timestamp"])
-    # Webhook payloads frequently stringify floats; coerce so the
-    # OverrideEvent range check raises a clean ValueError on a bad
-    # value rather than a TypeError on a "0.71" comparison.
+    # Coerce so the range check raises ValueError, not TypeError.
     if isinstance(kwargs.get("confidence_at_decision"), str):
         try:
             kwargs["confidence_at_decision"] = float(

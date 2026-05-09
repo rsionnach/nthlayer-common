@@ -24,11 +24,8 @@ from nthlayer_common.verdicts.store import VerdictStore
 logger = structlog.get_logger(__name__)
 
 
-# Outcome statuses that already represent a settled judgment. Re-applying
-# an override on top would silently rewrite the audit trail, so the
-# integration boundary refuses and logs instead. "overridden" is treated
-# specially below to preserve idempotency on retries.
-_TERMINAL_STATUSES = frozenset({"confirmed", "superseded", "expired"})
+# "overridden" is handled separately below for idempotency.
+_OPEN_FOR_OVERRIDE = frozenset({"pending"})
 
 
 def _build_override(
@@ -68,8 +65,21 @@ def apply_override_to_verdict(
     content (different reviewer, different corrected_action, etc.) on an
     already-overridden verdict is rejected with a warning — silently
     rewriting an audit trail is worse than refusing and surfacing the
-    conflict for operator attention. Verdicts in confirmed / superseded
-    / expired status are similarly protected.
+    conflict for operator attention. Only ``pending`` verdicts are open
+    to a fresh override; ``confirmed``, ``superseded``, ``expired``,
+    ``partial`` and unrecognised future statuses are similarly refused.
+
+    A retry with a *different* ``OverridePrivacyConfig`` (e.g. plaintext
+    after the first apply was hashed) will have a different ``by``
+    field and surface as a conflict; privacy is a deployment-level
+    setting and should not vary per call.
+
+    The semantic is first-write-wins: ``event.timestamp`` is recorded
+    on the override but never used to order replays. A legitimate later
+    correction by a different reviewer surfaces as a conflict requiring
+    operator action. Idempotency requires the replay to carry the same
+    payload including timestamp — a re-issued event with a fresh wall
+    clock will not match the stored ``Override.at`` and conflicts.
 
     The reviewer field is hashed by default; pass ``privacy`` with
     ``plaintext_reviewer=True`` to opt in. ``exclude_reason=True`` drops
@@ -78,8 +88,7 @@ def apply_override_to_verdict(
     GDPR-pseudonymisation baseline, not anonymisation. Operators with
     higher requirements should pre-hash with a per-deployment HMAC.
 
-    Unmatched decision_ids log a warning. The future sidecar
-    (opensrm-jmy.7) will buffer for retry; today the source replays.
+    Unmatched decision_ids log a warning.
     """
     privacy = privacy or OverridePrivacyConfig()
 
@@ -96,22 +105,22 @@ def apply_override_to_verdict(
     new_override = _build_override(event, privacy)
 
     current_status = verdict.outcome.status
+    existing = verdict.outcome.override
     if current_status == "overridden":
-        if verdict.outcome.override == new_override:
+        if existing == new_override:
             return verdict
         logger.warning(
             "override_conflicts_with_existing",
             decision_id=event.decision_id,
-            existing_reviewer=verdict.outcome.override.by
-                if verdict.outcome.override else None,
+            existing_reviewer=existing.by if existing else None,
             incoming_reviewer=new_override.by,
             source_system=event.source_system,
         )
         return None
 
-    if current_status in _TERMINAL_STATUSES:
+    if current_status not in _OPEN_FOR_OVERRIDE:
         logger.warning(
-            "override_blocked_by_terminal_status",
+            "override_blocked_by_status",
             decision_id=event.decision_id,
             status=current_status,
             source_system=event.source_system,
@@ -126,4 +135,13 @@ def apply_override_to_verdict(
         closed_at=event.timestamp,
     )
 
-    return store.update_outcome(event.decision_id, new_outcome)
+    try:
+        return store.update_outcome(event.decision_id, new_outcome)
+    except KeyError:
+        # TOCTOU race with a concurrent delete.
+        logger.warning(
+            "override_lost_race_to_concurrent_delete",
+            decision_id=event.decision_id,
+            source_system=event.source_system,
+        )
+        return None
