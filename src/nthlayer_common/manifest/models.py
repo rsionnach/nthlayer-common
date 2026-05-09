@@ -26,6 +26,7 @@ Tech debt (v2, not v1.5):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal
@@ -635,6 +636,116 @@ class Instrumentation:
 
 
 # =============================================================================
+# Outcomes — business value mapping for AI decisions (spec § 1)
+# =============================================================================
+
+
+# ISO 4217 alpha-3 currency code shape: three uppercase letters. The
+# parser only validates the shape; comprehensive code-validity is the
+# responsibility of finance-side consumers.
+_CURRENCY_PATTERN = re.compile(r"^[A-Z]{3}$")
+
+# Spec § 1 FailureCost.category enum.
+VALID_FAILURE_CATEGORIES = frozenset({
+    "financial_loss", "friction", "compliance", "reputational", "operational",
+})
+
+# Spec § 1 revenue.attribution enum.
+VALID_REVENUE_ATTRIBUTIONS = frozenset({"direct", "indirect", "supporting"})
+
+
+@dataclass
+class FailureCost:
+    """Per-failure cost for false-positive / false-negative decisions."""
+
+    cost: float
+    category: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.cost < 0:
+            raise ValueError(
+                f"FailureCost.cost must be >= 0; got {self.cost}"
+            )
+        if self.category is not None and self.category not in VALID_FAILURE_CATEGORIES:
+            raise ValueError(
+                f"FailureCost.category must be one of "
+                f"{sorted(VALID_FAILURE_CATEGORIES)}; got {self.category!r}"
+            )
+
+
+@dataclass
+class DecisionValue:
+    """Average value of a correct decision plus per-failure costs."""
+
+    correct: float
+    currency: str
+    false_positive: FailureCost | None = None
+    false_negative: FailureCost | None = None
+
+    def __post_init__(self) -> None:
+        if not _CURRENCY_PATTERN.match(self.currency):
+            raise ValueError(
+                f"DecisionValue.currency must be an ISO 4217 alpha-3 code; "
+                f"got {self.currency!r}"
+            )
+
+
+@dataclass
+class RevenueAttribution:
+    """Logical revenue signal — backend-agnostic."""
+
+    attribution: str | None = None
+    signal: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.attribution is not None and self.attribution not in VALID_REVENUE_ATTRIBUTIONS:
+            raise ValueError(
+                f"revenue.attribution must be one of "
+                f"{sorted(VALID_REVENUE_ATTRIBUTIONS)}; got {self.attribution!r}"
+            )
+        # Signal is mapped to a Prometheus metric (or other backend) by
+        # nthlayer-generate; identifier shape only here.
+        if self.signal is not None and not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", self.signal):
+            raise ValueError(
+                f"revenue.signal must be a valid identifier (alphanumeric + "
+                f"underscores); got {self.signal!r}"
+            )
+
+
+@dataclass
+class VolumeEstimate:
+    """Fallback volume estimate used only when real-time metrics are absent."""
+
+    estimated_daily_decisions: int | None = None
+    peak_multiplier: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.estimated_daily_decisions is not None and self.estimated_daily_decisions < 0:
+            raise ValueError(
+                f"volume.estimated_daily_decisions must be >= 0; "
+                f"got {self.estimated_daily_decisions}"
+            )
+        if self.peak_multiplier < 0:
+            raise ValueError(
+                f"volume.peak_multiplier must be >= 0; got {self.peak_multiplier}"
+            )
+
+
+@dataclass
+class Outcomes:
+    """Business outcome binding — financial impact configuration (spec § 1).
+
+    Optional sibling to ``slos`` and ``contracts``. Services without it
+    continue to report SLO percentages only; services with it get
+    financial impact in retrospectives and blast-radius assessments.
+    """
+
+    decision_value: DecisionValue
+    revenue: RevenueAttribution | None = None
+    volume: VolumeEstimate | None = None
+
+
+# =============================================================================
 # Main Manifest Model
 # =============================================================================
 
@@ -673,6 +784,7 @@ class ReliabilityManifest:
     deployment: DeploymentConfig | None = None
     contracts: list[ReliabilityContract] = field(default_factory=list)
     instrumentation: Instrumentation | None = None
+    outcomes: Outcomes | None = None
 
     # Alerting — type is Any because AlertingConfig lives in nthlayer-generate.
     # Common parser stores raw dict; nthlayer-generate post-processes.

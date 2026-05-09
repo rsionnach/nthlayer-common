@@ -29,12 +29,14 @@ from nthlayer_common.manifest.models import (
     BudgetPolicy,
     BudgetThresholds,
     ContractPromise,
+    DecisionValue,
     Dependency,
     DependencyCriticality,
     DependencySLO,
     DeploymentConfig,
     DeploymentGates,
     ErrorBudgetGate,
+    FailureCost,
     FallbackDeclaration,
     Instrumentation,
     JudgmentMeasurement,
@@ -42,6 +44,7 @@ from nthlayer_common.manifest.models import (
     ManifestEscalationStep,
     Observability,
     OnCallConfig,
+    Outcomes,
     Override,
     Ownership,
     PagerDutyConfig,
@@ -53,6 +56,7 @@ from nthlayer_common.manifest.models import (
     RequiredLog,
     RequiredMetric,
     RequiredTrace,
+    RevenueAttribution,
     RollbackConfig,
     RosterMember,
     RotationConfig,
@@ -63,6 +67,7 @@ from nthlayer_common.manifest.models import (
     StatisticalRequirements,
     StratifiedSample,
     TelemetryEvent,
+    VolumeEstimate,
 )
 
 __all__ = [
@@ -131,4 +136,10 @@ __all__ = [
     "RequiredTrace",
     "RequiredLog",
     "RequiredEvent",
+    # Outcomes (Missing Capabilities § 1)
+    "Outcomes",
+    "DecisionValue",
+    "FailureCost",
+    "RevenueAttribution",
+    "VolumeEstimate",
 ]

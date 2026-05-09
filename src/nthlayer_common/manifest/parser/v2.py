@@ -20,14 +20,16 @@ from nthlayer_common.manifest.models import (
     BreachAction,
     BreachSemantics,
     ContractPromise,
+    DecisionValue,
     Dependency,
     DependencyCriticality,
     DependencySLO,
+    FailureCost,
     FallbackDeclaration,
     Instrumentation,
     JudgmentMeasurement,
     JudgmentPromise,
-
+    Outcomes,
     Ownership,
     ProbeConfig,
     ReliabilityContract,
@@ -36,11 +38,13 @@ from nthlayer_common.manifest.models import (
     RequiredLog,
     RequiredMetric,
     RequiredTrace,
+    RevenueAttribution,
     SLODefinition,
     SamplingConfig,
     SourceFormat,
     StatisticalRequirements,
     StratifiedSample,
+    VolumeEstimate,
 )
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError, parse_openslo_slos
 from nthlayer_common.manifest.parser._shared import parse_observability
@@ -136,6 +140,9 @@ def parse_opensrm_v2(
     # Parse instrumentation (§8)
     instrumentation = _parse_instrumentation(spec.get("instrumentation"))
 
+    # Parse outcomes (Missing Capabilities § 1) — business value mapping
+    outcomes = _parse_outcomes(spec.get("outcomes"))
+
     # Parse observability (non-standard but commonly included)
     observability = parse_observability(spec.get("observability"))
 
@@ -161,6 +168,7 @@ def parse_opensrm_v2(
         observability=observability,
         contracts=contracts,
         instrumentation=instrumentation,
+        outcomes=outcomes,
         template_ref=template_ref,
         source_format=SourceFormat.OPENSRM_V2,
         source_file=source_file,
@@ -679,6 +687,96 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
         required_events=required_events,
     )
 
+
+# =============================================================================
+# Outcomes Parsing (Missing Capabilities § 1)
+# =============================================================================
+
+
+def _parse_outcomes(outcomes_data: dict[str, Any] | None) -> Outcomes | None:
+    # Distinguish absent ("outcomes:" key not present) from empty
+    # ("outcomes: {}", which is malformed since decision_value is
+    # required) — the latter must surface as a parse error.
+    if outcomes_data is None:
+        return None
+    if not isinstance(outcomes_data, dict):
+        raise OpenSRMV2ParseError(
+            "spec.outcomes must be a mapping if declared"
+        )
+
+    dv_data = outcomes_data.get("decision_value")
+    if not dv_data:
+        raise OpenSRMV2ParseError(
+            "spec.outcomes.decision_value is required when spec.outcomes is declared"
+        )
+
+    try:
+        decision_value = DecisionValue(
+            correct=dv_data["correct"],
+            currency=dv_data["currency"],
+            false_positive=_parse_failure_cost(dv_data.get("false_positive")),
+            false_negative=_parse_failure_cost(dv_data.get("false_negative")),
+        )
+    except KeyError as e:
+        raise OpenSRMV2ParseError(
+            f"spec.outcomes.decision_value missing required field: {e.args[0]}"
+        ) from e
+    except ValueError as e:
+        raise OpenSRMV2ParseError(f"spec.outcomes.decision_value: {e}") from e
+
+    revenue_data = outcomes_data.get("revenue")
+    revenue: RevenueAttribution | None = None
+    if revenue_data is not None:
+        try:
+            revenue = RevenueAttribution(
+                attribution=revenue_data.get("attribution"),
+                signal=revenue_data.get("signal"),
+            )
+        except ValueError as e:
+            raise OpenSRMV2ParseError(f"spec.outcomes.revenue: {e}") from e
+
+    volume_data = outcomes_data.get("volume")
+    volume: VolumeEstimate | None = None
+    if volume_data is not None:
+        # Explicit None handling — `null` in YAML lands as Python None
+        # and must not slip past the dataclass numeric guard as a TypeError.
+        peak = volume_data.get("peak_multiplier")
+        if peak is None:
+            peak = 1.0
+        try:
+            volume = VolumeEstimate(
+                estimated_daily_decisions=volume_data.get("estimated_daily_decisions"),
+                peak_multiplier=peak,
+            )
+        except ValueError as e:
+            raise OpenSRMV2ParseError(f"spec.outcomes.volume: {e}") from e
+
+    try:
+        return Outcomes(
+            decision_value=decision_value, revenue=revenue, volume=volume,
+        )
+    except ValueError as e:
+        raise OpenSRMV2ParseError(f"spec.outcomes: {e}") from e
+
+
+def _parse_failure_cost(data: dict[str, Any] | None) -> FailureCost | None:
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        raise OpenSRMV2ParseError(
+            "failure cost must be a mapping (keys: cost, category)"
+        )
+    try:
+        return FailureCost(
+            cost=data["cost"],
+            category=data.get("category"),
+        )
+    except KeyError as e:
+        raise OpenSRMV2ParseError(
+            f"failure cost missing required field: {e.args[0]}"
+        ) from e
+    except ValueError as e:
+        raise OpenSRMV2ParseError(f"failure cost: {e}") from e
 
 
 # =============================================================================
