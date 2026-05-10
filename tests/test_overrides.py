@@ -54,7 +54,7 @@ def _verdict(
 
 
 def _event(**overrides: object) -> OverrideEvent:
-    base: dict = {
+    base: dict[str, object] = {
         "decision_id": "vrd-test-1",
         "service": "fraud-detection",
         "corrected_action": "escalate_to_review",

@@ -24,7 +24,8 @@ from nthlayer_common.verdicts.store import VerdictStore
 logger = structlog.get_logger(__name__)
 
 
-# "overridden" is handled separately below for idempotency.
+# Allowlist gate: only "pending" verdicts accept a fresh override.
+# "overridden" is handled separately below for idempotency / conflict.
 _OPEN_FOR_OVERRIDE = frozenset({"pending"})
 
 
@@ -53,42 +54,23 @@ def apply_override_to_verdict(
     *,
     privacy: OverridePrivacyConfig | None = None,
 ) -> Verdict | None:
-    """Apply ``event`` to the verdict ``event.decision_id`` references.
+    """Bind ``event`` to the verdict ``event.decision_id`` references.
 
-    Returns the updated Verdict on success, or None when no verdict
-    matches (spec § 4 test scenario 5) or the verdict is already in a
-    terminal state that the override cannot override.
+    Returns the updated Verdict on success, or None when:
+    - no verdict matches the decision_id (unmatched; logs warning),
+    - the verdict is already overridden with conflicting content,
+    - the verdict is in a non-pending status that the override
+      cannot legitimately override (confirmed / superseded / expired
+      / partial / any unknown future status).
 
-    Idempotent: re-applying the same event to an already-overridden
-    verdict with the same Override content is a no-op and returns the
-    existing verdict (test scenario 11). A second event with *different*
-    content (different reviewer, different corrected_action, etc.) on an
-    already-overridden verdict is rejected with a warning — silently
-    rewriting an audit trail is worse than refusing and surfacing the
-    conflict for operator attention. Only ``pending`` verdicts are open
-    to a fresh override; ``confirmed``, ``superseded``, ``expired``,
-    ``partial`` and unrecognised future statuses are similarly refused.
+    Semantic is first-write-wins: ``event.timestamp`` is recorded on
+    the override but never used to order replays. Idempotent only when
+    the replay carries identical payload including timestamp.
 
-    A retry with a *different* ``OverridePrivacyConfig`` (e.g. plaintext
-    after the first apply was hashed) will have a different ``by``
-    field and surface as a conflict; privacy is a deployment-level
-    setting and should not vary per call.
-
-    The semantic is first-write-wins: ``event.timestamp`` is recorded
-    on the override but never used to order replays. A legitimate later
-    correction by a different reviewer surfaces as a conflict requiring
-    operator action. Idempotency requires the replay to carry the same
-    payload including timestamp — a re-issued event with a fresh wall
-    clock will not match the stored ``Override.at`` and conflicts.
-
-    The reviewer field is hashed by default; pass ``privacy`` with
-    ``plaintext_reviewer=True`` to opt in. ``exclude_reason=True`` drops
-    the reason. Note: SHA-256 of low-entropy reviewer identifiers
-    (emails, usernames) is reversible by enumeration — the hash is a
-    GDPR-pseudonymisation baseline, not anonymisation. Operators with
-    higher requirements should pre-hash with a per-deployment HMAC.
-
-    Unmatched decision_ids log a warning.
+    Reviewer is hashed by default (SHA-256, GDPR-pseudonymisation
+    baseline — not anonymisation; reversible by enumeration on
+    low-entropy inputs). Pass ``privacy=OverridePrivacyConfig(
+    plaintext_reviewer=True)`` to opt in.
     """
     privacy = privacy or OverridePrivacyConfig()
 
