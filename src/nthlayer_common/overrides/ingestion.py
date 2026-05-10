@@ -63,7 +63,7 @@ def apply_override_to_verdict(
       cannot legitimately override (confirmed / superseded / expired
       / partial / any unknown future status).
 
-    Semantic is first-write-wins: ``event.timestamp`` is recorded on
+    Semantic is first-writer-wins: ``event.timestamp`` is recorded on
     the override but never used to order replays. Idempotent only when
     the replay carries identical payload including timestamp.
 

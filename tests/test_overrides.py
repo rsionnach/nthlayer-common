@@ -410,9 +410,9 @@ class TestJmy11ConcurrencyRace:
         # None + a lost_race_to_concurrent_writer log, not a silent
         # last-writer-wins overwrite.
         class RacyStore(MemoryStore):
-            def update_outcome(self, vid, outcome, *, expected_status=None):
+            def update_outcome(self, verdict_id, outcome, *, expected_status=None):
                 raise OutcomeStatusMismatch(
-                    f"simulated concurrent writer for {vid}"
+                    f"simulated concurrent writer for {verdict_id}"
                 )
 
         store = RacyStore()
