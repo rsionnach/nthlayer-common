@@ -33,6 +33,7 @@ from nthlayer_common.verdicts.sqlite_store import SQLiteVerdictStore
 from nthlayer_common.verdicts.store import (
     AccuracyFilter,
     MemoryStore,
+    OutcomeStatusMismatch,
     VerdictFilter,
     VerdictStore,
 )
@@ -68,6 +69,7 @@ __all__ = [
     # Store
     "AccuracyFilter",
     "MemoryStore",
+    "OutcomeStatusMismatch",
     "SQLiteVerdictStore",
     "VerdictFilter",
     "VerdictStore",

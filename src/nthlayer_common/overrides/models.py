@@ -69,6 +69,14 @@ class OverrideEvent:
                 raise ValueError(
                     f"OverrideEvent.{name} is required (spec § 4)"
                 )
+        # Normalise empty strings on optional fields to None. A benign
+        # upstream change from omitting ``reason`` to sending ``""``
+        # would otherwise flip a legitimate replay from idempotent
+        # no-op into ``override_conflicts_with_existing`` against the
+        # stored ``reasoning=None`` form.
+        for name in ("original_action", "reason", "source_system"):
+            if getattr(self, name) == "":
+                setattr(self, name, None)
         if self.confidence_at_decision is not None:
             if not 0.0 <= self.confidence_at_decision <= 1.0:
                 raise ValueError(
@@ -113,14 +121,30 @@ class OverrideEvent:
         return attrs
 
 
-def _resolve_path(payload: dict[str, Any], dotted: str) -> Any | None:
-    """Walk a dotted path through a nested dict; return None on any miss."""
+_ABSENT: Any = object()
+"""Sentinel returned by ``_resolve_path`` when a dotted path doesn't resolve.
+
+Distinct from ``None`` so callers can tell ``{"x": None}`` (operator
+explicitly set null) apart from ``{}`` (key absent). Silently collapsing
+the two would mask malformed webhook payloads — e.g. a JSON ``null`` on
+``confidence_at_decision`` would look identical to an absent field and
+silently disable HCF accounting.
+"""
+
+
+def _resolve_path(payload: dict[str, Any], dotted: str) -> Any:
+    """Walk a dotted path through a nested dict.
+
+    Returns ``_ABSENT`` when any step misses; returns the resolved value
+    otherwise (which may itself be ``None`` if the payload explicitly
+    contains ``null``).
+    """
     cursor: Any = payload
     for part in dotted.split("."):
         if not isinstance(cursor, dict):
-            return None
+            return _ABSENT
         if part not in cursor:
-            return None
+            return _ABSENT
         cursor = cursor[part]
     return cursor
 
@@ -144,8 +168,12 @@ def map_webhook_to_override(
     kwargs: dict[str, Any] = {}
     for field_name, path in mapping.items():
         value = _resolve_path(payload, path)
-        if value is not None:
-            kwargs[field_name] = value
+        if value is _ABSENT:
+            continue
+        # Explicit ``None`` (JSON null) is preserved into kwargs so the
+        # required-field guard below can flag it as a malformed payload
+        # rather than silently collapsing it to "absent".
+        kwargs[field_name] = value
     for field_name, fallback in defaults.items():
         if field_name not in kwargs or kwargs[field_name] is None:
             kwargs[field_name] = fallback
@@ -164,14 +192,16 @@ def map_webhook_to_override(
                 f"{kwargs['confidence_at_decision']!r}"
             ) from exc
 
-    # Surface mapping-level gaps as ValueError naming the field, so a
-    # webhook integrator sees one error type at the boundary instead of
-    # a Python TypeError from the dataclass constructor.
+    # Required-field guard: only ``is None`` (absent or explicit-null)
+    # fails here. Empty string passes through so ``OverrideEvent``'s
+    # ``__post_init__`` produces the canonical "is required" message
+    # rather than this layer's misleading "could not be resolved".
     for required in ("decision_id", "service", "corrected_action", "reviewer"):
-        if not kwargs.get(required):
+        if kwargs.get(required) is None:
             raise ValueError(
-                f"OverrideEvent.{required} could not be resolved from "
-                f"webhook payload (mapping or defaults must supply it)"
+                f"OverrideEvent.{required} could not be resolved to a "
+                f"non-null value from webhook payload (mapping or "
+                f"defaults must supply it)"
             )
 
     return OverrideEvent(**kwargs)

@@ -11,7 +11,12 @@ from pathlib import Path
 from nthlayer_common.verdicts.core import resolve as _core_resolve
 from nthlayer_common.verdicts.models import AccuracyReport, Outcome, Verdict
 from nthlayer_common.verdicts.serialise import from_dict, to_dict
-from nthlayer_common.verdicts.store import AccuracyFilter, VerdictFilter, VerdictStore
+from nthlayer_common.verdicts.store import (
+    AccuracyFilter,
+    OutcomeStatusMismatch,
+    VerdictFilter,
+    VerdictStore,
+)
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS verdicts (
@@ -193,10 +198,16 @@ class SQLiteVerdictStore(VerdictStore):
             )
         return verdict
 
-    def update_outcome(self, verdict_id: str, outcome: Outcome) -> Verdict:
+    def update_outcome(
+        self,
+        verdict_id: str,
+        outcome: Outcome,
+        *,
+        expected_status: str | None = None,
+    ) -> Verdict:
         conn = self._conn()
         row = conn.execute(
-            "SELECT data FROM verdicts WHERE id = ?",
+            "SELECT data, outcome_status FROM verdicts WHERE id = ?",
             (verdict_id,),
         ).fetchone()
         if row is None:
@@ -205,17 +216,47 @@ class SQLiteVerdictStore(VerdictStore):
         verdict = from_dict(json.loads(row["data"]))
         verdict.outcome = outcome
         data = json.dumps(to_dict(verdict))
+        closed_at = (
+            outcome.closed_at.isoformat() if outcome.closed_at else None
+        )
 
-        conn.execute(
-            "UPDATE verdicts SET data = ?, outcome_status = ?, closed_at = ? WHERE id = ?",
-            (
-                data,
-                outcome.status,
-                outcome.closed_at.isoformat() if outcome.closed_at else None,
-                verdict_id,
-            ),
+        if expected_status is None:
+            conn.execute(
+                "UPDATE verdicts SET data = ?, outcome_status = ?, "
+                "closed_at = ? WHERE id = ?",
+                (data, outcome.status, closed_at, verdict_id),
+            )
+            conn.commit()
+            return verdict
+
+        # Cheap pre-check on the value we just read — gives a clear
+        # error before we even try the UPDATE in the common stale-read
+        # case.
+        if row["outcome_status"] != expected_status:
+            raise OutcomeStatusMismatch(
+                f"Verdict {verdict_id}: outcome.status is "
+                f"{row['outcome_status']!r}, expected {expected_status!r}"
+            )
+
+        # Conditional UPDATE: only one writer can transition the
+        # verdict away from expected_status. rowcount==0 means a
+        # concurrent writer beat us between SELECT and UPDATE.
+        cursor = conn.execute(
+            "UPDATE verdicts SET data = ?, outcome_status = ?, "
+            "closed_at = ? WHERE id = ? AND outcome_status = ?",
+            (data, outcome.status, closed_at, verdict_id, expected_status),
         )
         conn.commit()
+        if cursor.rowcount == 0:
+            after = conn.execute(
+                "SELECT outcome_status FROM verdicts WHERE id = ?",
+                (verdict_id,),
+            ).fetchone()
+            current = after["outcome_status"] if after else "<deleted>"
+            raise OutcomeStatusMismatch(
+                f"Verdict {verdict_id}: outcome.status raced to "
+                f"{current!r}, expected {expected_status!r}"
+            )
         return verdict
 
     def accuracy(self, criteria: AccuracyFilter) -> AccuracyReport:

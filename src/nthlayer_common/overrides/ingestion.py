@@ -19,7 +19,7 @@ from nthlayer_common.overrides.models import (
     hash_reviewer,
 )
 from nthlayer_common.verdicts.models import Outcome, Override, Verdict
-from nthlayer_common.verdicts.store import VerdictStore
+from nthlayer_common.verdicts.store import OutcomeStatusMismatch, VerdictStore
 
 logger = structlog.get_logger(__name__)
 
@@ -118,11 +118,24 @@ def apply_override_to_verdict(
     )
 
     try:
-        return store.update_outcome(event.decision_id, new_outcome)
+        return store.update_outcome(
+            event.decision_id, new_outcome, expected_status=current_status,
+        )
     except KeyError:
         # TOCTOU race with a concurrent delete.
         logger.warning(
             "override_lost_race_to_concurrent_delete",
+            decision_id=event.decision_id,
+            source_system=event.source_system,
+        )
+        return None
+    except OutcomeStatusMismatch:
+        # A concurrent writer transitioned the verdict between our
+        # status read and our update — last-writer-wins would silently
+        # drop one of two simultaneous Slack/Jira overrides. The CAS
+        # ensures only one wins; the other backs off without effect.
+        logger.warning(
+            "override_lost_race_to_concurrent_writer",
             decision_id=event.decision_id,
             source_system=event.source_system,
         )

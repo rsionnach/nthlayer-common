@@ -22,6 +22,7 @@ from nthlayer_common.verdicts import (
     Judgment,
     MemoryStore,
     Outcome,
+    OutcomeStatusMismatch,
     Producer,
     Subject,
     Verdict,
@@ -344,3 +345,161 @@ class TestWebhookMapping:
         )
         assert event.service == "fraud-detection"
         assert event.reviewer == "system-reviewer"
+
+
+# ---------------------------------------------------------------------------
+# opensrm-jmy.11 correctness fixes (surfaced by /r5-supervise dry-run on jmy.4)
+# ---------------------------------------------------------------------------
+
+
+class TestJmy11ConcurrencyRace:
+    """Verdict-store CAS prevents last-writer-wins on simultaneous overrides."""
+
+    def test_update_outcome_cas_raises_on_mismatch(self):
+        store = MemoryStore()
+        store.put(_verdict())
+        new_outcome = Outcome(status="overridden", resolution=None)
+        # Actual is "pending"; claim "overridden" → mismatch.
+        with pytest.raises(OutcomeStatusMismatch):
+            store.update_outcome(
+                "vrd-test-1", new_outcome, expected_status="overridden",
+            )
+        # Matching expected_status succeeds.
+        result = store.update_outcome(
+            "vrd-test-1", new_outcome, expected_status="pending",
+        )
+        assert result.outcome.status == "overridden"
+
+    def test_update_outcome_without_expected_status_is_unconditional(self):
+        # Backward compat: default expected_status=None preserves
+        # the prior last-writer-wins contract for non-override callers.
+        store = MemoryStore()
+        store.put(_verdict())
+        result = store.update_outcome(
+            "vrd-test-1", Outcome(status="overridden"),
+        )
+        assert result.outcome.status == "overridden"
+
+    def test_sqlite_cas_rejects_stale_pending_write(self, tmp_path):
+        # SQLite is the production store: deserialise-per-call avoids the
+        # in-process aliasing MemoryStore exhibits, so this is the actual
+        # race we're protecting against. Simulate the interleave: an
+        # unconditional first write (status pending → overridden), then a
+        # second CAS write that still believes status is pending.
+        from nthlayer_common.verdicts import SQLiteVerdictStore
+
+        db_path = str(tmp_path / "verdicts.db")
+        store = SQLiteVerdictStore(db_path)
+        try:
+            store.put(_verdict())
+            store.update_outcome(
+                "vrd-test-1", Outcome(status="overridden"),
+            )
+            with pytest.raises(OutcomeStatusMismatch):
+                store.update_outcome(
+                    "vrd-test-1",
+                    Outcome(status="overridden"),
+                    expected_status="pending",
+                )
+        finally:
+            store.close()
+
+    def test_apply_override_returns_none_when_cas_fails(self):
+        # apply_override_to_verdict's contract: a CAS miss (concurrent
+        # writer slipped in between our read and our update) surfaces as
+        # None + a lost_race_to_concurrent_writer log, not a silent
+        # last-writer-wins overwrite.
+        class RacyStore(MemoryStore):
+            def update_outcome(self, vid, outcome, *, expected_status=None):
+                raise OutcomeStatusMismatch(
+                    f"simulated concurrent writer for {vid}"
+                )
+
+        store = RacyStore()
+        store.put(_verdict())
+        result = apply_override_to_verdict(store, _event())
+        assert result is None
+
+
+class TestJmy11ResolvePathSentinel:
+    """_resolve_path distinguishes explicit null from absent."""
+
+    def test_explicit_null_required_field_raises_clearly(self):
+        with pytest.raises(ValueError, match="decision_id"):
+            map_webhook_to_override(
+                {"id": None},
+                mapping={"decision_id": "id"},
+                defaults={
+                    "service": "fraud-detection",
+                    "corrected_action": "escalate",
+                    "reviewer": "alice@example.com",
+                },
+            )
+
+    def test_explicit_null_optional_field_preserved_not_collapsed(self):
+        # Before the fix, a payload setting confidence_at_decision to
+        # JSON null was indistinguishable from absence and silently
+        # disabled HCF accounting. The sentinel preserves the explicit
+        # null, which OverrideEvent then keeps as None (HCF off, but
+        # the operator's intent is no longer hidden behind a default).
+        event = map_webhook_to_override(
+            {"id": "vrd-1", "conf": None},
+            mapping={
+                "decision_id": "id",
+                "confidence_at_decision": "conf",
+            },
+            defaults={
+                "service": "fraud-detection",
+                "corrected_action": "escalate",
+                "reviewer": "alice@example.com",
+            },
+        )
+        assert event.confidence_at_decision is None
+        assert not event.is_high_confidence_failure
+
+
+class TestJmy11EmptyStringRequiredField:
+    """Empty-string required field gets the canonical 'is required' message."""
+
+    def test_empty_string_required_field_message_names_field(self):
+        # Pre-fix: "could not be resolved" (misleading — value WAS
+        # resolved, just to ""). Post-fix: the empty string passes the
+        # mapping layer and OverrideEvent.__post_init__ surfaces the
+        # canonical "is required (spec § 4)" message.
+        with pytest.raises(ValueError, match=r"decision_id is required"):
+            map_webhook_to_override(
+                {"id": ""},
+                mapping={"decision_id": "id"},
+                defaults={
+                    "service": "fraud-detection",
+                    "corrected_action": "escalate",
+                    "reviewer": "alice@example.com",
+                },
+            )
+
+
+class TestJmy11EmptyStringOptionalNormalisation:
+    """Empty-string optional fields normalise to None on OverrideEvent."""
+
+    def test_empty_string_optional_fields_become_none(self):
+        event = _event(reason="", original_action="", source_system="")
+        assert event.reason is None
+        assert event.original_action is None
+        assert event.source_system is None
+
+    def test_empty_string_replay_is_idempotent_not_conflict(self):
+        # An upstream webhook that started sending reason="" instead of
+        # omitting the field would, pre-fix, flip a legitimate replay
+        # from idempotent no-op into override_conflicts_with_existing.
+        store = MemoryStore()
+        store.put(_verdict())
+
+        first = apply_override_to_verdict(store, _event(reason=None))
+        assert first is not None
+        assert first.outcome.override is not None
+        assert first.outcome.override.reasoning is None
+
+        second = apply_override_to_verdict(store, _event(reason=""))
+        assert second is not None, "empty-string replay must be idempotent"
+        assert second.outcome.status == "overridden"
+        assert second.outcome.override == first.outcome.override

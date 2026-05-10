@@ -11,6 +11,16 @@ from nthlayer_common.verdicts.core import resolve as _core_resolve
 from nthlayer_common.verdicts.models import AccuracyReport, GroundTruth, Outcome, Override, Verdict
 
 
+class OutcomeStatusMismatch(ValueError):
+    """Compare-and-swap miss on update_outcome's expected_status guard.
+
+    Raised when a caller supplies ``expected_status`` to ``update_outcome``
+    and the verdict's current status differs — either because a concurrent
+    writer transitioned it, or the caller's read is stale. Subclass of
+    ValueError so existing broad handlers stay backward compatible.
+    """
+
+
 @dataclass
 class VerdictFilter:
     producer_system: str | None = None
@@ -57,8 +67,22 @@ class VerdictStore(ABC):
         """Query verdicts matching a filter."""
 
     @abstractmethod
-    def update_outcome(self, verdict_id: str, outcome: Outcome) -> Verdict:
-        """Update a verdict's outcome."""
+    def update_outcome(
+        self,
+        verdict_id: str,
+        outcome: Outcome,
+        *,
+        expected_status: str | None = None,
+    ) -> Verdict:
+        """Update a verdict's outcome.
+
+        When ``expected_status`` is provided, the update is conditional:
+        the store performs a compare-and-swap on the current
+        ``outcome.status`` and raises :class:`OutcomeStatusMismatch` if
+        it does not equal ``expected_status``. Callers use this to detect
+        a concurrent writer that transitioned the verdict between their
+        read and their write.
+        """
 
     @abstractmethod
     def accuracy(self, criteria: AccuracyFilter) -> AccuracyReport:
@@ -169,11 +193,26 @@ class MemoryStore(VerdictStore):
             limit=0,
         ))
 
-    def update_outcome(self, verdict_id: str, outcome: Outcome) -> Verdict:
+    def update_outcome(
+        self,
+        verdict_id: str,
+        outcome: Outcome,
+        *,
+        expected_status: str | None = None,
+    ) -> Verdict:
         with self._lock:
             verdict = self._verdicts.get(verdict_id)
             if verdict is None:
                 raise KeyError(f"Verdict {verdict_id} not found")
+            if (
+                expected_status is not None
+                and verdict.outcome.status != expected_status
+            ):
+                raise OutcomeStatusMismatch(
+                    f"Verdict {verdict_id}: outcome.status is "
+                    f"{verdict.outcome.status!r}, expected "
+                    f"{expected_status!r}"
+                )
             verdict.outcome = outcome
             return verdict
 
