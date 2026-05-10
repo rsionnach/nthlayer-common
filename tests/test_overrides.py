@@ -404,6 +404,48 @@ class TestJmy11ConcurrencyRace:
         finally:
             store.close()
 
+    def test_sqlite_cas_against_deleted_row_reports_deleted(self, tmp_path):
+        # Edge case: a concurrent delete between our SELECT and our
+        # CAS UPDATE leaves rowcount==0 and the followup diagnostic
+        # SELECT returns None. The error message should distinguish
+        # this from a status transition so operators don't chase a
+        # phantom race when the verdict was actually removed.
+        from nthlayer_common.verdicts import SQLiteVerdictStore
+
+        db_path = str(tmp_path / "verdicts.db")
+        store = SQLiteVerdictStore(db_path)
+        try:
+            store.put(_verdict())
+            # Simulate a concurrent delete by dropping the row out of
+            # band, then attempting a CAS on the now-missing row.
+            conn = store._conn()
+            conn.execute("DELETE FROM verdicts WHERE id = ?", ("vrd-test-1",))
+            conn.commit()
+            with pytest.raises(KeyError, match="vrd-test-1"):
+                store.update_outcome(
+                    "vrd-test-1",
+                    Outcome(status="overridden"),
+                    expected_status="pending",
+                )
+        finally:
+            store.close()
+
+    def test_resolve_path_non_dict_intermediate_returns_absent(self):
+        # Defensive branch: a dotted path that walks through a
+        # non-dict value (e.g. a string) must return _ABSENT, not
+        # crash with TypeError. Verified via the public boundary —
+        # missing required field reports cleanly.
+        with pytest.raises(ValueError, match="decision_id"):
+            map_webhook_to_override(
+                {"a": "not-a-dict"},
+                mapping={"decision_id": "a.b.c"},
+                defaults={
+                    "service": "fraud-detection",
+                    "corrected_action": "escalate",
+                    "reviewer": "alice@example.com",
+                },
+            )
+
     def test_apply_override_returns_none_when_cas_fails(self):
         # apply_override_to_verdict's contract: a CAS miss (concurrent
         # writer slipped in between our read and our update) surfaces as
