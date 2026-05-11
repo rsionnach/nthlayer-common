@@ -196,8 +196,12 @@ class IncidentOpenedSignal:
 
     @property
     def service(self) -> str:
-        """Receivers dedup on (type, service, timestamp); the root-cause
-        service is the natural anchor for this signal."""
+        """Dedup anchor — same shape as the other outbound signals.
+
+        Receivers dedup on (type, service, timestamp) per spec § 5
+        principle 3. The root-cause service is the natural anchor
+        for this signal kind.
+        """
         return self.root_cause_service
 
     def __post_init__(self) -> None:

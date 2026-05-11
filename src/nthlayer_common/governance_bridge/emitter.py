@@ -94,6 +94,12 @@ class GovernanceBridgeEmitter:
         await self.close()
 
     async def close(self) -> None:
+        """Release the owned httpx client, if any.
+
+        Safe to call repeatedly. A subsequent ``emit()`` lazily
+        re-opens a fresh owned client — the emitter remains usable
+        after close, just at the cost of one new TCP connection.
+        """
         if self._owned_client and self._client is not None:
             await self._client.aclose()
             self._client = None
@@ -107,6 +113,10 @@ class GovernanceBridgeEmitter:
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
+            # Lazy-create on first emit() OR re-open after close().
+            # The ``_owned_client = True`` here matters only for the
+            # re-open case — ``__init__`` already set it when no
+            # external client was injected.
             self._client = httpx.AsyncClient(timeout=self.timeout)
             self._owned_client = True
         return self._client
