@@ -172,7 +172,10 @@ class GovernanceBridgeEmitter:
 
             if attempt < self.max_attempts:
                 await asyncio.sleep(min(backoff, self.max_backoff))
-                backoff *= self.backoff_factor
+                # Keep ``backoff`` bounded so very long retry tails on
+                # pathological configs don't grow the variable beyond
+                # its useful clamped range.
+                backoff = min(backoff * self.backoff_factor, self.max_backoff)
 
         logger.warning(
             "governance_bridge_emit_exhausted",
