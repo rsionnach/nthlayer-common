@@ -9,6 +9,7 @@ tracked in follow-up beads.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import httpx
@@ -438,6 +439,136 @@ class TestEmitter:
             assert client is not None
         # _client cleared after close.
         assert emitter._client is None
+
+
+# ---------------------------------------------------------------------------
+# Edge-case backfill (R5 pass 3)
+# ---------------------------------------------------------------------------
+
+
+class TestEmitterEdgeCases:
+    @pytest.mark.asyncio
+    async def test_emit_after_close_reopens_owned_client(self):
+        # Documented contract: close() is repeatable and a subsequent
+        # emit() lazily re-opens an owned client. Pins the lifecycle so
+        # a future refactor cannot silently regress to one-shot
+        # semantics. Uses an unreachable URL so fail-open gives a
+        # deterministic result without needing to inject a MockTransport
+        # (which would defeat the owned-client lifecycle under test).
+        emitter = GovernanceBridgeEmitter(
+            "http://127.0.0.1:1/nope",
+            max_attempts=1,
+            initial_backoff=0.001,
+            timeout=0.05,
+        )
+
+        r1 = await emitter.emit(_autonomy_signal())
+        assert r1.ok is False
+        first_client = emitter._client
+        assert first_client is not None
+
+        await emitter.close()
+        assert emitter._client is None
+
+        r2 = await emitter.emit(_autonomy_signal())
+        assert r2.ok is False
+        assert emitter._client is not None
+        assert emitter._client is not first_client
+
+        await emitter.close()
+
+    @pytest.mark.asyncio
+    async def test_emit_max_attempts_one_no_retry(self):
+        # Boundary case: max_attempts=1 means the loop emits exactly
+        # once and never sleeps. Important because the `if attempt <
+        # self.max_attempts` guard would otherwise be off-by-one.
+        attempts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts["n"] += 1
+            return httpx.Response(503)
+
+        emitter = _make_emitter(handler, max_attempts=1)
+        try:
+            result = await emitter.emit(_autonomy_signal())
+        finally:
+            await emitter.close()
+
+        assert result.ok is False
+        assert result.attempts == 1
+        assert attempts["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_unserialisable_payload_fails_open(self):
+        # Caller passes a signal whose payload contains non-JSON-
+        # serialisable values. Before the pre-encode boundary, this
+        # raised TypeError out of httpx and bypassed the fail-open
+        # contract. Now it returns EmitResult(ok=False, attempts=0).
+        class _BadSignal:
+            signal_type = "bad"
+            service = "x"
+
+            def to_payload(self) -> dict[str, object]:
+                return {"problem": object()}  # type: ignore[return-value]
+
+        emitter = GovernanceBridgeEmitter(
+            "http://x/", max_attempts=3, initial_backoff=0.001,
+        )
+        try:
+            result = await emitter.emit(_BadSignal())  # type: ignore[arg-type]
+        finally:
+            await emitter.close()
+
+        assert result.ok is False
+        assert result.status_code is None
+        # Never reaches the wire — caller bug, not a transient outage.
+        assert result.attempts == 0
+        assert "payload" in (result.error or "").lower()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_emits_each_get_own_result(self):
+        # httpx.AsyncClient supports concurrent requests; the emitter's
+        # backoff / last_status / last_error are local variables in
+        # each emit() call, so concurrent emits should not bleed state.
+        import asyncio
+
+        seen_services: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.read().decode("utf-8"))
+            seen_services.append(body["service"])
+            return httpx.Response(200)
+
+        emitter = _make_emitter(handler)
+        try:
+            results = await asyncio.gather(*[
+                emitter.emit(_autonomy_signal(service=f"svc-{i}"))
+                for i in range(5)
+            ])
+        finally:
+            await emitter.close()
+
+        assert all(r.ok for r in results)
+        assert all(r.attempts == 1 for r in results)
+        assert sorted(seen_services) == [f"svc-{i}" for i in range(5)]
+
+    @pytest.mark.asyncio
+    async def test_emit_ignores_response_body(self):
+        # The emitter's contract is "did the receiver acknowledge?".
+        # A 200 with garbage body is still a successful ack — pin it
+        # so a future refactor doesn't accidentally start parsing the
+        # response body for some misguided reason.
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"definitely not json")
+
+        emitter = _make_emitter(handler)
+        try:
+            result = await emitter.emit(_autonomy_signal())
+        finally:
+            await emitter.close()
+
+        assert result.ok is True
+        assert result.status_code == 200
 
 
 # ---------------------------------------------------------------------------

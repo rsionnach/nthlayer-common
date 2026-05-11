@@ -9,6 +9,7 @@ returns an :class:`EmitResult` and never raises.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -122,8 +123,39 @@ class GovernanceBridgeEmitter:
         return self._client
 
     async def emit(self, signal: _SignalLike) -> EmitResult:
-        """POST the signal payload. Retries transient failures, fails open."""
+        """POST the signal payload. Retries transient failures, fails open.
+
+        Concurrency note: ``client`` is captured once before the retry
+        loop, so a concurrent ``close()`` does not orphan the in-flight
+        call — the closed transport instead raises a transport error
+        that the existing handler catches, and the call fails-open
+        normally.
+        """
         payload = signal.to_payload()
+        # Pre-encode JSON outside the retry loop. A payload containing
+        # non-JSON-serialisable values (caller bug) would otherwise
+        # raise TypeError from ``client.post(json=...)`` mid-loop and
+        # bypass the fail-open contract.
+        try:
+            # Compact form (no inter-token whitespace) — matches what
+            # httpx's ``json=`` kwarg would have emitted internally, so
+            # this change of mechanism is transparent on the wire.
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "governance_bridge_emit_payload_unserialisable",
+                signal_type=signal.signal_type,
+                service=signal.service,
+                error=str(exc),
+            )
+            return EmitResult(
+                ok=False,
+                status_code=None,
+                signal_type=signal.signal_type,
+                attempts=0,
+                error=f"payload_serialisation: {exc}",
+            )
+
         client = self._get_client()
         backoff = self.initial_backoff
         last_status: int | None = None
@@ -133,7 +165,7 @@ class GovernanceBridgeEmitter:
             try:
                 response = await client.post(
                     self.webhook_url,
-                    json=payload,
+                    content=body,
                     headers=self._headers(),
                 )
             except (httpx.HTTPError, OSError) as exc:
