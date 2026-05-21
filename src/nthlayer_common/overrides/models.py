@@ -30,14 +30,22 @@ def hash_reviewer(reviewer: str) -> str:
 
 @dataclass
 class OverridePrivacyConfig:
-    """Privacy posture for override ingestion.
+    """Privacy policy for override processing.
 
-    Defaults are the spec § 4 GDPR-safe baseline: reviewer hashed,
-    reason stored. Operators opt in to plaintext / opt out of reason
-    storage explicitly.
+    Attributes:
+        pre_redacted: trust the wire; no further redaction. Set this when
+            the caller (e.g. nthlayer-override-adapter) has already applied
+            privacy policy at its boundary and the values arriving here are
+            already in their final form. opensrm-jmy.18.
+        plaintext_reviewer: alias for pre_redacted. DEPRECATED — use
+            pre_redacted instead. Will be removed in v2. Both flags trigger
+            the same code path in nthlayer_common.overrides.ingestion._build_override.
+        exclude_reason: drop the reason field from the resulting Override.
+            Independent of pre_redacted (a pre-redacted payload may still
+            have a reason that the caller decided to keep).
     """
-
-    plaintext_reviewer: bool = False
+    pre_redacted: bool = False
+    plaintext_reviewer: bool = False  # deprecated alias for pre_redacted
     exclude_reason: bool = False
 
 

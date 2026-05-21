@@ -54,6 +54,10 @@ def _verdict(
     )
 
 
+def _make_pending_verdict(decision_id: str) -> "Verdict":
+    return _verdict(vid=decision_id, service="fraud-detect")
+
+
 def _event(**overrides: object) -> OverrideEvent:
     base: dict[str, object] = {
         "decision_id": "vrd-test-1",
@@ -518,6 +522,66 @@ class TestJmy11EmptyStringRequiredField:
                     "reviewer": "alice@example.com",
                 },
             )
+
+
+class TestPreRedactedFlag:
+    """opensrm-jmy.18: pre_redacted flag with plaintext_reviewer as deprecated alias."""
+
+    def test_pre_redacted_true_skips_reviewer_hashing(self) -> None:
+        event = OverrideEvent(
+            decision_id="dec-1",
+            service="fraud-detect",
+            corrected_action="approve",
+            reviewer="already-hashed-hex",
+        )
+        privacy = OverridePrivacyConfig(pre_redacted=True)
+        store = MemoryStore()
+        store.put(_make_pending_verdict("dec-1"))
+
+        result = apply_override_to_verdict(store, event, privacy=privacy)
+
+        assert result is not None
+        assert result.outcome.override.by == "already-hashed-hex"
+
+    def test_plaintext_reviewer_remains_an_alias(self) -> None:
+        event = OverrideEvent(
+            decision_id="dec-2",
+            service="fraud-detect",
+            corrected_action="approve",
+            reviewer="already-hashed-hex",
+        )
+        store_a = MemoryStore()
+        store_a.put(_make_pending_verdict("dec-2"))
+        store_b = MemoryStore()
+        store_b.put(_make_pending_verdict("dec-2"))
+
+        r_pre = apply_override_to_verdict(
+            store_a, event, privacy=OverridePrivacyConfig(pre_redacted=True),
+        )
+        r_plain = apply_override_to_verdict(
+            store_b, event, privacy=OverridePrivacyConfig(plaintext_reviewer=True),
+        )
+
+        assert r_pre is not None and r_plain is not None
+        assert r_pre.outcome.override.by == r_plain.outcome.override.by == "already-hashed-hex"
+
+    def test_both_flags_set_together_behaves_identically(self) -> None:
+        event = OverrideEvent(
+            decision_id="dec-3",
+            service="fraud-detect",
+            corrected_action="approve",
+            reviewer="already-hashed-hex",
+        )
+        store = MemoryStore()
+        store.put(_make_pending_verdict("dec-3"))
+
+        result = apply_override_to_verdict(
+            store, event,
+            privacy=OverridePrivacyConfig(pre_redacted=True, plaintext_reviewer=True),
+        )
+
+        assert result is not None
+        assert result.outcome.override.by == "already-hashed-hex"
 
 
 class TestJmy11EmptyStringOptionalNormalisation:

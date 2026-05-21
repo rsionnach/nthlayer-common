@@ -32,11 +32,8 @@ _OPEN_FOR_OVERRIDE = frozenset({"pending"})
 def _build_override(
     event: OverrideEvent, privacy: OverridePrivacyConfig,
 ) -> Override:
-    reviewer = (
-        event.reviewer
-        if privacy.plaintext_reviewer
-        else hash_reviewer(event.reviewer)
-    )
+    trust_wire = privacy.plaintext_reviewer or privacy.pre_redacted
+    reviewer = event.reviewer if trust_wire else hash_reviewer(event.reviewer)
     return Override(
         by=reviewer,
         at=event.timestamp,
