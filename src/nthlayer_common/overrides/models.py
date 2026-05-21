@@ -128,6 +128,34 @@ class OverrideEvent:
                 attrs[otel_key] = value
         return attrs
 
+    def to_dict(self) -> dict:
+        """Canonical JSON-serializable dict for the HTTP wire (opensrm-jmy.18).
+
+        Distinct from to_otel_attributes (which prefixes keys with
+        gen_ai.override.*). Used by nthlayer-override-adapter when
+        POSTing to POST /verdicts/{id}/override.
+
+        None-valued optional fields are dropped (the receiver's
+        OverrideEvent dataclass defaults will fill them back in).
+        timestamp is ISO 8601 with offset.
+        """
+        out: dict = {
+            "decision_id": self.decision_id,
+            "service": self.service,
+            "corrected_action": self.corrected_action,
+            "reviewer": self.reviewer,
+            "timestamp": self.timestamp.isoformat(),
+        }
+        if self.original_action is not None:
+            out["original_action"] = self.original_action
+        if self.reason is not None:
+            out["reason"] = self.reason
+        if self.confidence_at_decision is not None:
+            out["confidence_at_decision"] = self.confidence_at_decision
+        if self.source_system is not None:
+            out["source_system"] = self.source_system
+        return out
+
 
 _ABSENT: Any = object()
 """Sentinel returned by ``_resolve_path`` when a dotted path doesn't resolve.

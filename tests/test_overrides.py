@@ -110,6 +110,48 @@ class TestOverrideEvent:
         assert "gen_ai.override.reason" not in attrs
         assert "gen_ai.override.confidence_at_decision" not in attrs
 
+    def test_to_dict_canonical_wire_shape(self) -> None:
+        """opensrm-jmy.18: to_dict produces a JSON-serializable canonical dict."""
+        event = OverrideEvent(
+            decision_id="dec-1",
+            service="fraud-detect",
+            corrected_action="approve",
+            reviewer="reviewer-hash",
+            original_action="reject",
+            reason="false positive",
+            confidence_at_decision=0.92,
+            source_system="slack-adapter",
+            timestamp=datetime(2026, 5, 20, 10, 33, 0, tzinfo=timezone.utc),
+        )
+        body = event.to_dict()
+        assert body == {
+            "decision_id": "dec-1",
+            "service": "fraud-detect",
+            "corrected_action": "approve",
+            "reviewer": "reviewer-hash",
+            "original_action": "reject",
+            "reason": "false positive",
+            "confidence_at_decision": 0.92,
+            "source_system": "slack-adapter",
+            "timestamp": "2026-05-20T10:33:00+00:00",
+        }
+        import json
+        assert json.dumps(body)  # raises on non-serialisable
+
+    def test_to_dict_drops_none_optional_fields(self) -> None:
+        event = OverrideEvent(
+            decision_id="dec-2",
+            service="fraud-detect",
+            corrected_action="approve",
+            reviewer="reviewer-hash",
+        )
+        body = event.to_dict()
+        assert "original_action" not in body
+        assert "reason" not in body
+        assert "confidence_at_decision" not in body
+        assert "source_system" not in body
+        assert "timestamp" in body  # timestamp is always present (default utcnow)
+
 
 # ---------------------------------------------------------------------------
 # Privacy
