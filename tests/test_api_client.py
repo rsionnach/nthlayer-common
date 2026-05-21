@@ -6,6 +6,7 @@ without requiring a running core process.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -239,6 +240,56 @@ class TestManifestMethods:
             assert result.ok
             assert result.data["name"] == "fraud-detect"
             mock.assert_called_once_with("GET", "/manifests/fraud-detect")
+
+
+class TestApplyOverride:
+    """opensrm-jmy.18: CoreAPIClient.apply_override happy path + status mapping."""
+
+    @pytest.mark.asyncio
+    async def test_apply_override_success(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "POST"
+            assert request.url.path == "/verdicts/dec-1/override"
+            assert json.loads(request.content) == {"reviewer": "h", "service": "s"}
+            return httpx.Response(200, json={"id": "dec-1", "status": "overridden"})
+
+        transport = httpx.MockTransport(handler)
+        api = CoreAPIClient(base_url="http://test", max_retries=0)
+        api._client = httpx.AsyncClient(transport=transport, base_url="http://test")
+        result = await api.apply_override("dec-1", {"reviewer": "h", "service": "s"})
+
+        assert result.ok is True
+        assert result.status_code == 200
+        assert result.data == {"id": "dec-1", "status": "overridden"}
+        await api.close()
+
+    @pytest.mark.asyncio
+    async def test_apply_override_404_returned_as_apiresult(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"error": "verdict_not_found"})
+
+        transport = httpx.MockTransport(handler)
+        api = CoreAPIClient(base_url="http://test", max_retries=0)
+        api._client = httpx.AsyncClient(transport=transport, base_url="http://test")
+        result = await api.apply_override("dec-missing", {"reviewer": "h"})
+
+        assert result.ok is False
+        assert result.status_code == 404
+        await api.close()
+
+    @pytest.mark.asyncio
+    async def test_apply_override_connection_failed(self) -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("simulated")
+
+        transport = httpx.MockTransport(handler)
+        api = CoreAPIClient(base_url="http://test", max_retries=0)
+        api._client = httpx.AsyncClient(transport=transport, base_url="http://test")
+        result = await api.apply_override("dec-1", {"reviewer": "h"})
+
+        assert result.ok is False
+        assert result.status_code == 0
+        await api.close()
 
 
 class TestContextManager:

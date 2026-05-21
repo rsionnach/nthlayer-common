@@ -201,6 +201,26 @@ class CoreAPIClient:
     async def resolve_outcome(self, verdict_id: str, outcome: dict) -> APIResult:
         return await self._request("POST", f"/verdicts/{verdict_id}/outcome", json=outcome)
 
+    async def apply_override(
+        self,
+        verdict_id: str,
+        payload: dict,
+    ) -> APIResult:
+        """Apply an operator override to a verdict (opensrm-jmy.18).
+
+        Calls POST /verdicts/{verdict_id}/override on the core API.
+
+        Status code mapping (interpret via result.status_code, not result.ok):
+            200 - applied (including idempotent re-apply)
+            404 - verdict_not_found (no record or concurrent delete)
+            409 - conflict (existing override differs OR CAS miss)
+            422 - validation_error (terminal status block or schema failure)
+            0   - connection failed (transport layer; result.error populated)
+
+        Does not raise; check result.ok and result.status_code.
+        """
+        return await self._request("POST", f"/verdicts/{verdict_id}/override", json=payload)
+
     # -- Assessments --
 
     async def submit_assessment(self, assessment: dict) -> APIResult:
