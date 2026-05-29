@@ -610,3 +610,77 @@ class TestLoader:
             m = load_manifest(spec_file)
             assert m.name
             assert m.source_format == SourceFormat.SRM_V1
+
+
+class TestExtractDeclaredDependencies:
+    """opensrm-dpws: shared declared-dep extraction across CLI (Manifest
+    dataclasses) and worker (raw HTTP dicts) retrospective paths."""
+
+    def test_extract_declared_dependencies_from_manifests(self):
+        """Manifest-dataclass input → {service: [dep_name, ...]}."""
+        from nthlayer_common.manifest import (
+            Dependency,
+            ReliabilityManifest,
+            extract_declared_dependencies,
+        )
+
+        m_a = ReliabilityManifest(
+            name="svc-a", team="t", tier="standard", type="api",
+            dependencies=[
+                Dependency(name="svc-b", type="api"),
+                Dependency(name="svc-c", type="api"),
+            ],
+        )
+        m_b = ReliabilityManifest(
+            name="svc-b", team="t", tier="standard", type="api",
+            dependencies=None,
+        )
+
+        result = extract_declared_dependencies(
+            from_manifests={"svc-a": m_a, "svc-b": m_b},
+        )
+        assert result == {"svc-a": ["svc-b", "svc-c"], "svc-b": []}
+
+    def test_extract_declared_dependencies_from_dicts(self):
+        """HTTP dict input (GET /manifests wire shape) → same output shape."""
+        from nthlayer_common.manifest import extract_declared_dependencies
+
+        manifest_dicts = [
+            {"name": "svc-a", "dependencies": [
+                {"name": "svc-b", "type": "api"},
+                {"name": "svc-c", "type": "api"},
+            ]},
+            {"name": "svc-b", "dependencies": []},
+            {"name": "svc-c"},  # missing dependencies key entirely
+        ]
+        result = extract_declared_dependencies(from_dicts=manifest_dicts)
+        assert result == {
+            "svc-a": ["svc-b", "svc-c"],
+            "svc-b": [],
+            "svc-c": [],
+        }
+
+    def test_extract_declared_dependencies_requires_exactly_one_input(self):
+        """Neither / both supplied → ValueError."""
+        import pytest
+        from nthlayer_common.manifest import extract_declared_dependencies
+
+        with pytest.raises(ValueError, match="exactly one"):
+            extract_declared_dependencies()
+        with pytest.raises(ValueError, match="exactly one"):
+            extract_declared_dependencies(
+                from_manifests={}, from_dicts=[],
+            )
+
+    def test_extract_declared_dependencies_skips_dict_with_no_name(self):
+        """Dict entries without a name key are silently skipped (mirrors
+        the _extract_service_slos precedent in observe/worker.py)."""
+        from nthlayer_common.manifest import extract_declared_dependencies
+
+        manifest_dicts = [
+            {"name": "svc-a", "dependencies": [{"name": "svc-b"}]},
+            {"dependencies": [{"name": "svc-x"}]},  # no name → skip
+            {"name": "", "dependencies": []},  # empty-string name → skip
+        ]
+        result = extract_declared_dependencies(from_dicts=manifest_dicts)
+        assert result == {"svc-a": ["svc-b"]}

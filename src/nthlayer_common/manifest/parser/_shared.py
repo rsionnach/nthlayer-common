@@ -20,3 +20,49 @@ def parse_observability(obs_data: dict[str, Any] | None) -> Observability | None
         grafana_url=obs_data.get("grafana_url"),
         labels=obs_data.get("labels", {}),
     )
+
+
+def extract_declared_dependencies(
+    *,
+    from_manifests: dict[str, Any] | None = None,
+    from_dicts: list[dict] | None = None,
+) -> dict[str, list[str]]:
+    """Build a {service_name: [dep_name, ...]} map from either Manifest
+    dataclass instances (CLI/YAML path) or raw HTTP wire dicts (worker
+    path). Exactly one of ``from_manifests`` / ``from_dicts`` must be
+    supplied.
+
+    Used by ``nthlayer-workers/learn`` retrospective generation
+    (opensrm-jmy.21 / opensrm-dpws) to populate
+    ``declared_dependencies_by_service`` on the retrospective payload.
+    Downstream consumers (``_add_dependency_recommendations``) treat
+    this map as the ground-truth view of operator-declared deps.
+
+    A manifest with ``dependencies = None`` produces an empty list for
+    that service; the absence of declared deps is itself information
+    downstream consumers want to record. Dict entries without a
+    non-empty ``name`` are silently skipped (mirrors the
+    ``_extract_service_slos`` precedent in observe/worker.py).
+    """
+    if (from_manifests is None) == (from_dicts is None):
+        raise ValueError(
+            "extract_declared_dependencies: supply exactly one of "
+            "from_manifests= or from_dicts="
+        )
+
+    if from_manifests is not None:
+        return {
+            service_name: [dep.name for dep in (manifest.dependencies or [])]
+            for service_name, manifest in from_manifests.items()
+        }
+
+    out: dict[str, list[str]] = {}
+    for m in from_dicts or []:
+        name = m.get("name")
+        if not name:
+            continue
+        out[name] = [
+            d.get("name") for d in (m.get("dependencies") or [])
+            if d.get("name")
+        ]
+    return out

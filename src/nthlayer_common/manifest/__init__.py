@@ -15,6 +15,7 @@ from nthlayer_common.manifest.parser.loader import (
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError
 from nthlayer_common.manifest.parser.v1 import OpenSRMParseError
 from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
+from nthlayer_common.manifest.parser._shared import extract_declared_dependencies
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
     STANDARD_SLO_TYPES,
@@ -74,6 +75,7 @@ __all__ = [
     # Loader
     "load_manifest",
     "is_manifest_file",
+    "extract_declared_dependencies",
     "ManifestLoadError",
     "LegacyFormatWarning",
     "OpenSLOParseError",
