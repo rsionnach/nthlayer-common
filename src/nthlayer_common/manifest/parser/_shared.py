@@ -56,15 +56,13 @@ def extract_declared_dependencies(
             for service_name, manifest in from_manifests.items()
         }
 
-    out: dict[str, list[str]] = {}
-    for m in from_dicts or []:
-        name = m.get("name")
-        if not name:
-            continue
-        dep_names: list[str] = []
-        for d in (m.get("dependencies") or []):
-            dep_name = d.get("name")
-            if dep_name:
-                dep_names.append(dep_name)
-        out[name] = dep_names
-    return out
+    # Mirror the dataclass branch's shape: dict-comp keyed by service
+    # name, value = list of dep names. The extra `if d.get("name")`
+    # filter is the only asymmetry — Manifest.Dependency.name is
+    # guaranteed by the dataclass; HTTP wire dicts can omit it.
+    return {
+        m["name"]: [
+            d["name"] for d in (m.get("dependencies") or []) if d.get("name")
+        ]
+        for m in (from_dicts or []) if m.get("name")
+    }
