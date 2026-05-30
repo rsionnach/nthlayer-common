@@ -7,9 +7,12 @@ import pytest
 import yaml
 
 from nthlayer_common.manifest import (
+    Dependency,
     ManifestLoadError,
     OpenSRMParseError,
     OpenSRMV2ParseError,
+    ReliabilityManifest,
+    extract_declared_dependencies,
     load_manifest,
 )
 from nthlayer_common.manifest.models import SourceFormat
@@ -618,12 +621,6 @@ class TestExtractDeclaredDependencies:
 
     def test_extract_declared_dependencies_from_manifests(self):
         """Manifest-dataclass input → {service: [dep_name, ...]}."""
-        from nthlayer_common.manifest import (
-            Dependency,
-            ReliabilityManifest,
-            extract_declared_dependencies,
-        )
-
         m_a = ReliabilityManifest(
             name="svc-a", team="t", tier="standard", type="api",
             dependencies=[
@@ -643,8 +640,6 @@ class TestExtractDeclaredDependencies:
 
     def test_extract_declared_dependencies_from_dicts(self):
         """HTTP dict input (GET /manifests wire shape) → same output shape."""
-        from nthlayer_common.manifest import extract_declared_dependencies
-
         manifest_dicts = [
             {"name": "svc-a", "dependencies": [
                 {"name": "svc-b", "type": "api"},
@@ -662,9 +657,6 @@ class TestExtractDeclaredDependencies:
 
     def test_extract_declared_dependencies_requires_exactly_one_input(self):
         """Neither / both supplied → ValueError."""
-        import pytest
-        from nthlayer_common.manifest import extract_declared_dependencies
-
         with pytest.raises(ValueError, match="exactly one"):
             extract_declared_dependencies()
         with pytest.raises(ValueError, match="exactly one"):
@@ -675,8 +667,6 @@ class TestExtractDeclaredDependencies:
     def test_extract_declared_dependencies_skips_dict_with_no_name(self):
         """Dict entries without a name key are silently skipped (mirrors
         the _extract_service_slos precedent in observe/worker.py)."""
-        from nthlayer_common.manifest import extract_declared_dependencies
-
         manifest_dicts = [
             {"name": "svc-a", "dependencies": [{"name": "svc-b"}]},
             {"dependencies": [{"name": "svc-x"}]},  # no name → skip

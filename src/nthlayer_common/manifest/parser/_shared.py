@@ -25,7 +25,7 @@ def parse_observability(obs_data: dict[str, Any] | None) -> Observability | None
 def extract_declared_dependencies(
     *,
     from_manifests: dict[str, Any] | None = None,
-    from_dicts: list[dict] | None = None,
+    from_dicts: list[dict[str, Any]] | None = None,
 ) -> dict[str, list[str]]:
     """Build a {service_name: [dep_name, ...]} map from either Manifest
     dataclass instances (CLI/YAML path) or raw HTTP wire dicts (worker
@@ -61,8 +61,10 @@ def extract_declared_dependencies(
         name = m.get("name")
         if not name:
             continue
-        out[name] = [
-            d.get("name") for d in (m.get("dependencies") or [])
-            if d.get("name")
-        ]
+        dep_names: list[str] = []
+        for d in (m.get("dependencies") or []):
+            dep_name = d.get("name")
+            if dep_name:
+                dep_names.append(dep_name)
+        out[name] = dep_names
     return out
