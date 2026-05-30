@@ -43,6 +43,13 @@ def extract_declared_dependencies(
     downstream consumers want to record. Dict entries without a
     non-empty ``name`` are silently skipped (mirrors the
     ``_extract_service_slos`` precedent in observe/worker.py).
+
+    Duplicate-name handling is delegated to the caller. In ``from_dicts``
+    mode the dict-comp collapses duplicates last-wins; callers needing
+    deterministic first-wins semantics (e.g. nthlayer-workers learn
+    worker) should pre-filter their input list. The dataclass branch
+    cannot encounter duplicates — ``dict[str, Manifest]`` is keyed by
+    service name at the loader level.
     """
     if (from_manifests is None) == (from_dicts is None):
         raise ValueError(
