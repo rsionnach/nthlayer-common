@@ -1,6 +1,5 @@
 """Tests for manifest parsers (v1, v2, OpenSLO, loader)."""
 
-import tempfile
 from pathlib import Path
 
 import pytest

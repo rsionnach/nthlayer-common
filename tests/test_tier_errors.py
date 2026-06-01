@@ -1,6 +1,5 @@
 """Tests for tier-boundary error types and retry decorator."""
 
-import asyncio
 
 import pytest
 

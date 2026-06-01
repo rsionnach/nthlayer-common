@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from nthlayer_common.telemetry import emit_llm_event, is_otel_available
 

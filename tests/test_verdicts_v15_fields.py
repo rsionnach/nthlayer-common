@@ -6,7 +6,6 @@ on the Verdict dataclass, and that they round-trip through serialisation.
 
 from datetime import datetime, timezone
 
-import pytest
 
 from nthlayer_common.verdicts import (
     Verdict,

@@ -1,6 +1,5 @@
 """Tests for self-observability Prometheus metrics."""
 
-import pytest
 
 from nthlayer_common.metrics import (
     api_requests_total,

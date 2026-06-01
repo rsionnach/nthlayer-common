@@ -1,7 +1,5 @@
 """Tests for unified configuration loading."""
 
-import os
-from pathlib import Path
 
 import pytest
 

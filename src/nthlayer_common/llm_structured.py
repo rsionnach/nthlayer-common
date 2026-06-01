@@ -10,13 +10,13 @@ Canonical import: ``from nthlayer_common.llm_structured import structured_call, 
 from __future__ import annotations
 
 import os
-from typing import TypeVar
+import threading
+from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
 from nthlayer_common.llm import DEFAULT_MODEL, TIMEOUT, LLMError
-
-import threading
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -154,10 +154,6 @@ def structured_call(
 # ---------------------------------------------------------------------------
 # structured_call_with_usage — returns model + token usage for cost accounting
 # ---------------------------------------------------------------------------
-
-
-from dataclasses import dataclass
-from typing import Generic
 
 
 @dataclass
