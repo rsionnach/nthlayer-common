@@ -7,8 +7,8 @@ Based on OpenSLO specification: https://github.com/OpenSLO/OpenSLO
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone, UTC
-from enum import Enum, StrEnum
+from datetime import datetime, timedelta, UTC
+from enum import StrEnum
 from typing import Any
 
 _DURATION_UNITS: dict[str, str] = {"d": "days", "h": "hours", "m": "minutes", "w": "weeks"}

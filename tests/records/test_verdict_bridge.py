@@ -1,7 +1,7 @@
 """Tests for the verdict bridge — building content-addressed Verdict records."""
 
 import hashlib
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from nthlayer_common.records.hashing import verify_hash
 from nthlayer_common.records.models import (

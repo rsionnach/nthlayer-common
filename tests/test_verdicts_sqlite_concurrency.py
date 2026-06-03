@@ -1,7 +1,7 @@
 """Concurrent access tests for SQLiteVerdictStore."""
 
 import threading
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 
 from nthlayer_common.verdicts.core import create, resolve
 from nthlayer_common.verdicts.models import Outcome

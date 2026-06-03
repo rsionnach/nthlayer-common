@@ -10,7 +10,7 @@ tracked in follow-up beads.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 import httpx
 import pytest

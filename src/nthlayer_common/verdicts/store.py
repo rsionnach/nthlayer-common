@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 
 from nthlayer_common.verdicts.core import resolve as _core_resolve
 from nthlayer_common.verdicts.models import (

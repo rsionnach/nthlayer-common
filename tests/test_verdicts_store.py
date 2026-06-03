@@ -1,6 +1,6 @@
 """Tests for verdict store operations."""
 
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 
 import pytest
 

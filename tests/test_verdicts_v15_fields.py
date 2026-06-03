@@ -4,7 +4,7 @@ Verifies pipeline_latency_ms, chain_depth, parent_ids, verdict_type, service
 on the Verdict dataclass, and that they round-trip through serialisation.
 """
 
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from nthlayer_common.verdicts import (
     VALID_VERDICT_TYPES,

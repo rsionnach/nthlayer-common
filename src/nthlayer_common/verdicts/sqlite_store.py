@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 from nthlayer_common.verdicts.core import resolve as _core_resolve

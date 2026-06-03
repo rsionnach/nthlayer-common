@@ -1,6 +1,6 @@
 """Shared test builders for decision record tests."""
 
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from nthlayer_common.records.hashing import canonical_json, compute_hash
 from nthlayer_common.records.models import (

@@ -12,7 +12,7 @@ Spec: NTHLAYER-TELEMETRY-ENVELOPE-v1 §3
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from typing import Any
 
 from nthlayer_common.verdicts.models import VALID_VERDICT_TYPES

@@ -13,7 +13,7 @@ since the same signal instance is re-emitted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from typing import Any
 
 # Bump when payload shape breaks compatibility. Receivers route on (type, version).

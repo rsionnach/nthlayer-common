@@ -1,6 +1,6 @@
 """Tests for content-addressed decision record models."""
 
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 
 from nthlayer_common.records.models import (
     Assessment,

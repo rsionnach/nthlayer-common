@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, UTC
+from datetime import datetime, UTC
 from typing import Any
 
 # Spec § 4: confidence > 0.85 increments the HCF judgment SLO counter.
