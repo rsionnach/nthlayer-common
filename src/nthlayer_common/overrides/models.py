@@ -84,12 +84,14 @@ class OverrideEvent:
         for name in ("original_action", "reason", "source_system"):
             if getattr(self, name) == "":
                 setattr(self, name, None)
-        if self.confidence_at_decision is not None:
-            if not 0.0 <= self.confidence_at_decision <= 1.0:
-                raise ValueError(
-                    "confidence_at_decision must be in [0.0, 1.0]; got "
-                    f"{self.confidence_at_decision}"
-                )
+        if (
+            self.confidence_at_decision is not None
+            and not 0.0 <= self.confidence_at_decision <= 1.0
+        ):
+            raise ValueError(
+                "confidence_at_decision must be in [0.0, 1.0]; got "
+                f"{self.confidence_at_decision}"
+            )
         if self.timestamp.tzinfo is None:
             raise ValueError(
                 "OverrideEvent.timestamp must be timezone-aware "

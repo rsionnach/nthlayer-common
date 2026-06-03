@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 from pathlib import Path
 from typing import Any, Literal
@@ -325,10 +326,8 @@ def _extract_dependencies_from_resources(
 
             criticality = None
             if "criticality" in db:
-                try:
+                with contextlib.suppress(ValueError):
                     criticality = DependencyCriticality(db["criticality"])
-                except ValueError:
-                    pass
 
             dependencies.append(Dependency(
                 name=db.get("name", ""),
@@ -349,10 +348,8 @@ def _extract_dependencies_from_resources(
 
             criticality = None
             if "criticality" in upstream:
-                try:
+                with contextlib.suppress(ValueError):
                     criticality = DependencyCriticality(upstream["criticality"])
-                except ValueError:
-                    pass
 
             dependencies.append(Dependency(
                 name=upstream.get("name", ""),

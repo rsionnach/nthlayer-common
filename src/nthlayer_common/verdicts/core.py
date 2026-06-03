@@ -53,10 +53,7 @@ def create(
     subject = _coerce(subject, Subject)
     judgment = _coerce(judgment, Judgment)
     producer = _coerce(producer, Producer)
-    if metadata is None:
-        metadata = Metadata()
-    else:
-        metadata = _coerce(metadata, Metadata)
+    metadata = Metadata() if metadata is None else _coerce(metadata, Metadata)
 
     return Verdict(
         id=_generate_id(),

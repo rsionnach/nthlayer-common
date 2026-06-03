@@ -90,7 +90,7 @@ class TestCustomBaseURL:
             llm_call("system", "user", model="custom/my-model")
 
         call_args = mock_post.call_args
-        assert "http://custom:1234/v1/chat/completions" == call_args.args[0]
+        assert call_args.args[0] == "http://custom:1234/v1/chat/completions"
 
 
 class TestMissingAPIKey:
@@ -105,9 +105,11 @@ class TestTimeout:
     def test_timeout_raises_llm_error(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=httpx.TimeoutException("timed out")):
-            with pytest.raises(LLMError, match="Timeout"):
-                llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", timeout=5, retry=0)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=httpx.TimeoutException("timed out")),
+            pytest.raises(LLMError, match="Timeout"),
+        ):
+            llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", timeout=5, retry=0)
 
 
 class TestHTTPError:
@@ -119,9 +121,11 @@ class TestHTTPError:
             request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
         )
 
-        with patch("nthlayer_common.llm.httpx.post", return_value=resp):
-            with pytest.raises(LLMError, match="HTTP 429"):
-                llm_call("system", "user", model="openai/gpt-4o", retry=0)
+        with (
+            patch("nthlayer_common.llm.httpx.post", return_value=resp),
+            pytest.raises(LLMError, match="HTTP 429"),
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=0)
 
 
 class TestGuessProvider:
@@ -276,9 +280,11 @@ class TestRetryTransient:
                 raise httpx.HTTPStatusError("429", request=fail_resp.request, response=fail_resp)
             return ok_resp
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with patch("nthlayer_common.llm.time.sleep"):
-                result = llm_call("system", "user", model="openai/gpt-4o", retry=3)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            patch("nthlayer_common.llm.time.sleep"),
+        ):
+            result = llm_call("system", "user", model="openai/gpt-4o", retry=3)
 
         assert result.text == "finally"
         assert call_count["n"] == 3
@@ -296,9 +302,11 @@ class TestRetryTransient:
             call_count["n"] += 1
             raise httpx.HTTPStatusError("401", request=resp.request, response=resp)
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with pytest.raises(LLMError, match="HTTP 401"):
-                llm_call("system", "user", model="openai/gpt-4o", retry=3)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            pytest.raises(LLMError, match="HTTP 401"),
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=3)
 
         assert call_count["n"] == 1
 
@@ -313,10 +321,12 @@ class TestRetryTransient:
         def mock_post(*args, **kwargs):
             raise httpx.HTTPStatusError("503", request=resp.request, response=resp)
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with patch("nthlayer_common.llm.time.sleep"):
-                with pytest.raises(LLMError, match="HTTP 503"):
-                    llm_call("system", "user", model="openai/gpt-4o", retry=2)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            patch("nthlayer_common.llm.time.sleep"),
+            pytest.raises(LLMError, match="HTTP 503"),
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=2)
 
     def test_retry_zero_disables_retry(self, monkeypatch):
         """retry=0 raises on first transient failure."""
@@ -331,9 +341,11 @@ class TestRetryTransient:
             call_count["n"] += 1
             raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with pytest.raises(LLMError, match="HTTP 429"):
-                llm_call("system", "user", model="openai/gpt-4o", retry=0)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            pytest.raises(LLMError, match="HTTP 429"),
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=0)
 
         assert call_count["n"] == 1
 
@@ -351,9 +363,11 @@ class TestRetryTransient:
                 raise httpx.ConnectError("Connection refused")
             return ok_resp
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with patch("nthlayer_common.llm.time.sleep"):
-                result = llm_call("system", "user", model="openai/gpt-4o", retry=2)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            patch("nthlayer_common.llm.time.sleep"),
+        ):
+            result = llm_call("system", "user", model="openai/gpt-4o", retry=2)
 
         assert result.text == "recovered"
         assert call_count["n"] == 2
@@ -373,9 +387,11 @@ class TestRetryTransient:
                 raise httpx.TimeoutException("timed out")
             return ok_resp
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with patch("nthlayer_common.llm.time.sleep"):
-                result = llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", retry=2)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            patch("nthlayer_common.llm.time.sleep"),
+        ):
+            result = llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", retry=2)
 
         assert result.text == "recovered"
 
@@ -403,9 +419,11 @@ class TestRetryAfterRespected:
         def mock_sleep(seconds):
             sleep_times.append(seconds)
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with patch("nthlayer_common.llm.time.sleep", side_effect=mock_sleep):
-                result = llm_call("system", "user", model="openai/gpt-4o", retry=2, timeout=30)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            patch("nthlayer_common.llm.time.sleep", side_effect=mock_sleep),
+        ):
+            result = llm_call("system", "user", model="openai/gpt-4o", retry=2, timeout=30)
 
         assert result.text == "ok"
         assert sleep_times[0] >= 5.0
@@ -424,9 +442,11 @@ class TestTimeoutBudget:
         def mock_post(*args, **kwargs):
             raise httpx.HTTPStatusError("429", request=resp.request, response=resp)
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with pytest.raises(LLMError, match="429"):
-                llm_call("system", "user", model="openai/gpt-4o", retry=3, timeout=5)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            pytest.raises(LLMError, match="429"),
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=3, timeout=5)
 
 
 class TestLLMErrorStatusCode:
@@ -438,9 +458,11 @@ class TestLLMErrorStatusCode:
             request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
         )
 
-        with patch("nthlayer_common.llm.httpx.post", return_value=resp):
-            with pytest.raises(LLMError) as exc_info:
-                llm_call("system", "user", model="openai/gpt-4o", retry=0)
+        with (
+            patch("nthlayer_common.llm.httpx.post", return_value=resp),
+            pytest.raises(LLMError) as exc_info,
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=0)
 
         assert exc_info.value.status_code == 401
 
@@ -455,10 +477,12 @@ class TestLLMErrorStatusCode:
         def mock_post(*args, **kwargs):
             raise httpx.HTTPStatusError("503", request=resp.request, response=resp)
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=mock_post):
-            with patch("nthlayer_common.llm.time.sleep"):
-                with pytest.raises(LLMError) as exc_info:
-                    llm_call("system", "user", model="openai/gpt-4o", retry=1)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=mock_post),
+            patch("nthlayer_common.llm.time.sleep"),
+            pytest.raises(LLMError) as exc_info,
+        ):
+            llm_call("system", "user", model="openai/gpt-4o", retry=1)
 
         assert exc_info.value.status_code == 503
 
@@ -466,10 +490,12 @@ class TestLLMErrorStatusCode:
         """LLMError has no status_code for timeout errors."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
 
-        with patch("nthlayer_common.llm.httpx.post", side_effect=httpx.TimeoutException("timed out")):
-            with patch("nthlayer_common.llm.time.sleep"):
-                with pytest.raises(LLMError) as exc_info:
-                    llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", retry=1)
+        with (
+            patch("nthlayer_common.llm.httpx.post", side_effect=httpx.TimeoutException("timed out")),
+            patch("nthlayer_common.llm.time.sleep"),
+            pytest.raises(LLMError) as exc_info,
+        ):
+            llm_call("system", "user", model="anthropic/claude-sonnet-4-20250514", retry=1)
 
         assert exc_info.value.status_code is None
 

@@ -98,7 +98,7 @@ class TestJudgmentSLOTypes:
             "reversal_rate", "high_confidence_failure", "audit_sampling",
             "outcomes", "escalation", "segments", "stability", "calibration",
         }
-        assert JUDGMENT_SLO_TYPES == expected
+        assert expected == JUDGMENT_SLO_TYPES
 
 
 # =============================================================================

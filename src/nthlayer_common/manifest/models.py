@@ -870,12 +870,11 @@ class ReliabilityManifest:
                     if s.judgment_type == jp.judgment_type
                 ]
                 for slo in matching_slos:
-                    if jp.direction == "below" and slo.target > jp.threshold:
-                        errors.append(
-                            f"Judgment SLO '{slo.name}' ({slo.target}) is looser than "
-                            f"contract '{contract.name}' threshold ({jp.threshold})"
-                        )
-                    elif jp.direction == "above" and slo.target < jp.threshold:
+                    looser = (
+                        (jp.direction == "below" and slo.target > jp.threshold)
+                        or (jp.direction == "above" and slo.target < jp.threshold)
+                    )
+                    if looser:
                         errors.append(
                             f"Judgment SLO '{slo.name}' ({slo.target}) is looser than "
                             f"contract '{contract.name}' threshold ({jp.threshold})"

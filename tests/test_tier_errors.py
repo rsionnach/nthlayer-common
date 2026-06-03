@@ -158,9 +158,11 @@ class TestRetryDecorator:
         async def my_func():
             raise TransientError("fail")
 
-        with _patch("asyncio.sleep", side_effect=fake_sleep):
-            with pytest.raises(TransientError):
-                await my_func()
+        with (
+            _patch("asyncio.sleep", side_effect=fake_sleep),
+            pytest.raises(TransientError),
+        ):
+            await my_func()
 
         assert len(sleeps) == 2  # 3 attempts = 2 sleeps
         assert sleeps[1] > sleeps[0]  # backoff increased

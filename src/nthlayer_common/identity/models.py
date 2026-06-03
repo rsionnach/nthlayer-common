@@ -55,10 +55,7 @@ class ServiceIdentity:
             return True
 
         # Check normalized form
-        if normalize_service_name(name) == self.canonical_name:
-            return True
-
-        return False
+        return normalize_service_name(name) == self.canonical_name
 
     def merge_from(self, other: ServiceIdentity) -> None:
         """Merge another identity into this one."""

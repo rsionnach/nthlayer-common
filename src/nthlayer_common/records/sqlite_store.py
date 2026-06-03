@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -152,10 +153,8 @@ class SQLiteDecisionRecordStore:
         """Close all thread-local connections."""
         with self._conn_lock:
             for conn in self._connections:
-                try:
+                with contextlib.suppress(Exception):
                     conn.close()
-                except Exception:
-                    pass
             self._connections.clear()
         self._local = threading.local()
 
