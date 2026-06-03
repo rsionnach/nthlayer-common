@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
+from collections.abc import Callable
 
 from nthlayer_common.llm import LLMResponse
 

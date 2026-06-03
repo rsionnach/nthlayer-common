@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -313,7 +313,7 @@ class IdentityResolver:
             match.identity.external_ids[provider] = raw_name
             if attributes:
                 match.identity.attributes.update(attributes)
-            match.identity.last_seen = datetime.now(timezone.utc)
+            match.identity.last_seen = datetime.now(UTC)
             self.clear_cache()
             return match.identity
 

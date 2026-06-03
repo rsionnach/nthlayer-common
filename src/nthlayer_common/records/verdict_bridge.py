@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 from nthlayer_common.records.hashing import canonical_json, compute_hash
@@ -29,7 +29,7 @@ def hash_content(text: str) -> str:
 def _ensure_utc(ts: datetime) -> datetime:
     """Normalize a datetime to UTC. Naive datetimes are assumed UTC."""
     if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
+        return ts.replace(tzinfo=UTC)
     return ts
 
 

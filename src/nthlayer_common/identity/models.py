@@ -8,7 +8,7 @@ multiple providers with different naming conventions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 
@@ -35,8 +35,8 @@ class ServiceIdentity:
     source: str = "discovered"
 
     # Timestamps
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_seen: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_seen: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def matches(self, name: str, provider: str | None = None) -> bool:
         """Check if a name matches this identity."""
@@ -66,7 +66,7 @@ class ServiceIdentity:
         self.aliases.add(other.canonical_name)
         self.external_ids.update(other.external_ids)
         self.attributes.update(other.attributes)
-        self.last_seen = datetime.now(timezone.utc)
+        self.last_seen = datetime.now(UTC)
 
         # Keep higher confidence
         if other.confidence > self.confidence:

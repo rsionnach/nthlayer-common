@@ -1,7 +1,7 @@
 """Tests for the verdict bridge — building content-addressed Verdict records."""
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from nthlayer_common.records.hashing import verify_hash
 from nthlayer_common.records.models import (
@@ -14,7 +14,7 @@ from nthlayer_common.records.verdict_bridge import (
     hash_content,
 )
 
-NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=UTC)
 
 
 # --- hash_content ---
@@ -28,7 +28,7 @@ class TestHashContent:
 
     def test_matches_sha256(self):
         h = hash_content("hello world")
-        expected = hashlib.sha256("hello world".encode("utf-8")).hexdigest()
+        expected = hashlib.sha256(b"hello world").hexdigest()
         assert h == expected
 
     def test_deterministic(self):
@@ -187,7 +187,7 @@ class TestBuildDecisionVerdict:
         v2 = build_decision_verdict(
             agent="triage",
             incident_id="inc-001",
-            timestamp=datetime(2026, 4, 11, 12, 5, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 4, 11, 12, 5, 0, tzinfo=UTC),
             model="test-model",
             reasoning="second",
             action={},

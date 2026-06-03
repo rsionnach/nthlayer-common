@@ -4,7 +4,7 @@ Verifies pipeline_latency_ms, chain_depth, parent_ids, verdict_type, service
 on the Verdict dataclass, and that they round-trip through serialisation.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from nthlayer_common.verdicts import (
     VALID_VERDICT_TYPES,
@@ -74,7 +74,7 @@ class TestV15Fields:
         v = Verdict(
             id="vrd-test",
             version=1,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             producer=type("P", (), {"system": "test", "instance": None, "model": None, "prompt_version": None})(),
             subject=type("S", (), {"type": "evaluation", "ref": "t", "summary": "t", "agent": None, "service": None, "environment": None, "content_hash": None})(),
             judgment=type("J", (), {"action": "approve", "confidence": 0.9, "score": None, "dimensions": None, "reasoning": None, "tags": None})(),

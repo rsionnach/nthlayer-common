@@ -10,7 +10,7 @@ tracked in follow-up beads.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import httpx
 import pytest
@@ -33,7 +33,7 @@ from nthlayer_common.governance_bridge import (
 # ---------------------------------------------------------------------------
 
 
-_FIXED_TS = datetime(2026, 3, 24, 14, 23, 0, tzinfo=timezone.utc)
+_FIXED_TS = datetime(2026, 3, 24, 14, 23, 0, tzinfo=UTC)
 
 
 def _autonomy_signal(**overrides: object) -> AutonomyChangeSignal:
@@ -128,7 +128,7 @@ class TestPolicyRecommendationSignal:
                 confidence=0.82,
                 financial_impact="Would have prevented ~€47,200 in false_negative losses",
             ),
-            timestamp=datetime(2026, 3, 24, 15, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 24, 15, 0, 0, tzinfo=UTC),
         )
         payload = sig.to_payload()
         assert payload["type"] == "policy_recommendation"
@@ -163,7 +163,7 @@ class TestIncidentOpenedSignal:
             affected_services=["fraud-detection", "payment-api", "checkout-service"],
             root_cause_service="fraud-detection",
             root_cause_type="model_regression",
-            timestamp=datetime(2026, 3, 24, 14, 15, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 24, 14, 15, 0, tzinfo=UTC),
         )
         payload = sig.to_payload()
         assert payload["type"] == "incident_opened"
@@ -209,7 +209,7 @@ class TestInboundSignals:
             change_type="tightened",
             description="Added human approval gate for transactions > €5000",
             source_system="cortexhub",
-            timestamp=datetime(2026, 3, 24, 16, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 24, 16, 0, 0, tzinfo=UTC),
         )
         payload = sig.to_payload()
         assert payload["type"] == "policy_updated"
@@ -222,7 +222,7 @@ class TestInboundSignals:
             requested_by="oncall-lead-047",
             requested_level="autonomous",
             justification="Model v2.2 restored, reversal rate back to baseline for 2 hours",
-            timestamp=datetime(2026, 3, 24, 17, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 24, 17, 0, 0, tzinfo=UTC),
         )
         payload = sig.to_payload()
         assert payload["type"] == "autonomy_restore_request"

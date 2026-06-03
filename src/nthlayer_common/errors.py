@@ -22,7 +22,8 @@ import inspect
 import sys
 import traceback
 from enum import IntEnum
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
+from collections.abc import Callable
 
 import structlog
 

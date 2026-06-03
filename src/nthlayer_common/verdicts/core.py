@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 from nthlayer_common.verdicts.models import (
@@ -31,7 +31,7 @@ def _generate_id() -> str:
         _id_sequence += 1
         seq = _id_sequence
     short_uuid = uuid.uuid4().hex[:8]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     date_part = now.strftime("%Y-%m-%d")
     return f"vrd-{date_part}-{short_uuid}-{seq:05d}"
 
@@ -61,7 +61,7 @@ def create(
     return Verdict(
         id=_generate_id(),
         version=1,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         producer=producer,
         subject=subject,
         judgment=judgment,
@@ -105,7 +105,7 @@ def resolve(
         )
 
     verdict.outcome.status = status
-    verdict.outcome.closed_at = datetime.now(timezone.utc)
+    verdict.outcome.closed_at = datetime.now(UTC)
 
     if resolution is not None:
         verdict.outcome.resolution = resolution
@@ -113,7 +113,7 @@ def resolve(
     if override is not None:
         if isinstance(override, dict):
             override = Override(**override)
-        override.at = override.at or datetime.now(timezone.utc)
+        override.at = override.at or datetime.now(UTC)
         verdict.outcome.override = override
 
     if ground_truth is not None:

@@ -10,7 +10,8 @@ Phase 0 migration: nthlayer.domain.models is a backward-compat re-export shim.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
+from collections.abc import Iterable, Mapping, Sequence
 
 from pydantic import BaseModel, Field
 

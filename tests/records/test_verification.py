@@ -1,6 +1,6 @@
 """Tests for hash chain verification."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -24,9 +24,9 @@ from nthlayer_common.records.verification import (
     verify_incident,
 )
 
-NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=timezone.utc)
-T1 = datetime(2026, 4, 11, 12, 1, 0, tzinfo=timezone.utc)
-T2 = datetime(2026, 4, 11, 12, 2, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=UTC)
+T1 = datetime(2026, 4, 11, 12, 1, 0, tzinfo=UTC)
+T2 = datetime(2026, 4, 11, 12, 2, 0, tzinfo=UTC)
 
 
 def _hash_assessment(previous_hash: str = ZERO_HASH, **overrides) -> Assessment:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any
+from collections.abc import Callable
+import builtins
 
 ProviderFactory = Callable[..., Any]
 
@@ -20,7 +22,7 @@ class ProviderRegistry:
     """Simple in-memory registry for NthLayer providers."""
 
     def __init__(self) -> None:
-        self._providers: Dict[str, ProviderSpec] = {}
+        self._providers: dict[str, ProviderSpec] = {}
 
     def register(
         self,
@@ -46,7 +48,7 @@ class ProviderRegistry:
             raise KeyError(f"Provider '{name}' is not registered")
         return spec.factory(**kwargs)
 
-    def list(self) -> List[ProviderSpec]:
+    def list(self) -> builtins.list[ProviderSpec]:
         return list(self._providers.values())
 
 
@@ -71,5 +73,5 @@ def create_provider(name: str, **kwargs: Any) -> Any:
     return provider_registry.create(name, **kwargs)
 
 
-def list_providers() -> List[ProviderSpec]:
+def list_providers() -> list[ProviderSpec]:
     return provider_registry.list()

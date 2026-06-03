@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Iterable
+from typing import Any
+from collections.abc import Callable, Iterable
 
 import httpx
 import pagerduty
@@ -88,7 +89,7 @@ class PagerDutyProvider(Provider):
     async def resources(self) -> list[ProviderResourceSchema]:
         return [PagerDutyTeamMembershipResource.schema()]  # type: ignore[arg-type]
 
-    def team_membership_resource(self, team_id: str) -> "PagerDutyTeamMembershipResource":
+    def team_membership_resource(self, team_id: str) -> PagerDutyTeamMembershipResource:
         return PagerDutyTeamMembershipResource(self, team_id)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:

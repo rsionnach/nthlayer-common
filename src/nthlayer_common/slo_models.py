@@ -7,8 +7,8 @@ Based on OpenSLO specification: https://github.com/OpenSLO/OpenSLO
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from enum import Enum
+from datetime import datetime, timedelta, timezone, UTC
+from enum import Enum, StrEnum
 from typing import Any
 
 _DURATION_UNITS: dict[str, str] = {"d": "days", "h": "hours", "m": "minutes", "w": "weeks"}
@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 
-class SLOStatus(str, Enum):
+class SLOStatus(StrEnum):
     """SLO compliance status."""
 
     HEALTHY = "healthy"  # < 50% budget burned
@@ -32,7 +32,7 @@ class SLOStatus(str, Enum):
     EXHAUSTED = "exhausted"  # > 95% budget burned
 
 
-class TimeWindowType(str, Enum):
+class TimeWindowType(StrEnum):
     """Type of time window for SLO evaluation."""
 
     ROLLING = "rolling"  # Rolling window (e.g., last 30 days)
@@ -69,7 +69,7 @@ class TimeWindow:
     def get_start_time(self, now: datetime | None = None) -> datetime:
         """Get the start time for this window."""
         if now is None:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
         if self.type == TimeWindowType.ROLLING:
             return now - self.to_timedelta()
@@ -100,8 +100,8 @@ class SLO:
     # Metadata
     owner: str | None = None
     labels: dict[str, str] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SLO:
@@ -203,7 +203,7 @@ class ErrorBudget:
     burn_rate: float = 0.0  # Current burn rate (multiplier of baseline)
 
     # Metadata
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def percent_consumed(self) -> float:

@@ -1,6 +1,6 @@
 """Tests for verdict store operations."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 import pytest
 
@@ -90,7 +90,7 @@ class TestStoreQuery:
         v = _make_verdict()
         store.put(v)
         # Should be found within a wide time range
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         results = store.query(VerdictFilter(
             from_time=now - timedelta(hours=1),
             to_time=now + timedelta(hours=1),
@@ -192,7 +192,7 @@ class TestStoreExpire:
     def test_expire_respects_ttl(self, store):
         v = _make_verdict(metadata={"ttl": 1})  # 1 second TTL
         # Backdate the timestamp
-        v.timestamp = datetime.now(timezone.utc) - timedelta(seconds=10)
+        v.timestamp = datetime.now(UTC) - timedelta(seconds=10)
         store.put(v)
         count = store.expire()
         assert count == 1
@@ -208,7 +208,7 @@ class TestStoreExpire:
 
     def test_expire_skips_resolved_verdicts(self, store):
         v = _make_verdict(metadata={"ttl": 1})
-        v.timestamp = datetime.now(timezone.utc) - timedelta(seconds=10)
+        v.timestamp = datetime.now(UTC) - timedelta(seconds=10)
         store.put(v)
         resolve(v, status="confirmed")
         store.update_outcome(v.id, v.outcome)

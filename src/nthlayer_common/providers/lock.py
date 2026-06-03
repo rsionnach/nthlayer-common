@@ -3,14 +3,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict
 
 DEFAULT_LOCK_PATH = Path("providers.lock")
 
 
 @dataclass
 class ProviderLock:
-    providers: Dict[str, str] = field(default_factory=dict)
+    providers: dict[str, str] = field(default_factory=dict)
 
     def set(self, name: str, version: str) -> None:
         self.providers[name] = version

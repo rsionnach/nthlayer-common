@@ -1,7 +1,7 @@
 """Concurrent access tests for SQLiteVerdictStore."""
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 from nthlayer_common.verdicts.core import create, resolve
 from nthlayer_common.verdicts.models import Outcome
@@ -162,7 +162,7 @@ class TestSQLiteConcurrency:
         store = SQLiteVerdictStore(tmp_path / "test.db")
         for _ in range(20):
             v = _make_verdict(metadata={"ttl": 1})
-            v.timestamp = datetime.now(timezone.utc) - timedelta(seconds=10)
+            v.timestamp = datetime.now(UTC) - timedelta(seconds=10)
             store.put(v)
 
         barrier = threading.Barrier(3)

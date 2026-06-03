@@ -12,7 +12,7 @@ Spec: NTHLAYER-TELEMETRY-ENVELOPE-v1 §3
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 from nthlayer_common.verdicts.models import VALID_VERDICT_TYPES
@@ -88,7 +88,7 @@ def wrap_verdict(
         raise ValueError("Verdict must have an 'id' field")
     verdict_id = verdict["id"]
     verdict_type = verdict.get("type", "unknown")
-    created_at = verdict.get("created_at", datetime.now(timezone.utc).isoformat())
+    created_at = verdict.get("created_at", datetime.now(UTC).isoformat())
     service = verdict.get("service")
 
     envelope: dict[str, Any] = {
@@ -128,7 +128,7 @@ def wrap_assessment(
         raise ValueError("Assessment must have an 'id' field")
     assessment_id = assessment["id"]
     kind = assessment.get("kind", "unknown")
-    created_at = assessment.get("created_at", datetime.now(timezone.utc).isoformat())
+    created_at = assessment.get("created_at", datetime.now(UTC).isoformat())
     service = assessment.get("service")
 
     envelope: dict[str, Any] = {

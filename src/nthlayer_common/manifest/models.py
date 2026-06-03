@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Literal
 
 # =============================================================================
@@ -83,7 +83,7 @@ STANDARD_SLO_TYPES = {
 # =============================================================================
 
 
-class SourceFormat(str, Enum):
+class SourceFormat(StrEnum):
     """Source format of the manifest file.
 
     SRM_V1:     apiVersion: srm/v1, kind: ServiceReliabilityManifest
@@ -97,7 +97,7 @@ class SourceFormat(str, Enum):
     LEGACY = "legacy"
 
 
-class DependencyCriticality(str, Enum):
+class DependencyCriticality(StrEnum):
     """Criticality level for dependencies."""
 
     CRITICAL = "critical"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 from nthlayer_common.verdicts.core import resolve as _core_resolve
 from nthlayer_common.verdicts.models import (
@@ -316,7 +316,7 @@ class MemoryStore(VerdictStore):
         return result
 
     def expire(self) -> int:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         count = 0
         with self._lock:
             for verdict in self._verdicts.values():

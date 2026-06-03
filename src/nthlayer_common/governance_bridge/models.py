@@ -13,7 +13,7 @@ since the same signal instance is re-emitted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 # Bump when payload shape breaks compatibility. Receivers route on (type, version).
@@ -21,7 +21,7 @@ SIGNAL_VERSION = "v1"
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _require_tz_aware(value: datetime, field_name: str) -> None:

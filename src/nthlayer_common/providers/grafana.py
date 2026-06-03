@@ -58,13 +58,13 @@ class GrafanaProvider(Provider):
             GrafanaDatasourceResource.schema(),
         ]
 
-    def folder(self, uid: str) -> "GrafanaFolderResource":
+    def folder(self, uid: str) -> GrafanaFolderResource:
         return GrafanaFolderResource(self, uid)
 
-    def dashboard(self, uid: str) -> "GrafanaDashboardResource":
+    def dashboard(self, uid: str) -> GrafanaDashboardResource:
         return GrafanaDashboardResource(self, uid)
 
-    def datasource(self, name: str) -> "GrafanaDatasourceResource":
+    def datasource(self, name: str) -> GrafanaDatasourceResource:
         return GrafanaDatasourceResource(self, name)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:

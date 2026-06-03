@@ -6,15 +6,15 @@ Spec: nthlayer-spec-decision-records.md
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import datetime, timezone, UTC
+from enum import Enum, StrEnum
 from typing import Any
 
 
 def _require_utc(ts: datetime, cls_name: str) -> None:
     if ts.tzinfo is None:
         raise ValueError(f"{cls_name}.timestamp must be timezone-aware (got naive datetime)")
-    if ts.utcoffset() != timezone.utc.utcoffset(None):
+    if ts.utcoffset() != UTC.utcoffset(None):
         raise ValueError(f"{cls_name}.timestamp must be UTC (got {ts.tzinfo})")
 
 
@@ -38,20 +38,20 @@ ZERO_HASH = "0" * 64
 # --- Enums ---
 
 
-class AssessmentType(str, Enum):
+class AssessmentType(StrEnum):
     THRESHOLD_BREACH = "threshold_breach"
     CORRELATION = "correlation"
     DRIFT = "drift"
     CHANGE_EVENT = "change_event"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "critical"
     WARNING = "warning"
     INFO = "info"
 
 
-class VerdictOutcome(str, Enum):
+class VerdictOutcome(StrEnum):
     RECOMMENDED = "recommended"
     APPROVED = "approved"
     EXECUTED = "executed"
@@ -59,21 +59,21 @@ class VerdictOutcome(str, Enum):
     EXPIRED = "expired"
 
 
-class EvaluationMethod(str, Enum):
+class EvaluationMethod(StrEnum):
     METRIC_RECOVERY = "metric_recovery"
     HUMAN_REVIEW = "human_review"
     TIMEOUT = "timeout"
     SLO_RESTORATION = "slo_restoration"
 
 
-class EvaluationOutcome(str, Enum):
+class EvaluationOutcome(StrEnum):
     EFFECTIVE = "effective"
     INEFFECTIVE = "ineffective"
     INCONCLUSIVE = "inconclusive"
     PARTIAL = "partial"
 
 
-class IncidentStatus(str, Enum):
+class IncidentStatus(StrEnum):
     OPEN = "open"
     MITIGATED = "mitigated"
     RESOLVED = "resolved"

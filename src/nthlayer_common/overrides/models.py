@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import Any
 
 # Spec § 4: confidence > 0.85 increments the HCF judgment SLO counter.
@@ -66,7 +66,7 @@ class OverrideEvent:
     confidence_at_decision: float | None = None
     source_system: str | None = None
     timestamp: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
     )
 
     def __post_init__(self) -> None:

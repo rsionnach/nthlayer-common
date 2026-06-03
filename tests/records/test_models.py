@@ -1,6 +1,6 @@
 """Tests for content-addressed decision record models."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from nthlayer_common.records.models import (
     Assessment,
@@ -18,7 +18,7 @@ from nthlayer_common.records.models import (
 
 ZERO_HASH = "0" * 64
 FAKE_HASH = "a" * 64
-NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=UTC)
 
 
 # --- Enums ---

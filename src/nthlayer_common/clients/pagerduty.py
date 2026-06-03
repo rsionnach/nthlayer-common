@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from typing import Any
+from collections.abc import Iterable, Sequence
 
 from nthlayer_common.providers.pagerduty import PagerDutyProvider
 

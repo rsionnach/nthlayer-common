@@ -7,7 +7,7 @@ opensrm-jmy.7 along with the standalone adapter process.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -43,7 +43,7 @@ def _verdict(
     return Verdict(
         id=vid,
         version=1,
-        timestamp=datetime(2026, 5, 6, 12, 0, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 5, 6, 12, 0, tzinfo=UTC),
         producer=Producer(system=service),
         subject=Subject(
             type="agent_output", ref=service, summary="t", service=service,
@@ -53,7 +53,7 @@ def _verdict(
     )
 
 
-def _make_pending_verdict(decision_id: str) -> "Verdict":
+def _make_pending_verdict(decision_id: str) -> Verdict:
     return _verdict(vid=decision_id, service="fraud-detect")
 
 
@@ -67,7 +67,7 @@ def _event(**overrides: object) -> OverrideEvent:
         "reason": "Model regression - underwriting-v3 miscalibrated",
         "confidence_at_decision": 0.71,
         "source_system": "internal-review-ui",
-        "timestamp": datetime(2026, 5, 6, 12, 5, tzinfo=timezone.utc),
+        "timestamp": datetime(2026, 5, 6, 12, 5, tzinfo=UTC),
     }
     base.update(overrides)
     return OverrideEvent(**base)
@@ -120,7 +120,7 @@ class TestOverrideEvent:
             reason="false positive",
             confidence_at_decision=0.92,
             source_system="slack-adapter",
-            timestamp=datetime(2026, 5, 20, 10, 33, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 5, 20, 10, 33, 0, tzinfo=UTC),
         )
         body = event.to_dict()
         assert body == {

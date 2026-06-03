@@ -8,7 +8,7 @@ and the dependency graph used for blast radius analysis.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -57,7 +57,7 @@ class DiscoveredDependency:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     # Discovery timestamp
-    discovered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    discovered_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Raw identifiers before resolution
     raw_source: str | None = None
@@ -115,7 +115,7 @@ class DependencyGraph:
     edges: list[ResolvedDependency] = field(default_factory=list)
 
     # Graph metadata
-    built_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    built_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     providers_used: list[str] = field(default_factory=list)
 
     def add_service(self, identity: ServiceIdentity) -> None:

@@ -1,7 +1,7 @@
 """Tests for the DecisionRecordStore protocol and SQLite implementation."""
 
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pytest
 
@@ -22,8 +22,8 @@ from nthlayer_common.records.models import (
 )
 from nthlayer_common.records.sqlite_store import SQLiteDecisionRecordStore
 
-NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=timezone.utc)
-LATER = datetime(2026, 4, 11, 12, 5, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 11, 12, 0, 0, tzinfo=UTC)
+LATER = datetime(2026, 4, 11, 12, 5, 0, tzinfo=UTC)
 
 
 # --- Helpers ---
@@ -396,7 +396,7 @@ class TestConcurrency:
                         stream=f"sli:stream-{stream_idx}:metric",
                         previous_hash=prev,
                         payload={"idx": stream_idx * 100 + i},
-                        timestamp=datetime(2026, 4, 11, 12, i, 0, tzinfo=timezone.utc),
+                        timestamp=datetime(2026, 4, 11, 12, i, 0, tzinfo=UTC),
                     )
                     store.put_assessment(a)
                     prev = a.hash
