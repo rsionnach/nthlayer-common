@@ -43,9 +43,9 @@ where = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
-# Ruff floor frozen under opensrm-c5j6 (ruff-floor-parity series); matches
-# nthlayer-workers' opensrm-po23 floor. E501 / full W family are separate
-# hygiene calls, not part of the floor.
+# Ecosystem-wide ruff floor. E501 (line-too-long) and the full W family are
+# tracked separately as hygiene calls and are deliberately not in the floor.
+# Bead breadcrumb lives in CLAUDE.md "Lint conventions" if you want history.
 [tool.ruff]
 target-version = "py311"
 line-length = 100

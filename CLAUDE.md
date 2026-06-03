@@ -154,6 +154,12 @@ uv run ruff check src/ tests/
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
+## Conventions
+
+This managed block holds cross-cutting conventions for the package: the
+LLM interface (default model behaviour, retry policy, env vars) and lint
+policy (frozen ruff floor). Both are sibling H2 sections.
+
 ## LLM Interface Conventions
 
 **Model format:** `"provider/model-name"` — e.g. `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `ollama/llama3.1`
