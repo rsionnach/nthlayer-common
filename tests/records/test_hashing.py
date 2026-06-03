@@ -4,7 +4,6 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-
 from nthlayer_common.records.hashing import (
     canonical_json,
     compute_hash,

@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 
-
 from nthlayer_common.records.models import (
     Assessment,
     AssessmentType,

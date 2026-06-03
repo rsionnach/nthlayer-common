@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-
 # Spec § 4: confidence > 0.85 increments the HCF judgment SLO counter.
 HIGH_CONFIDENCE_THRESHOLD = 0.85
 

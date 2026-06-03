@@ -22,7 +22,6 @@ from nthlayer_common.prompts import (
     render_user_prompt,
     validate_response,
 )
-
 from nthlayer_common.slack import SlackNotifier
 from nthlayer_common.slack_web import SlackWebClient
 

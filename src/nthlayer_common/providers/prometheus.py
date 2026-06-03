@@ -12,7 +12,11 @@ from typing import Any
 import httpx
 
 from nthlayer_common.errors import ProviderError
-from nthlayer_common.providers.base import Provider, ProviderHealth, ProviderResourceSchema
+from nthlayer_common.providers.base import (
+    Provider,
+    ProviderHealth,
+    ProviderResourceSchema,
+)
 
 DEFAULT_USER_AGENT = "nthlayer-provider-prometheus/0.1.0"
 

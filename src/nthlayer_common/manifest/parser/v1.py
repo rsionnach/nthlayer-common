@@ -27,7 +27,6 @@ from nthlayer_common.manifest.models import (
     ErrorBudgetGate,
     Instrumentation,
     ManifestEscalationStep,
-
     OnCallConfig,
     Override,
     Ownership,

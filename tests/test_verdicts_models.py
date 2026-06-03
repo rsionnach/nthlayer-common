@@ -4,7 +4,12 @@ import math
 
 import pytest
 
-from nthlayer_common.verdicts.models import Judgment, Subject, VALID_ACTIONS, VALID_SUBJECT_TYPES
+from nthlayer_common.verdicts.models import (
+    VALID_ACTIONS,
+    VALID_SUBJECT_TYPES,
+    Judgment,
+    Subject,
+)
 
 
 class TestSubjectValidation:

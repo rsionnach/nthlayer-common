@@ -9,12 +9,11 @@ import warnings
 from pathlib import Path
 
 import pytest
+import yaml
 
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 from nthlayer_common.manifest.target_validation import TargetConventionWarning
 from nthlayer_common.manifest.v1_compat import convert_v1_to_v2
-
-import yaml
 
 
 def _v1_classical():

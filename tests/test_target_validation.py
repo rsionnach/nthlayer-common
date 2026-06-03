@@ -170,6 +170,7 @@ class TestRealDemoSpecs:
         # opensrm-5fff.1 the canonical convention is percentage and the
         # spec is correct as-is.
         from pathlib import Path
+
         from nthlayer_common.manifest import load_manifest
 
         spec_path = Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs" / "fraud-detect.yaml"

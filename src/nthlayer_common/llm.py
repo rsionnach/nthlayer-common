@@ -28,9 +28,9 @@ import logging
 import os
 import random
 import time
+from dataclasses import dataclass
 
 import httpx
-from dataclasses import dataclass
 
 DEFAULT_MODEL = os.environ.get("NTHLAYER_MODEL", "anthropic/claude-sonnet-4-20250514")
 try:

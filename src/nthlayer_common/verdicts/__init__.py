@@ -12,6 +12,11 @@ work via re-export shims and resolves to the same classes.
 
 from nthlayer_common.verdicts.core import create, link, resolve, supersede
 from nthlayer_common.verdicts.models import (
+    TTL_DEFAULT,
+    VALID_ACTIONS,
+    VALID_OUTCOME_STATUSES,
+    VALID_SUBJECT_TYPES,
+    VALID_VERDICT_TYPES,
     AccuracyReport,
     GroundTruth,
     Judgment,
@@ -21,11 +26,6 @@ from nthlayer_common.verdicts.models import (
     Override,
     Producer,
     Subject,
-    TTL_DEFAULT,
-    VALID_ACTIONS,
-    VALID_OUTCOME_STATUSES,
-    VALID_SUBJECT_TYPES,
-    VALID_VERDICT_TYPES,
     Verdict,
 )
 from nthlayer_common.verdicts.serialise import from_dict, from_json, to_dict, to_json

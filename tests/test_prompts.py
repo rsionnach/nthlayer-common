@@ -12,7 +12,6 @@ from nthlayer_common.prompts import (
     validate_response,
 )
 
-
 SAMPLE_YAML = """\
 name: test-prompt
 version: "1.0"

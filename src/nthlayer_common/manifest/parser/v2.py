@@ -39,14 +39,17 @@ from nthlayer_common.manifest.models import (
     RequiredMetric,
     RequiredTrace,
     RevenueAttribution,
-    SLODefinition,
     SamplingConfig,
+    SLODefinition,
     SourceFormat,
     StatisticalRequirements,
     StratifiedSample,
     VolumeEstimate,
 )
-from nthlayer_common.manifest.openslo.parser import OpenSLOParseError, parse_openslo_slos
+from nthlayer_common.manifest.openslo.parser import (
+    OpenSLOParseError,
+    parse_openslo_slos,
+)
 from nthlayer_common.manifest.parser._shared import parse_observability
 
 logger = structlog.get_logger()

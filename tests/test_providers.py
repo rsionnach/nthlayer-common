@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from nthlayer_common.errors import ProviderError
 from nthlayer_common.providers.base import (
     PlanChange,
     PlanResult,
@@ -23,7 +24,6 @@ from nthlayer_common.providers.prometheus import (
 from nthlayer_common.providers.registry import (
     ProviderRegistry,
 )
-from nthlayer_common.errors import ProviderError
 
 
 class TestProviderResourceSchema:

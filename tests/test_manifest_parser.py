@@ -20,7 +20,6 @@ from nthlayer_common.manifest.openslo.parser import parse_openslo_slos
 from nthlayer_common.manifest.parser.v1 import parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================

@@ -7,6 +7,7 @@ import pytest
 
 from nthlayer_common.records.hashing import canonical_json, compute_hash
 from nthlayer_common.records.models import (
+    ZERO_HASH,
     Assessment,
     AssessmentType,
     Evaluation,
@@ -18,7 +19,6 @@ from nthlayer_common.records.models import (
     Summaries,
     Verdict,
     VerdictOutcome,
-    ZERO_HASH,
 )
 from nthlayer_common.records.sqlite_store import SQLiteDecisionRecordStore
 

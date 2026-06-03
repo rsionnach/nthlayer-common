@@ -32,7 +32,7 @@ class TestCreate:
         assert v.judgment.confidence == 0.8
 
     def test_creates_verdict_from_dataclasses(self):
-        from nthlayer_common.verdicts.models import Subject, Judgment, Producer
+        from nthlayer_common.verdicts.models import Judgment, Producer, Subject
         v = create(
             subject=Subject(type="review", ref="ref", summary="s"),
             judgment=Judgment(action="approve", confidence=0.5),

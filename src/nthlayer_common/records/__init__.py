@@ -24,7 +24,11 @@ from nthlayer_common.records.models import (
 )
 from nthlayer_common.records.sqlite_store import SQLiteDecisionRecordStore
 from nthlayer_common.records.store import DecisionRecordStore
-from nthlayer_common.records.verdict_bridge import build_decision_verdict, hash_content, write_decision_verdict
+from nthlayer_common.records.verdict_bridge import (
+    build_decision_verdict,
+    hash_content,
+    write_decision_verdict,
+)
 from nthlayer_common.records.verification import (
     ChainVerificationResult,
     IncidentVerificationResult,

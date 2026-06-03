@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from nthlayer_common.verdicts.models import (
+    TTL_DEFAULT,
     GroundTruth,
     Judgment,
     Lineage,
@@ -17,7 +18,6 @@ from nthlayer_common.verdicts.models import (
     Producer,
     Subject,
     Verdict,
-    TTL_DEFAULT,
 )
 
 

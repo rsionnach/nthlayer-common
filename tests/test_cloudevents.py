@@ -10,7 +10,8 @@ from nthlayer_common.cloudevents import (
     wrap_assessment,
     wrap_verdict,
 )
-from nthlayer_common.verdicts import create as verdict_create, to_dict
+from nthlayer_common.verdicts import create as verdict_create
+from nthlayer_common.verdicts import to_dict
 
 
 def _verdict(**overrides):

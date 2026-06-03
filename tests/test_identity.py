@@ -2,11 +2,11 @@
 
 from nthlayer_common.identity import (
     IdentityResolver,
-    ServiceIdentity,
-    normalize_service_name,
-    extract_service_name,
-    extract_from_pattern,
     NormalizationRule,
+    ServiceIdentity,
+    extract_from_pattern,
+    extract_service_name,
+    normalize_service_name,
 )
 
 

@@ -8,7 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from nthlayer_common.clients.base import BaseHTTPClient, PermanentHTTPError, RetryableHTTPError
+from nthlayer_common.clients.base import (
+    BaseHTTPClient,
+    PermanentHTTPError,
+    RetryableHTTPError,
+)
 from nthlayer_common.errors import ProviderError
 
 DEFAULT_USER_AGENT = "nthlayer-provider-mimir/0.1.0"

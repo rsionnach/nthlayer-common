@@ -3,7 +3,6 @@
 import threading
 from datetime import datetime, timedelta, timezone
 
-
 from nthlayer_common.verdicts.core import create, resolve
 from nthlayer_common.verdicts.models import Outcome
 from nthlayer_common.verdicts.sqlite_store import SQLiteVerdictStore

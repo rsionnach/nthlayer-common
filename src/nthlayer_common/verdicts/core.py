@@ -5,10 +5,10 @@ from __future__ import annotations
 import threading
 import uuid
 from datetime import datetime, timezone
-
 from typing import Any
 
 from nthlayer_common.verdicts.models import (
+    VALID_OUTCOME_STATUSES,
     GroundTruth,
     Judgment,
     Lineage,
@@ -17,7 +17,6 @@ from nthlayer_common.verdicts.models import (
     Override,
     Producer,
     Subject,
-    VALID_OUTCOME_STATUSES,
     Verdict,
 )
 

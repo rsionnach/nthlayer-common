@@ -13,7 +13,6 @@ from typing import Literal
 
 from nthlayer_common.manifest.models import Outcomes
 
-
 # Spec § 1 field-value enums.
 VolumeSource = Literal["metric", "spec_estimate"]
 FailureMode = Literal["false_positive", "false_negative"]

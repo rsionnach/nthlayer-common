@@ -6,10 +6,9 @@ on the Verdict dataclass, and that they round-trip through serialisation.
 
 from datetime import datetime, timezone
 
-
 from nthlayer_common.verdicts import (
-    Verdict,
     VALID_VERDICT_TYPES,
+    Verdict,
     create,
     from_json,
     to_json,

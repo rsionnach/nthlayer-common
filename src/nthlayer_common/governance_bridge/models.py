@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-
 # Bump when payload shape breaks compatibility. Receivers route on (type, version).
 SIGNAL_VERSION = "v1"
 

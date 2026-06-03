@@ -4,11 +4,6 @@ from datetime import timedelta
 
 import pytest
 
-from nthlayer_common.slo_models import (
-    ErrorBudget,
-    SLOStatus,
-    TimeWindow,
-)
 from nthlayer_common.dependency_models import (
     DependencyDirection,
     DependencyGraph,
@@ -27,7 +22,11 @@ from nthlayer_common.gate_models import (
     GatePolicy,
     GateResult,
 )
-
+from nthlayer_common.slo_models import (
+    ErrorBudget,
+    SLOStatus,
+    TimeWindow,
+)
 
 # --- SLO Models ---
 

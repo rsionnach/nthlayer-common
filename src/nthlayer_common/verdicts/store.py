@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from nthlayer_common.verdicts.core import resolve as _core_resolve
-from nthlayer_common.verdicts.models import AccuracyReport, GroundTruth, Outcome, Override, Verdict
+from nthlayer_common.verdicts.models import (
+    AccuracyReport,
+    GroundTruth,
+    Outcome,
+    Override,
+    Verdict,
+)
 
 
 class OutcomeStatusMismatch(ValueError):

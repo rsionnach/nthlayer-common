@@ -16,18 +16,17 @@ import pytest
 from pydantic import BaseModel, Field
 
 from nthlayer_common.llm import llm_call
+from nthlayer_common.llm_structured import (
+    StructuredCallResult,
+    structured_call,
+    structured_call_with_usage,
+)
 from nthlayer_common.llm_stub import (
     _detect_role,
     is_stub_enabled,
     stub_structured_response,
     stub_text_response,
 )
-from nthlayer_common.llm_structured import (
-    StructuredCallResult,
-    structured_call,
-    structured_call_with_usage,
-)
-
 
 # --- Pydantic models matching the two known structured callers --------------
 
