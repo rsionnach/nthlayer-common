@@ -6,7 +6,7 @@ Spec: nthlayer-spec-decision-records.md
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import builtins
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Callable
-import builtins
 
 ProviderFactory = Callable[..., Any]
 

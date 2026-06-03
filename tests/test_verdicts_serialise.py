@@ -1,5 +1,7 @@
 """Tests for verdict serialisation."""
 
+import json
+
 import pytest
 
 from nthlayer_common.verdicts.core import create, resolve
@@ -172,5 +174,5 @@ class TestFromDictValidation:
         assert v.metadata.ttl == 90 * 24 * 60 * 60
 
     def test_from_json_empty_string_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(json.JSONDecodeError):
             from_json("")

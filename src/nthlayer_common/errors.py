@@ -21,9 +21,9 @@ import functools
 import inspect
 import sys
 import traceback
+from collections.abc import Callable
 from enum import IntEnum
 from typing import Any, TypeVar
-from collections.abc import Callable
 
 import structlog
 

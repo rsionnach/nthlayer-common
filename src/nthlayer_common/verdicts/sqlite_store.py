@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from nthlayer_common.verdicts.core import resolve as _core_resolve
@@ -85,8 +85,8 @@ class SQLiteVerdictStore(VerdictStore):
                 else None,
             ),
         )
-        except sqlite3.IntegrityError:
-            raise ValueError(f"Verdict {verdict.id} already exists")
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"Verdict {verdict.id} already exists") from exc
         conn.commit()
 
     def get(self, verdict_id: str) -> Verdict | None:

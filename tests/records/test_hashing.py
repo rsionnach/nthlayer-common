@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from nthlayer_common.records.hashing import (
     canonical_json,

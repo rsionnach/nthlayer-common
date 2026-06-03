@@ -7,7 +7,7 @@ Based on OpenSLO specification: https://github.com/OpenSLO/OpenSLO
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -60,10 +60,10 @@ class TimeWindow:
             )
         try:
             value = int(self.duration[:-1])
-        except ValueError:
+        except ValueError as exc:
             raise ValueError(
                 f"Invalid duration '{self.duration}': expected format like '30d', '7h', '4w', '15m'"
-            )
+            ) from exc
         return timedelta(**{_DURATION_UNITS[self.duration[-1]]: value})
 
     def get_start_time(self, now: datetime | None = None) -> datetime:

@@ -191,6 +191,11 @@ uv run ruff check src/ tests/
 - `Retry-After` header parsed and respected; timeout budget checked before each sleep
 - Pass `retry=0` to disable retries
 - API key guard: raises `LLMError` if model string starts with `sk-ant-`, `sk-`, `key-`, or `Bearer `
+
+## Lint conventions
+
+- Ruff `select` frozen at `["E4","E7","E9","F","I","UP","SIM","B"]` post-opensrm-c5j6 (ecosystem-wide ruff-floor-parity series; matches nthlayer-workers' opensrm-po23 floor); `E501` (line-too-long) and full `W` family are separate hygiene calls, not part of the floor
+- No `per-file-ignores` needed — nthlayer-common's tests place all imports above `pytestmark` / `pytest.importorskip` blocks, so E402 doesn't fire (verified under opensrm-c5j6)
 <!-- END AUTO-MANAGED -->
 
 ## CI integration test stub (`NTHLAYER_LLM_STUB=canned`)

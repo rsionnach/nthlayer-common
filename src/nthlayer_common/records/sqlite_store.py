@@ -197,7 +197,7 @@ class SQLiteDecisionRecordStore:
                 ),
             )
             conn.commit()
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError as exc:
             conn.rollback()
             if conn.execute("SELECT 1 FROM assessments WHERE hash = ?", (a.hash,)).fetchone():
                 return  # Idempotent: same record already stored
@@ -205,7 +205,7 @@ class SQLiteDecisionRecordStore:
             raise ChainForkError(
                 "Chain fork detected in assessments: another record with the same "
                 "previous_hash already exists in this stream"
-            )
+            ) from exc
         except sqlite3.OperationalError as exc:
             conn.rollback()
             _raise_operational(exc)
@@ -243,7 +243,7 @@ class SQLiteDecisionRecordStore:
                 ),
             )
             conn.commit()
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError as exc:
             conn.rollback()
             if conn.execute("SELECT 1 FROM verdicts WHERE hash = ?", (v.hash,)).fetchone():
                 return  # Idempotent: same record already stored
@@ -251,7 +251,7 @@ class SQLiteDecisionRecordStore:
             raise ChainForkError(
                 "Chain fork detected in verdicts: another record with the same "
                 "previous_hash already exists for this agent"
-            )
+            ) from exc
         except sqlite3.OperationalError as exc:
             conn.rollback()
             _raise_operational(exc)
@@ -285,7 +285,7 @@ class SQLiteDecisionRecordStore:
                 ),
             )
             conn.commit()
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError as exc:
             conn.rollback()
             if conn.execute("SELECT 1 FROM evaluations WHERE hash = ?", (e.hash,)).fetchone():
                 return  # Idempotent: same record already stored
@@ -293,7 +293,7 @@ class SQLiteDecisionRecordStore:
             raise ChainForkError(
                 "Chain fork detected in evaluations: another record with the same "
                 "previous_hash already exists for this incident"
-            )
+            ) from exc
         except sqlite3.OperationalError as exc:
             conn.rollback()
             _raise_operational(exc)

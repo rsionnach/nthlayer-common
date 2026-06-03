@@ -7,7 +7,7 @@ opensrm-jmy.7 along with the standalone adapter process.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import pytest
 

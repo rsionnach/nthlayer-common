@@ -1,6 +1,6 @@
 """Tests for hash chain verification."""
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import pytest
 
