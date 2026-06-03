@@ -98,7 +98,7 @@ class TestJudgmentSLOTypes:
             "reversal_rate", "high_confidence_failure", "audit_sampling",
             "outcomes", "escalation", "segments", "stability", "calibration",
         }
-        assert expected == JUDGMENT_SLO_TYPES
+        assert JUDGMENT_SLO_TYPES == expected  # noqa: SIM300 — pytest convention: subject-under-test on left
 
 
 # =============================================================================
