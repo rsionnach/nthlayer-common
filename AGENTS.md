@@ -23,6 +23,8 @@ uv run pytest -k "<expr>"              # single test by name
 uv run ruff check src/ tests/          # lint
 ```
 
+Ecosystem testing conventions: [../nthlayer/docs/testing.md](../nthlayer/docs/testing.md).
+
 ## Lint floor (frozen)
 
 ```
