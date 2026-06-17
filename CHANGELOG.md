@@ -4,6 +4,37 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [1.7.0](https://github.com/rsionnach/nthlayer-common/compare/v1.6.0...v1.7.0) (2026-06-17)
+
+
+### Features
+
+* **api-client:** add CoreAPIClient.apply_override · opensrm-jmy.18 ([c5ee550](https://github.com/rsionnach/nthlayer-common/commit/c5ee5502c09f9739645c76acda29321a981e34b2))
+* **governance-bridge:** foundation — signal schemas + emitter (opensrm-jmy.5) ([75b7b71](https://github.com/rsionnach/nthlayer-common/commit/75b7b71bba662c86787127474be17217f2d91873))
+* **manifest:** extract_declared_dependencies polymorphic helper ([fbc50bf](https://github.com/rsionnach/nthlayer-common/commit/fbc50bf01565ea7bd2a3881c32023fc5ae0025c9))
+* **overrides:** add OverrideEvent.to_dict for HTTP wire · opensrm-jmy.18 ([2a43432](https://github.com/rsionnach/nthlayer-common/commit/2a434328a04f353c649cf5a589bc3e67ee04dfe3))
+* **overrides:** add pre_redacted flag with plaintext_reviewer alias · opensrm-jmy.18 ([71e477f](https://github.com/rsionnach/nthlayer-common/commit/71e477f0cc63b742114542e0cd9dc14d3d5d525e))
+
+
+### Bug Fixes
+
+* **ci:** add tag-push + workflow_dispatch triggers to release.yml ([c8a0213](https://github.com/rsionnach/nthlayer-common/commit/c8a0213ea85fc5bf6257a3cba1eae8d2f727f4c0))
+* **overrides:** correctness fixes from jmy.4 dry-run (opensrm-jmy.11) ([6610fc0](https://github.com/rsionnach/nthlayer-common/commit/6610fc0c8b593adbdde6e43d805bc366d335678c))
+* remove orphan timezone/Enum imports left by 33ff UP017 sweep ([fc1d9e3](https://github.com/rsionnach/nthlayer-common/commit/fc1d9e3dffebea40baeae0c56efcfa500d1f3716))
+* resolve 9 ruff findings causing red CI on main · opensrm-5qn3 ([09d0833](https://github.com/rsionnach/nthlayer-common/commit/09d08330b5ced0048b93625bf8ddf5abd610d3ac))
+
+
+### Code Refactoring
+
+* **manifest:** tighten extract_declared_dependencies types + test imports ([085106e](https://github.com/rsionnach/nthlayer-common/commit/085106e240458260d90ff570a5ef8a7360f6a32e))
+
+
+### Documentation
+
+* **CLAUDE.md:** record jmy.18 verdict-binding additions · opensrm-jmy.18 ([c34435d](https://github.com/rsionnach/nthlayer-common/commit/c34435d0c4b4d11e9d573fadbdbd720175936c3b))
+* link to ecosystem testing conventions (opensrm-2wkc) ([919f4de](https://github.com/rsionnach/nthlayer-common/commit/919f4de993d9f6ce4e655c985368b5cfaad9c762))
+* thin CLAUDE.md; move detail to AGENTS.md + docs/ ([125911e](https://github.com/rsionnach/nthlayer-common/commit/125911e9b2ea1e3219bfa853250d2d9df098162f))
+
 ## [1.6.0](https://github.com/rsionnach/nthlayer-common/compare/v1.5.0...v1.6.0) (2026-05-10)
 
 
