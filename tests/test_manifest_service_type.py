@@ -465,7 +465,7 @@ def test_template_declaring_service_type_is_rejected(tmp_path):
     _write_template(tmp_path, {"name": "base", "type": "ai-gate"})
     manifest = _extending_manifest({"name": "mysvc"})
 
-    with pytest.raises(OpenSRMV2ParseError, match="type"):
+    with pytest.raises(OpenSRMV2ParseError, match="must not declare a service type"):
         resolve_v2_template(manifest, tmp_path)
 
 
@@ -484,7 +484,7 @@ def test_template_override_injecting_service_type_is_rejected(tmp_path):
         "service": {"name": "mysvc", "type": "ai-gate"}
     }
 
-    with pytest.raises(OpenSRMV2ParseError, match="type"):
+    with pytest.raises(OpenSRMV2ParseError, match="not inheritable"):
         resolve_v2_template(manifest, tmp_path)
 
 
@@ -567,3 +567,54 @@ def test_non_dict_judgment_slo_entry_raises_domain_error(bad: object):
 
     with pytest.raises(OpenSRMV2ParseError, match=r"judgment_slo\[0\]"):
         parse_opensrm_v2(document)
+
+
+# =============================================================================
+# resolve_service_type — the order, encoded rather than described
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("api", "api"),
+        ("x-web", "x-web"),
+        ("web", "x-web"),
+        ("background-job", "worker"),
+        ("pipeline", "batch"),
+    ],
+)
+def test_resolve_service_type_returns_canonical(raw: str, expected: str):
+    from nthlayer_common.manifest import resolve_service_type
+
+    assert resolve_service_type(raw) == expected
+
+
+@pytest.mark.parametrize("bad", ["Web", "x-", "nonsense", "", None, 5, ["api"], {"a": 1}])
+def test_resolve_service_type_returns_none_for_invalid(bad: object):
+    """None rather than a raised error: each caller raises its own domain
+    exception type (OpenSRMV2ParseError in the parser, ValueError in
+    v1_compat), so the helper encodes the ORDER without imposing the
+    exception type on either."""
+    from nthlayer_common.manifest import resolve_service_type
+
+    assert resolve_service_type(bad) is None  # type: ignore[arg-type]
+
+
+def test_alias_table_is_single_pass():
+    """Resolution is single-pass by design — SERVICE_TYPE_ALIASES maps
+    directly to canonical values, never to another alias. Pinned so a future
+    entry cannot quietly require two passes and half-resolve instead."""
+    from nthlayer_common.manifest.models import (
+        SERVICE_TYPE_ALIASES,
+        is_valid_service_type,
+    )
+
+    for alias, target in SERVICE_TYPE_ALIASES.items():
+        assert target not in SERVICE_TYPE_ALIASES, (
+            f"alias {alias!r} maps to {target!r}, which is itself an alias — "
+            f"resolution is single-pass"
+        )
+        assert is_valid_service_type(target), (
+            f"alias {alias!r} maps to {target!r}, which is not a valid type"
+        )

@@ -16,6 +16,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # tests/test_manifest_v2_archetypes.py compares schema.json's verdict
+      # and this parser's verdict on the same shipped example bytes — the
+      # only place the two are crossed, and the seam opensrm-ih0v closed.
+      # It skips itself when opensrm/ is not a sibling checkout, so without
+      # this step the whole module, including the strict-xfail divergence
+      # ledger, silently does not run in CI.
+      - name: Check out the opensrm spec repo as a sibling
+        uses: actions/checkout@v6
+        with:
+          repository: rsionnach/opensrm
+          path: opensrm-spec
+
+      # The test resolves <ecosystem>/opensrm from its own location
+      # (parents[2]), so the checkout has to land beside this repo rather
+      # than inside it.
+      - name: Place opensrm beside this repo
+        run: mv opensrm-spec ../opensrm
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:

@@ -79,6 +79,29 @@ SERVICE_TYPE_ALIASES = {
 }
 
 
+def resolve_service_type(value: str) -> str | None:
+    """Resolve an authored service type to its canonical form, or None.
+
+    Returns the canonical type — aliases resolved — or None if the value is
+    not one nthlayer-common accepts.
+
+    Prefer this over calling SERVICE_TYPE_ALIASES and is_valid_service_type
+    yourself. The two must be applied in that order, because an alias is
+    deliberately NOT a valid service type: validating first rejects every
+    alias, which is exactly the regression opensrm-ih0v's edge-cases pass
+    caught after three call sites had each open-coded the sequence. This
+    encodes the order instead of describing it in a comment beside each one.
+
+    Returns None rather than raising so each caller keeps its own exception
+    type — OpenSRMV2ParseError in the parser, ValueError in v1_compat.
+    """
+    if not isinstance(value, str):
+        return None
+
+    resolved = SERVICE_TYPE_ALIASES.get(value, value)
+    return resolved if is_valid_service_type(resolved) else None
+
+
 def valid_service_types_phrase() -> str:
     """Return the accepted service types as a phrase, for use after a
     lead-in such as "Must be one of: " or "Set it to one of: ".

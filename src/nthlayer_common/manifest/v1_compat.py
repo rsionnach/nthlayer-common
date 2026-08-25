@@ -26,13 +26,12 @@ from typing import Any
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
-    SERVICE_TYPE_ALIASES,
     ContractPromise,
     JudgmentMeasurement,
     JudgmentPromise,
     ReliabilityContract,
     StatisticalRequirements,
-    is_valid_service_type,
+    resolve_service_type,
     valid_service_types_phrase,
 )
 
@@ -239,25 +238,22 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
             f"in v2. Declare it as a string before upconverting."
         )
 
-    # Normalise through the alias map before writing. SERVICE_TYPE_ALIASES
-    # otherwise resolves only at the ReliabilityManifest layer, but this
-    # output is checked by schema.json — which knows no aliases. Writing a
-    # raw v1 'background-job' here would emit a v2 document the spec rejects.
-    service_type = SERVICE_TYPE_ALIASES.get(service_type, service_type)
-
-    # ...and normalising is not enough on its own: any value that is neither
-    # an alias nor already valid was previously written verbatim, so v1 types
-    # like 'Frontend' or 'ml' produced schema-invalid v2 output. Validate
-    # here rather than leaving it to the caller — nthlayer-generate's
-    # migrate_manifest catches ValueError around this call, so raising now
-    # surfaces the problem at its cause instead of as an uncaught error from
-    # ReliabilityManifest's validation much later.
-    if not is_valid_service_type(service_type):
+    # Resolve and validate together. This output is checked by schema.json,
+    # which knows no aliases, so a raw v1 'background-job' would emit a
+    # document the spec rejects — and any value that is neither an alias nor
+    # already valid ('Frontend', 'ml') was previously written verbatim.
+    # Raising here rather than leaving it to the caller surfaces the problem
+    # at its cause: nthlayer-generate's migrate_manifest catches ValueError
+    # around this call, whereas ReliabilityManifest's own validation would
+    # not fire until much later.
+    resolved_type = resolve_service_type(service_type)
+    if resolved_type is None:
         raise ValueError(
             f"v1 manifest '{name}' declares spec.type '{service_type}', which "
             f"is not a valid v2 service type. Must be one of: "
             f"{valid_service_types_phrase()}."
         )
+    service_type = resolved_type
 
     # Build v2 metadata + labels
     labels: dict[str, str] = {}
