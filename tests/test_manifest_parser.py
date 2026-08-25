@@ -85,7 +85,7 @@ def v2_manifest_data():
         },
         "spec": {
             "owner": {"group": "group:default/sre-payments"},
-            "service": {"name": "payment-service", "description": "Payments"},
+            "service": {"name": "payment-service", "type": "api", "description": "Payments"},
             "slo": [
                 {
                     "apiVersion": "openslo/v1",
@@ -137,7 +137,7 @@ def v2_ai_gate_data():
         },
         "spec": {
             "owner": {"group": "group:default/payments-ml"},
-            "service": {"name": "fraud-detect"},
+            "service": {"name": "fraud-detect", "type": "ai-gate"},
             "judgment_slo": [
                 {
                     "metadata": {"name": "fraud-reversal-rate"},
@@ -306,7 +306,7 @@ class TestV2Parser:
             "apiVersion": "opensrm.nthlayer.io/v2",
             "kind": "ServiceManifest",
             "metadata": {"name": "svc", "labels": {"tier": "critical", "type": "api"}},
-            "spec": {"service": {"name": "svc"}},
+            "spec": {"service": {"name": "svc", "type": "api"}},
         }
         with pytest.raises(OpenSRMV2ParseError, match="spec.owner"):
             parse_opensrm_v2(data)
@@ -318,13 +318,19 @@ class TestV2Parser:
             "metadata": {"name": "svc", "labels": {}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
             },
         }
         with pytest.raises(OpenSRMV2ParseError, match="metadata.labels.tier"):
             parse_opensrm_v2(data)
 
-    def test_type_inference_fails_without_signals(self):
+    def test_missing_service_type_raises(self):
+        """Was ``test_type_inference_fails_without_signals`` pre-opensrm-ih0v.
+
+        The parser no longer infers a type from any signal, so the "without
+        signals" framing no longer means anything: the field is required
+        outright, and its absence is the only case left.
+        """
         data = {
             "apiVersion": "opensrm.nthlayer.io/v2",
             "kind": "ServiceManifest",
@@ -334,7 +340,7 @@ class TestV2Parser:
                 "service": {"name": "svc"},
             },
         }
-        with pytest.raises(OpenSRMV2ParseError, match="Cannot infer service type"):
+        with pytest.raises(OpenSRMV2ParseError, match=r"spec\.service\.type is required"):
             parse_opensrm_v2(data)
 
     def test_invalid_judgment_type_raises(self):
@@ -344,7 +350,7 @@ class TestV2Parser:
             "metadata": {"name": "svc", "labels": {"tier": "critical"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
                 "judgment_slo": [
                     {
                         "metadata": {"name": "bad"},
@@ -392,7 +398,7 @@ def test_v2_parser_handles_each_judgment_slo_type(
         "metadata": {"name": "svc", "labels": {"tier": "critical"}},
         "spec": {
             "owner": {"group": "group:default/team"},
-            "service": {"name": "svc"},
+            "service": {"name": "svc", "type": "api"},
             "judgment_slo": [
                 {
                     "metadata": {"name": f"svc-{judgment_type}"},
@@ -514,7 +520,7 @@ class TestLoader:
             "metadata": {"name": "svc", "labels": {"tier": "standard", "type": "api"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
             },
         }))
         m = load_manifest(manifest_file)
@@ -548,10 +554,13 @@ class TestLoader:
         manifest_file.write_text(yaml.dump({
             "apiVersion": "opensrm.nthlayer.io/v2",
             "kind": "ServiceManifest",
-            "metadata": {"name": "svc", "labels": {"tier": "critical", "type": "nonexistent_type"}},
+            "metadata": {"name": "svc", "labels": {"tier": "critical"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                # The invalid value now belongs on the field, not the label:
+                # post-opensrm-ih0v labels.type is neither read nor written,
+                # so putting it there would test nothing.
+                "service": {"name": "svc", "type": "nonexistent_type"},
             },
         }))
         with pytest.raises(ManifestLoadError, match="Invalid type"):
@@ -583,7 +592,7 @@ class TestLoader:
             "metadata": {"name": "svc", "labels": {"tier": "standard", "type": "api"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
                 "template": {"extends": "template:default/base"},
             },
         }))

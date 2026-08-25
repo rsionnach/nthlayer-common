@@ -77,11 +77,19 @@ class TestConvertShape:
         v2 = convert_v1_to_v2(_v1_classical())
         assert v2["spec"]["owner"] == {"group": "group:default/payments-team"}
 
-    def test_tier_and_type_to_labels(self):
+    def test_tier_to_labels_and_type_to_service_field(self):
+        """Post-opensrm-ih0v the two v1 fields land in different places.
+
+        ``tier`` is still a label (see opensrm-9bil, which asks whether it
+        should be promoted the way ``type`` just was); ``type`` is now the
+        first-class ``spec.service.type`` and is deliberately NOT mirrored
+        into labels, so nothing can read a stale copy of it.
+        """
         v2 = convert_v1_to_v2(_v1_classical())
-        labels = v2["metadata"]["labels"]
-        assert labels["tier"] == "critical"
-        assert labels["type"] == "api"
+
+        assert v2["metadata"]["labels"]["tier"] == "critical"
+        assert v2["spec"]["service"]["type"] == "api"
+        assert "type" not in v2["metadata"]["labels"]
 
     def test_classical_slo_uses_threshold_metric_and_ratio_target(self):
         v2 = convert_v1_to_v2(_v1_classical())

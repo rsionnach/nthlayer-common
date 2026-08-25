@@ -116,9 +116,19 @@ def parse_opensrm_v2(
     service_name = service.get("name") or name
     description = service.get("description")
 
-    # Type inference — v2 doesn't have an explicit type field.
-    # Infer from judgment_slo presence and instrumentation.
-    service_type = _infer_service_type(spec, labels)
+    # spec.service.type is a required first-class field (opensrm-6w9d).
+    # It is READ, never inferred: the previous heuristic derived ai-gate
+    # from the presence of judgment_slo, which inverts the spec's rule that
+    # only an ai-gate may declare judgment SLOs — silently promoting a
+    # misconfigured worker into ai-gate-only codepaths instead of letting
+    # it be rejected. metadata.labels.type is no longer consulted.
+    service_type = service.get("type")
+    if not service_type:
+        raise OpenSRMV2ParseError(
+            "spec.service.type is required. Set it to one of: "
+            "api, worker, stream, ai-gate, batch, database; "
+            "or an extension type matching 'x-<lowercase-name>'."
+        )
 
     # Parse classical SLOs (OpenSLO v1 documents)
     slos: list[SLODefinition] = []
@@ -205,44 +215,6 @@ def parse_opensrm_v2_file(
     data = resolve_v2_template(data, path.parent)
 
     return parse_opensrm_v2(data, source_file=str(path), base_dir=path.parent)
-
-
-# =============================================================================
-# Service Type Inference
-# =============================================================================
-
-
-def _infer_service_type(spec: dict[str, Any], labels: dict[str, str]) -> str:
-    """Infer service type from v2 manifest content.
-
-    Inference rules:
-      - Explicit label 'type' in metadata.labels takes precedence
-      - judgment_slo present → ai-gate
-      - instrumentation.required_events with decision events → ai-gate
-      - Otherwise: fail loudly
-
-    Raises OpenSRMV2ParseError if ambiguous.
-    """
-    # Explicit label
-    explicit = labels.get("type")
-    if explicit:
-        return explicit
-
-    # Judgment SLOs present → ai-gate
-    if spec.get("judgment_slo"):
-        return "ai-gate"
-
-    # Decision events in instrumentation → ai-gate
-    instr = spec.get("instrumentation", {})
-    for event in instr.get("required_events", []):
-        if isinstance(event, dict) and "decision" in event.get("type", ""):
-            return "ai-gate"
-
-    raise OpenSRMV2ParseError(
-        "Cannot infer service type. Add metadata.labels.type "
-        "(api, worker, stream, ai-gate, batch, database, web) "
-        "or include judgment_slo for ai-gate services."
-    )
 
 
 # =============================================================================

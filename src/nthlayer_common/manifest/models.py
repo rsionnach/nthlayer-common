@@ -42,6 +42,9 @@ VALID_TIERS = {
     "low",
 }
 
+# The six values OpenSRM v2 defines for spec.service.type (opensrm-6w9d).
+# This set is the spec's, not ours — do not add to it. Anything NthLayer
+# needs beyond the six goes through the extension branch below.
 VALID_SERVICE_TYPES = {
     "api",
     "worker",
@@ -49,12 +52,30 @@ VALID_SERVICE_TYPES = {
     "ai-gate",
     "batch",
     "database",
-    "web",
 }
 
+# The spec's extension escape hatch: `^x-[a-z][a-z0-9-]*$`.
+#
+# Applied with fullmatch(), never search(). Python's `$` also matches just
+# before a trailing newline, so `re.search(r"^x-[a-z][a-z0-9-]*$", "x-web\n")`
+# succeeds — while check-jsonschema (ECMA-262) rejects the same string.
+# spec/v2/validate.sh runs the strict engine, so a laxer check here would
+# accept manifests the spec's own gate refuses. fullmatch() closes that gap.
+SERVICE_TYPE_EXTENSION_PATTERN = re.compile(r"x-[a-z][a-z0-9-]*")
+
+# Input conveniences with NO standing in the spec. These resolve in
+# ReliabilityManifest.__post_init__ *before* validation, so a manifest never
+# stores an alias — which is what stops them leaking back out into documents
+# that then fail schema validation.
+#
+# `web` was an nthlayer-common service type pre-opensrm-ih0v, absent from the
+# spec's six. It maps to the extension branch rather than collapsing into
+# `api` because nthlayer-generate distinguishes the two in its dashboard
+# templates, CLI init choices, and docs generation.
 SERVICE_TYPE_ALIASES = {
     "background-job": "worker",
     "pipeline": "batch",
+    "web": "x-web",
 }
 
 # 8 standard judgment SLO types (v2 spec §5.2)
@@ -831,9 +852,14 @@ class ReliabilityManifest:
             msg = f"Invalid tier '{self.tier}'. Must be one of: {', '.join(sorted(VALID_TIERS))}"
             raise ValueError(msg)
 
-        if self.type not in VALID_SERVICE_TYPES:
+        if self.type not in VALID_SERVICE_TYPES and not SERVICE_TYPE_EXTENSION_PATTERN.fullmatch(
+            self.type
+        ):
             valid = ", ".join(sorted(VALID_SERVICE_TYPES))
-            msg = f"Invalid type '{self.type}'. Must be one of: {valid}"
+            msg = (
+                f"Invalid type '{self.type}'. Must be one of: {valid}; "
+                f"or an extension type matching 'x-<lowercase-name>'"
+            )
             raise ValueError(msg)
 
     def is_ai_gate(self) -> bool:

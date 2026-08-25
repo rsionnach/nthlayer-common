@@ -34,6 +34,11 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.8",
+    # Test-only: tests/test_manifest_v2_archetypes.py validates the shipped
+    # opensrm archetype examples against spec/v2/schema.json before parsing
+    # them, closing the schema-vs-parser seam (opensrm-ih0v). Not a runtime
+    # dependency — nthlayer-common never validates schemas itself.
+    "jsonschema>=4.21",
 ]
 
 [tool.setuptools.packages.find]

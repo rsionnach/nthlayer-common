@@ -26,6 +26,7 @@ from typing import Any
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
+    SERVICE_TYPE_ALIASES,
     ContractPromise,
     JudgmentMeasurement,
     JudgmentPromise,
@@ -186,7 +187,8 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     - ``kind`` ``ServiceReliabilityManifest`` → ``ServiceManifest``
     - ``metadata.team`` → ``spec.owner.group: "group:default/{team}"``
     - ``metadata.tier`` → ``metadata.labels.tier``
-    - ``spec.type`` → ``metadata.labels.type``
+    - ``spec.type`` → ``spec.service.type`` (required in v2; normalised
+      through :data:`SERVICE_TYPE_ALIASES`, and an absent value raises)
     - ``spec.slos.<name>`` (dict-of-dicts):
 
       - judgment SLO names (one of :data:`JUDGMENT_SLO_TYPES`) →
@@ -218,12 +220,26 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     if not name:
         raise ValueError("v1 manifest missing metadata.name")
 
+    # spec.type was optional in v1; spec.service.type is REQUIRED in v2
+    # (opensrm-6w9d), so a v1 manifest without one cannot produce a valid v2
+    # document. Fail loudly rather than defaulting: a guessed 'api' would be
+    # indistinguishable downstream from one the author actually declared.
+    if service_type is None:
+        raise ValueError(
+            f"v1 manifest '{name}' has no spec.type, which is required as "
+            f"spec.service.type in v2. Declare it before upconverting."
+        )
+
+    # Normalise through the alias map before writing. SERVICE_TYPE_ALIASES
+    # otherwise resolves only at the ReliabilityManifest layer, but this
+    # output is checked by schema.json — which knows no aliases. Writing a
+    # raw v1 'background-job' here would emit a v2 document the spec rejects.
+    service_type = SERVICE_TYPE_ALIASES.get(service_type, service_type)
+
     # Build v2 metadata + labels
     labels: dict[str, str] = {}
     if tier is not None:
         labels["tier"] = tier
-    if service_type is not None:
-        labels["type"] = service_type
 
     v2_metadata: dict[str, Any] = {"name": name}
     if labels:
@@ -231,7 +247,7 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
 
     # Owner: team → group ref
     v2_spec: dict[str, Any] = {
-        "service": {"name": name},
+        "service": {"name": name, "type": service_type},
     }
     if team:
         v2_spec["owner"] = {"group": f"group:default/{team}"}
