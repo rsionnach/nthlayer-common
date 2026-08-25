@@ -201,7 +201,16 @@ def parse_opensrm_v2(
             f"spec.judgment_slo must be a list, got "
             f"{type(judgment_slos).__name__}."
         )
-    for js_data in judgment_slos:
+    for index, js_data in enumerate(judgment_slos):
+        # Guard the ELEMENTS too, not just the list. `judgment_slo: [null]`
+        # reached _parse_judgment_slo's `.get` and leaked AttributeError,
+        # escaping the loader's (OpenSRMV2ParseError, ValueError) — the same
+        # leak the list-level guard above was added to close.
+        if not isinstance(js_data, dict):
+            raise OpenSRMV2ParseError(
+                f"spec.judgment_slo[{index}] must be a mapping, got "
+                f"{type(js_data).__name__}."
+            )
         slos.append(_parse_judgment_slo(js_data))
 
     # Parse contracts (§6)

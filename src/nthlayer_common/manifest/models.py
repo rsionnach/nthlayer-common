@@ -824,7 +824,7 @@ class ReliabilityManifest:
     name: str
     team: str
     tier: str  # critical, high, standard, low
-    type: str  # api, worker, stream, ai-gate, batch, database, web
+    type: str  # one of VALID_SERVICE_TYPES, or an x- extension type
 
     # ==========================================================================
     # Metadata

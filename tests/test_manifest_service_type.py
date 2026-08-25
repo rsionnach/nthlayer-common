@@ -552,3 +552,18 @@ def test_non_dict_template_overrides_raises_domain_error(tmp_path):
 
     with pytest.raises(OpenSRMV2ParseError, match="overrides"):
         resolve_v2_template(manifest, tmp_path)
+
+
+@pytest.mark.parametrize("bad", [None, "x", 5, ["nested"]])
+def test_non_dict_judgment_slo_entry_raises_domain_error(bad: object):
+    """The list-level guard did not cover the ELEMENTS.
+
+    ``judgment_slo: [null]`` on an ai-gate reached _parse_judgment_slo's
+    ``.get`` and leaked AttributeError — escaping the loader's
+    ``(OpenSRMV2ParseError, ValueError)``, which is the same leak the
+    list-level guard exists to close.
+    """
+    document = _v2_doc({"name": "svc", "type": "ai-gate"}, judgment_slo=[bad])
+
+    with pytest.raises(OpenSRMV2ParseError, match=r"judgment_slo\[0\]"):
+        parse_opensrm_v2(document)
