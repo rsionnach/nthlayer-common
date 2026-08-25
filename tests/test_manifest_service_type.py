@@ -1,0 +1,636 @@
+"""``spec.service.type`` — the v2 service type discriminator (opensrm-ih0v).
+
+opensrm-6w9d made the field required and first-class, with the six-value
+enum plus an ``^x-[a-z][a-z0-9-]*$`` extension branch. This module covers
+nthlayer-common's side: the parser READS the declared field (it no longer
+infers one), the model accepts the extension branch, and v1 upconversion
+writes the field rather than a label.
+"""
+from __future__ import annotations
+
+import pytest
+
+from nthlayer_common.manifest import ReliabilityManifest
+from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError, parse_opensrm_v2
+from nthlayer_common.manifest.v1_compat import convert_v1_to_v2
+
+
+def _v2_doc(service: dict[str, object], **spec_extra: object) -> dict[str, object]:
+    """A minimal valid v2 ServiceManifest, with spec.service swapped in."""
+    return {
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "svc", "labels": {"tier": "critical"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": service,
+            **spec_extra,
+        },
+    }
+
+
+# =============================================================================
+# Parser reads the declared field
+# =============================================================================
+
+
+def test_parser_reads_declared_type():
+    manifest = parse_opensrm_v2(_v2_doc({"name": "svc", "type": "batch"}))
+    assert manifest.type == "batch"
+
+
+def test_parser_rejects_missing_type_naming_the_field_path():
+    """The error must name ``spec.service.type``.
+
+    The pre-ih0v message told authors to set ``metadata.labels.type``, which
+    is now neither read nor written — following it would not have helped.
+    """
+    with pytest.raises(OpenSRMV2ParseError) as excinfo:
+        parse_opensrm_v2(_v2_doc({"name": "svc"}))
+
+    message = str(excinfo.value)
+    assert "spec.service.type" in message
+    assert "metadata.labels.type" not in message
+
+
+def test_parser_ignores_labels_type():
+    """``metadata.labels.type`` has no authority post-ih0v.
+
+    Pre-ih0v it was the primary source. A manifest carrying a stale label
+    that contradicts the declared field must resolve to the FIELD, not the
+    label — otherwise the old inference path survives by the back door.
+    """
+    document = _v2_doc({"name": "svc", "type": "worker"})
+    document["metadata"]["labels"]["type"] = "ai-gate"  # type: ignore[index]
+
+    manifest = parse_opensrm_v2(document)
+
+    assert manifest.type == "worker"
+
+
+def test_worker_declaring_judgment_slo_is_rejected():
+    """The inversion opensrm-6w9d exists to correct, closed from both ends.
+
+    ``_infer_service_type`` returned ai-gate for anything carrying a
+    judgment_slo, silently promoting a misconfigured worker into ai-gate-only
+    codepaths. Deleting it stops the reclassification — but on its own that
+    only converts the manifest from wrongly-accepted-as-ai-gate to
+    wrongly-accepted-as-worker: ``get_judgment_slos()`` would still return
+    judgment SLOs for a service the spec says cannot have them, which is the
+    same harm arriving by a different road.
+
+    schema.json's ServiceManifest.allOf forbids ``judgment_slo`` outright
+    whenever ``spec.service.type`` is present and not ``ai-gate``, so the
+    parser must reject it too. Anything else is a parser-wider-than-schema
+    divergence — precisely what this bead exists to eliminate.
+    """
+    # Deliberately the wrapped `kind: JudgmentSLO` document shape, not the
+    # schema's flat inline one: the flat shape is blocked on opensrm-a742,
+    # and this test is about reclassification, not item shape. Using the
+    # shape the parser already handles keeps the two seams independent.
+    document = _v2_doc(
+        {"name": "svc", "type": "worker"},
+        judgment_slo=[
+            {
+                "metadata": {"name": "svc-reversal-rate"},
+                "spec": {
+                    "service": "svc",
+                    "judgment_type": "reversal_rate",
+                    "target": {"maximum_reversal_rate": 0.05},
+                },
+            }
+        ],
+    )
+
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_slo"):
+        parse_opensrm_v2(document)
+
+
+def test_ai_gate_declaring_judgment_slo_is_accepted():
+    """The permitted direction — guards against over-correcting into a rule
+    that forbids judgment SLOs everywhere."""
+    document = _v2_doc(
+        {"name": "svc", "type": "ai-gate"},
+        judgment_slo=[
+            {
+                "metadata": {"name": "svc-reversal-rate"},
+                "spec": {
+                    "service": "svc",
+                    "judgment_type": "reversal_rate",
+                    "target": {"maximum_reversal_rate": 0.05},
+                },
+            }
+        ],
+    )
+
+    manifest = parse_opensrm_v2(document)
+
+    assert manifest.is_ai_gate()
+    assert len(manifest.get_judgment_slos()) == 1
+
+
+def test_empty_judgment_slo_list_still_rejected_on_worker():
+    """``"judgment_slo": false`` in the schema rejects ANY value, so an empty
+    list is invalid too — the property must be absent, not merely empty.
+
+    Keying the parser check on truthiness rather than presence would accept
+    ``judgment_slo: []`` on a worker and reopen the divergence for the one
+    input most likely to be produced by a template or codegen path.
+    """
+    document = _v2_doc({"name": "svc", "type": "worker"}, judgment_slo=[])
+
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_slo"):
+        parse_opensrm_v2(document)
+
+
+def test_parser_does_not_infer_ai_gate_from_decision_events():
+    """The other inference limb, removed with the same cut."""
+    document = _v2_doc(
+        {"name": "svc", "type": "stream"},
+        instrumentation={"required_events": [{"type": "decision.made"}]},
+    )
+
+    assert parse_opensrm_v2(document).type == "stream"
+
+
+# =============================================================================
+# The x- extension branch
+# =============================================================================
+
+
+@pytest.mark.parametrize("service_type", ["api", "worker", "stream", "ai-gate", "batch", "database"])
+def test_all_six_spec_types_accepted(service_type: str):
+    assert ReliabilityManifest(name="s", team="t", tier="critical", type=service_type).type == service_type
+
+
+@pytest.mark.parametrize(
+    "service_type",
+    [
+        "x-web",
+        "x-ml",
+        "x-a",
+        "x-edge-cache",
+        # The spec's pattern is `^x-[a-z][a-z0-9-]*$` — `-` is inside the
+        # character class, so a trailing hyphen is permitted. It is ugly and
+        # it is legal; nthlayer-common matches the spec rather than its own
+        # taste, because a stricter parser would reject manifests that
+        # validate.sh accepts, recreating the very seam ih0v closes.
+        "x-web-",
+    ],
+)
+def test_extension_types_accepted(service_type: str):
+    assert ReliabilityManifest(name="s", team="t", tier="critical", type=service_type).type == service_type
+
+
+@pytest.mark.parametrize(
+    "service_type",
+    [
+        "x-",  # nothing after the prefix
+        "x-1web",  # must start with a letter
+        "x-Web",  # uppercase not permitted
+        "X-web",  # uppercase prefix
+        "xweb",  # missing the hyphen
+        "nonsense",
+    ],
+)
+def test_invalid_types_rejected(service_type: str):
+    with pytest.raises(ValueError, match="Invalid type"):
+        ReliabilityManifest(name="s", team="t", tier="critical", type=service_type)
+
+
+def test_trailing_newline_rejected_in_extension_type():
+    """The two-validator trap opensrm-6w9d pinned, one repo over.
+
+    YAML ``type: |`` followed by ``x-web`` yields ``'x-web\\n'``.
+    ``check-jsonschema`` (ECMA-262, strict ``$``) rejects it; Python
+    ``jsonschema`` accepts it, because ``re.search`` lets ``$`` match before
+    a final newline. nthlayer-common must agree with the STRICT engine —
+    validate.sh runs it, so anything laxer means the parser accepts bytes
+    the spec's own gate rejects. This is why the check uses ``fullmatch``.
+    """
+    with pytest.raises(ValueError, match="Invalid type"):
+        ReliabilityManifest(name="s", team="t", tier="critical", type="x-web\n")
+
+
+# =============================================================================
+# Aliases: accepted on input, never stored
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("alias", "canonical"),
+    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+)
+def test_aliases_normalise_on_construction(alias: str, canonical: str):
+    """Aliases are an nthlayer-common input convenience with no spec standing.
+
+    They resolve in ``__post_init__`` before validation, so a manifest never
+    STORES an alias — which is what keeps them from leaking into anything
+    that round-trips back out to a spec document.
+    """
+    assert ReliabilityManifest(name="s", team="t", tier="critical", type=alias).type == canonical
+
+
+# =============================================================================
+# v1 upconversion writes the field
+# =============================================================================
+
+
+def _v1_doc(service_type: str | None) -> dict[str, object]:
+    spec: dict[str, object] = {"slos": {}}
+    if service_type is not None:
+        spec["type"] = service_type
+    return {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "payments", "tier": "critical"},
+        "spec": spec,
+    }
+
+
+def test_v1_upconversion_writes_spec_service_type():
+    v2 = convert_v1_to_v2(_v1_doc("api"))
+
+    assert v2["spec"]["service"]["type"] == "api"
+
+
+def test_v1_upconversion_no_longer_writes_labels_type():
+    """``metadata.labels.type`` is dead post-ih0v — its only reader was
+    ``_infer_service_type``. Continuing to write it would leave a field that
+    looks authoritative and is not."""
+    v2 = convert_v1_to_v2(_v1_doc("api"))
+
+    assert "type" not in v2["metadata"].get("labels", {})
+
+
+@pytest.mark.parametrize(
+    ("v1_type", "expected"),
+    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+)
+def test_v1_upconversion_normalises_aliases(v1_type: str, expected: str):
+    """Upconversion must emit a SCHEMA-valid value.
+
+    SERVICE_TYPE_ALIASES resolves at the dataclass layer, but convert_v1_to_v2() output
+    is checked by schema.json — which knows no aliases. Emitting a raw
+    ``background-job`` would produce a v2 document that the spec rejects,
+    so the alias map has to be applied here too.
+    """
+    v2 = convert_v1_to_v2(_v1_doc(v1_type))
+
+    assert v2["spec"]["service"]["type"] == expected
+
+
+@pytest.mark.parametrize(
+    "v1_type",
+    [
+        "",  # falsy but not None — the `is None` guard let this through
+        "Frontend",  # uppercase, matches neither the enum nor the x- branch
+        "ml",  # a plausible-looking value that is simply not in the enum
+        "x-Web",  # right prefix, wrong case for the extension pattern
+    ],
+)
+def test_v1_upconversion_rejects_values_the_schema_would_reject(v1_type: str):
+    """Upconversion must not emit a document schema.json refuses.
+
+    Guarding only ``is None`` was not enough: any other invalid value was
+    written verbatim. The failure then surfaced far from its cause — for a
+    non-empty value it escaped the ValueError that
+    nthlayer-generate's migrate_manifest catches around this call, and
+    resurfaced later as an uncaught error from ReliabilityManifest's own
+    validation.
+
+    Note ``""``: v1_compat used ``is None`` while parser/v2 used a falsy
+    check, so the empty string was rejected on one path and accepted on the
+    other. Both now use the same predicate.
+    """
+    with pytest.raises(ValueError, match=r"spec\.type|Invalid type"):
+        convert_v1_to_v2(_v1_doc(v1_type))
+
+
+def test_v1_upconversion_rejects_judgment_slos_on_non_ai_gate():
+    """v1 never enforced its own §11, so v1 manifests carrying this shape
+    genuinely exist — they are exactly what migration encounters.
+
+    ``convert_v1_to_v2`` routes any SLO named in JUDGMENT_SLO_TYPES into
+    ``spec.judgment_slo`` regardless of the service's type, so a v1
+    ``type: api`` service with a ``reversal_rate`` SLO produced a v2
+    document that ServiceManifest.allOf rejects — and which failed its own
+    round-trip inside migrate_manifest_command. Direct callers got the
+    invalid document back with no error at all.
+    """
+    v1 = _v1_doc("api")
+    v1["spec"]["slos"] = {"reversal_rate": {"target": 0.05, "window": "7d"}}
+
+    with pytest.raises(ValueError, match="judgment"):
+        convert_v1_to_v2(v1)
+
+
+def test_v1_upconversion_allows_judgment_slos_on_ai_gate():
+    """The permitted direction, so the guard above cannot be over-tightened
+    into one that blocks legitimate ai-gate migrations."""
+    v1 = _v1_doc("ai-gate")
+    v1["spec"]["slos"] = {"reversal_rate": {"target": 0.05, "window": "7d"}}
+
+    v2 = convert_v1_to_v2(v1)
+
+    assert v2["spec"]["service"]["type"] == "ai-gate"
+    assert len(v2["spec"]["judgment_slo"]) == 1
+
+
+@pytest.mark.parametrize("bad", [None, "not-a-list", 42])
+def test_non_list_judgment_slo_raises_domain_error(bad: object):
+    """``spec.get("judgment_slo", [])`` returns the value, not the default,
+    when the key is present with a null or wrong-typed value.
+
+    The schema types judgment_slo as an array, so these are all invalid —
+    but iterating them raised a bare TypeError that escaped every caller's
+    ``except OpenSRMV2ParseError``, turning a bad manifest into a crash
+    instead of a rejection.
+    """
+    document = _v2_doc({"name": "svc", "type": "ai-gate"}, judgment_slo=bad)
+
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_slo"):
+        parse_opensrm_v2(document)
+
+
+@pytest.mark.parametrize("bad", [5, None, ["api"], {"type": "api"}])
+def test_non_string_service_type_raises_value_error(bad: object):
+    """Types arrive from raw YAML, so a non-string is reachable.
+
+    It must surface as ValueError like every other invalid type, not as a
+    TypeError from the regex — nthlayer-generate's migrate_manifest catches
+    ValueError, and a TypeError would sail straight through it.
+    """
+    with pytest.raises(ValueError, match="Invalid type|type is required"):
+        ReliabilityManifest(name="s", team="t", tier="critical", type=bad)  # type: ignore[arg-type]
+
+
+def test_v1_upconversion_fails_loudly_on_missing_type():
+    """v1's ``spec.type`` was optional; ``spec.service.type`` is required.
+
+    A v1 manifest omitting it cannot produce a valid v2 document, so
+    upconversion raises rather than inventing a default — a guessed ``api``
+    would be indistinguishable from a declared one downstream.
+    """
+    with pytest.raises(ValueError, match="spec.type"):
+        convert_v1_to_v2(_v1_doc(None))
+
+
+@pytest.mark.parametrize("bad", [["api"], {"a": 1}, 5, True])
+def test_v1_upconversion_rejects_non_string_type_as_value_error(bad: object):
+    """The alias lookup hashes spec.type, so a list or dict raised TypeError
+    before any validation ran.
+
+    nthlayer-generate's migrate_manifest wraps convert_v1_to_v2 in
+    ``except ValueError``; a TypeError crashes that CLI with a traceback
+    instead of reporting a bad manifest and returning 1.
+    """
+    v1 = _v1_doc("api")
+    v1["spec"]["type"] = bad
+
+    with pytest.raises(ValueError, match=r"spec\.type|Invalid|not a valid"):
+        convert_v1_to_v2(v1)
+
+
+def test_v1_judgment_slo_error_names_only_routed_slos():
+    """The message must name what was actually routed.
+
+    _convert_v1_slos skips entries whose value is not a dict, so building
+    the list by intersecting JUDGMENT_SLO_TYPES with the raw slos keys named
+    SLOs that never reached spec.judgment_slo.
+    """
+    v1 = _v1_doc("api")
+    v1["spec"]["slos"] = {
+        "reversal_rate": "oops-not-a-dict",
+        "calibration": {"target": 0.2, "window": "7d"},
+    }
+
+    with pytest.raises(ValueError) as excinfo:
+        convert_v1_to_v2(v1)
+
+    message = str(excinfo.value)
+    assert "calibration" in message
+    assert "reversal_rate" not in message
+
+
+# =============================================================================
+# Template inheritance — `type` is not inheritable (schema: TemplateServiceIdentity)
+# =============================================================================
+
+
+def _write_template(tmp_path, service: dict[str, object], **spec_extra: object):
+    import yaml
+
+    (tmp_path / "base.yaml").write_text(
+        yaml.dump(
+            {
+                "apiVersion": "opensrm.nthlayer.io/v2",
+                "kind": "ServiceManifestTemplate",
+                "metadata": {"name": "base"},
+                "spec": {"service": service, **spec_extra},
+            }
+        )
+    )
+
+
+def _extending_manifest(service: dict[str, object]) -> dict[str, object]:
+    return {
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "mysvc", "labels": {"tier": "critical"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": service,
+            "template": {"extends": "base"},
+        },
+    }
+
+
+def test_template_declaring_service_type_is_rejected(tmp_path):
+    """schema.json's TemplateServiceIdentity sets ``"type": false``.
+
+    A template MUST NOT declare a type, "so that a template's type can never
+    contradict the type of a manifest extending it". Without this check the
+    deep-merge let a template inject one: a template typed ai-gate plus an
+    extending manifest with no type parsed cleanly and manufactured an
+    ai-gate identity, unlocking is_ai_gate() and the judgment codepaths —
+    from a document pair validate.sh rejects on BOTH sides.
+
+    This is opensrm-6w9d's template trap with the arrow reversed. There it
+    was two conformant validators disagreeing about a contradiction; here it
+    is an inheritable type where the spec guarantees none exists.
+    """
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base", "type": "ai-gate"})
+    manifest = _extending_manifest({"name": "mysvc"})
+
+    with pytest.raises(OpenSRMV2ParseError, match="must not declare a service type"):
+        resolve_v2_template(manifest, tmp_path)
+
+
+def test_template_override_injecting_service_type_is_rejected(tmp_path):
+    """The same rule via the overrides door.
+
+    Forbidding the field on the template body alone would leave
+    spec.template.overrides free to replace `service` wholesale with a dict
+    carrying a type — the same injection by another route.
+    """
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base"})
+    manifest = _extending_manifest({"name": "mysvc", "type": "worker"})
+    manifest["spec"]["template"]["overrides"] = {  # type: ignore[index]
+        "service": {"name": "mysvc", "type": "ai-gate"}
+    }
+
+    with pytest.raises(OpenSRMV2ParseError, match="not inheritable"):
+        resolve_v2_template(manifest, tmp_path)
+
+
+def test_template_without_service_type_still_resolves(tmp_path):
+    """The legitimate case — a template supplying non-type defaults."""
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base", "description": "from template"})
+    manifest = _extending_manifest({"name": "mysvc", "type": "worker"})
+
+    resolved = resolve_v2_template(manifest, tmp_path)
+    parsed = parse_opensrm_v2(resolved)
+
+    assert parsed.type == "worker"
+    assert parsed.description == "from template"
+
+
+def test_parser_raises_domain_error_for_invalid_type():
+    """An ABSENT type raised OpenSRMV2ParseError but an INVALID one leaked
+    ValueError from the model, escaping every caller that catches only the
+    domain error — including migrate_manifest's round-trip guard."""
+    with pytest.raises(OpenSRMV2ParseError, match="Web"):
+        parse_opensrm_v2(_v2_doc({"name": "svc", "type": "Web"}))
+
+
+@pytest.mark.parametrize("bad", ["api", ["api"], 5])
+def test_non_dict_service_block_raises_domain_error(bad: object):
+    """``spec.service: api`` raised AttributeError from ``.get``, escaping
+    even the loader's ``(OpenSRMV2ParseError, ValueError)``. spec.service is
+    now type-bearing, so a scalar there is reachable and must be rejected."""
+    document = _v2_doc({"name": "svc", "type": "api"})
+    document["spec"]["service"] = bad  # type: ignore[index]
+
+    with pytest.raises(OpenSRMV2ParseError, match="spec.service"):
+        parse_opensrm_v2(document)
+
+
+@pytest.mark.parametrize(
+    ("alias", "canonical"),
+    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+)
+def test_parser_resolves_aliases_before_validating(alias: str, canonical: str):
+    """Aliases must survive the PARSER, not just ReliabilityManifest.
+
+    is_valid_service_type takes a *resolved* type — aliases are deliberately
+    not valid service types. The model resolves before validating, so
+    aliases always worked there; the parser gained its own validity check
+    and applied it to the raw value, so every documented alias became a
+    parse error. Only a test that goes through parse_opensrm_v2 catches
+    this: the model-level alias test passes either way.
+    """
+    manifest = parse_opensrm_v2(_v2_doc({"name": "svc", "type": alias}))
+
+    assert manifest.type == canonical
+
+
+def test_non_dict_template_overrides_raises_domain_error(tmp_path):
+    """``overrides`` as a list leaked AttributeError from ``.get``, escaping
+    the loader's ``(OpenSRMV2ParseError, ValueError)``."""
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base"})
+    manifest = _extending_manifest({"name": "mysvc", "type": "worker"})
+    manifest["spec"]["template"]["overrides"] = ["service"]  # type: ignore[index]
+
+    with pytest.raises(OpenSRMV2ParseError, match="overrides"):
+        resolve_v2_template(manifest, tmp_path)
+
+
+@pytest.mark.parametrize("bad", [None, "x", 5, ["nested"]])
+def test_non_dict_judgment_slo_entry_raises_domain_error(bad: object):
+    """The list-level guard did not cover the ELEMENTS.
+
+    ``judgment_slo: [null]`` on an ai-gate reached _parse_judgment_slo's
+    ``.get`` and leaked AttributeError — escaping the loader's
+    ``(OpenSRMV2ParseError, ValueError)``, which is the same leak the
+    list-level guard exists to close.
+    """
+    document = _v2_doc({"name": "svc", "type": "ai-gate"}, judgment_slo=[bad])
+
+    with pytest.raises(OpenSRMV2ParseError, match=r"judgment_slo\[0\]"):
+        parse_opensrm_v2(document)
+
+
+# =============================================================================
+# resolve_service_type — the order, encoded rather than described
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("api", "api"),
+        ("x-web", "x-web"),
+        ("web", "x-web"),
+        ("background-job", "worker"),
+        ("pipeline", "batch"),
+    ],
+)
+def test_resolve_service_type_returns_canonical(raw: str, expected: str):
+    from nthlayer_common.manifest import resolve_service_type
+
+    assert resolve_service_type(raw) == expected
+
+
+@pytest.mark.parametrize("bad", ["Web", "x-", "nonsense", "", None, 5, ["api"], {"a": 1}])
+def test_resolve_service_type_returns_none_for_invalid(bad: object):
+    """None rather than a raised error: each caller raises its own domain
+    exception type (OpenSRMV2ParseError in the parser, ValueError in
+    v1_compat), so the helper encodes the ORDER without imposing the
+    exception type on either."""
+    from nthlayer_common.manifest import resolve_service_type
+
+    assert resolve_service_type(bad) is None
+
+
+def test_alias_table_is_single_pass():
+    """Resolution is single-pass by design — SERVICE_TYPE_ALIASES maps
+    directly to canonical values, never to another alias. Pinned so a future
+    entry cannot quietly require two passes and half-resolve instead."""
+    from nthlayer_common.manifest.models import (
+        SERVICE_TYPE_ALIASES,
+        is_valid_service_type,
+    )
+
+    for alias, target in SERVICE_TYPE_ALIASES.items():
+        assert target not in SERVICE_TYPE_ALIASES, (
+            f"alias {alias!r} maps to {target!r}, which is itself an alias — "
+            f"resolution is single-pass"
+        )
+        assert is_valid_service_type(target), (
+            f"alias {alias!r} maps to {target!r}, which is not a valid type"
+        )
+
+
+def test_empty_type_reports_required_not_invalid():
+    """The model deliberately does NOT use resolve_service_type.
+
+    Its alias resolution and validity check are split around the
+    "Service type is required" guard, so an empty type reports the
+    ACTIONABLE message ("you didn't set it") rather than the confusing one
+    ("'' is not a valid type"). resolve_service_type returns None for '',
+    so collapsing the two into one call — the obvious tidy-up, given the
+    helper's docstring says to prefer it — would silently swap the message.
+
+    This test is what makes that tidy-up fail loudly instead.
+    """
+    with pytest.raises(ValueError, match="Service type is required"):
+        ReliabilityManifest(name="s", team="t", tier="critical", type="")

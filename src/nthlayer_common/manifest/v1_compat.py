@@ -31,6 +31,8 @@ from nthlayer_common.manifest.models import (
     JudgmentPromise,
     ReliabilityContract,
     StatisticalRequirements,
+    resolve_service_type,
+    valid_service_types_phrase,
 )
 
 # =============================================================================
@@ -186,7 +188,8 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     - ``kind`` ``ServiceReliabilityManifest`` → ``ServiceManifest``
     - ``metadata.team`` → ``spec.owner.group: "group:default/{team}"``
     - ``metadata.tier`` → ``metadata.labels.tier``
-    - ``spec.type`` → ``metadata.labels.type``
+    - ``spec.type`` → ``spec.service.type`` (required in v2; normalised
+      through :data:`SERVICE_TYPE_ALIASES`, and an absent value raises)
     - ``spec.slos.<name>`` (dict-of-dicts):
 
       - judgment SLO names (one of :data:`JUDGMENT_SLO_TYPES`) →
@@ -218,12 +221,44 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     if not name:
         raise ValueError("v1 manifest missing metadata.name")
 
+    # spec.type was optional in v1; spec.service.type is REQUIRED in v2
+    # (opensrm-6w9d), so a v1 manifest without one cannot produce a valid v2
+    # document. Fail loudly rather than defaulting: a guessed 'api' would be
+    # indistinguishable downstream from one the author actually declared.
+    # Invariant: everything below this point may assume service_type is a
+    # non-empty str. The alias lookup hashes it and the validator matches it,
+    # so anything else must be rejected HERE, as a ValueError — that is the
+    # only exception type nthlayer-generate's migrate_manifest catches around
+    # this call, and a TypeError would crash the CLI instead of reporting a
+    # bad manifest.
+    if not service_type or not isinstance(service_type, str):
+        raise ValueError(
+            f"v1 manifest '{name}' has no usable spec.type (got "
+            f"{service_type!r}), which is required as spec.service.type "
+            f"in v2. Declare it as a string before upconverting."
+        )
+
+    # Resolve and validate together. This output is checked by schema.json,
+    # which knows no aliases, so a raw v1 'background-job' would emit a
+    # document the spec rejects — and any value that is neither an alias nor
+    # already valid ('Frontend', 'ml') was previously written verbatim.
+    # Raising here rather than leaving it to the caller surfaces the problem
+    # at its cause: nthlayer-generate's migrate_manifest catches ValueError
+    # around this call, whereas ReliabilityManifest's own validation would
+    # not fire until much later.
+    resolved_type = resolve_service_type(service_type)
+    if resolved_type is None:
+        raise ValueError(
+            f"v1 manifest '{name}' declares spec.type '{service_type}', which "
+            f"is not a valid v2 service type. Must be one of: "
+            f"{valid_service_types_phrase()}."
+        )
+    service_type = resolved_type
+
     # Build v2 metadata + labels
     labels: dict[str, str] = {}
     if tier is not None:
         labels["tier"] = tier
-    if service_type is not None:
-        labels["type"] = service_type
 
     v2_metadata: dict[str, Any] = {"name": name}
     if labels:
@@ -231,7 +266,7 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
 
     # Owner: team → group ref
     v2_spec: dict[str, Any] = {
-        "service": {"name": name},
+        "service": {"name": name, "type": service_type},
     }
     if team:
         v2_spec["owner"] = {"group": f"group:default/{team}"}
@@ -241,6 +276,27 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     if classical_slos:
         v2_spec["slo"] = classical_slos
     if judgment_slos:
+        # v2 permits judgment_slo only on an ai-gate (ServiceManifest.allOf).
+        # v1's shipped schema never enforced its own §11 equivalent, so v1
+        # manifests pairing a non-ai-gate type with a judgment SLO really do
+        # exist — they are precisely what migration runs into. Emitting the
+        # document anyway produced output that failed its own round-trip
+        # inside migrate_manifest_command, and handed direct callers an
+        # invalid manifest with no error at all.
+        if service_type != "ai-gate":
+            # Names come from the entries actually routed, not from
+            # intersecting JUDGMENT_SLO_TYPES with the raw slos keys:
+            # _convert_v1_slos skips entries whose value is not a dict, so
+            # the intersection would name SLOs that were never routed.
+            slo_names = ", ".join(
+                sorted(js["spec"]["judgment_type"] for js in judgment_slos)
+            )
+            raise ValueError(
+                f"v1 manifest '{name}' declares spec.type '{service_type}' but "
+                f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
+                f"only on an 'ai-gate' service. Either declare the service as "
+                f"an ai-gate, or remove the judgment SLOs before upconverting."
+            )
         v2_spec["judgment_slo"] = judgment_slos
 
     # Dependencies: name → component ref

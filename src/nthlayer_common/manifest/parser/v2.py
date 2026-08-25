@@ -45,6 +45,8 @@ from nthlayer_common.manifest.models import (
     StatisticalRequirements,
     StratifiedSample,
     VolumeEstimate,
+    resolve_service_type,
+    valid_service_types_phrase,
 )
 from nthlayer_common.manifest.openslo.parser import (
     OpenSLOParseError,
@@ -113,12 +115,62 @@ def parse_opensrm_v2(
 
     # Service identity
     service = spec.get("service", {})
+    # spec.service is type-bearing now, so a scalar here is reachable — via a
+    # hand-written `service: api` or an overrides replace. `.get` on a str
+    # raised AttributeError, which escapes even the loader's
+    # (OpenSRMV2ParseError, ValueError).
+    if not isinstance(service, dict):
+        raise OpenSRMV2ParseError(
+            f"spec.service must be a mapping, got {type(service).__name__}."
+        )
     service_name = service.get("name") or name
     description = service.get("description")
 
-    # Type inference — v2 doesn't have an explicit type field.
-    # Infer from judgment_slo presence and instrumentation.
-    service_type = _infer_service_type(spec, labels)
+    # spec.service.type is a required first-class field (opensrm-6w9d).
+    # It is READ, never inferred: the previous heuristic derived ai-gate
+    # from the presence of judgment_slo, which inverts the spec's rule that
+    # only an ai-gate may declare judgment SLOs — silently promoting a
+    # misconfigured worker into ai-gate-only codepaths instead of letting
+    # it be rejected. metadata.labels.type is no longer consulted.
+    service_type = service.get("type")
+    if not service_type:
+        raise OpenSRMV2ParseError(
+            "spec.service.type is required. Set it to one of: "
+            f"{valid_service_types_phrase()}."
+        )
+    # Validate here as well as in ReliabilityManifest: an ABSENT type raised
+    # the domain error above, while an INVALID one fell through to the
+    # model's ValueError — so two spellings of the same authoring mistake
+    # arrived as different exception types, and the ValueError escaped every
+    # caller that catches only OpenSRMV2ParseError.
+    resolved_type = resolve_service_type(service_type)
+    if resolved_type is None:
+        raise OpenSRMV2ParseError(
+            f"Invalid type '{service_type}' in spec.service.type. "
+            f"Must be one of: {valid_service_types_phrase()}."
+        )
+    service_type = resolved_type
+
+    # schema.json's ServiceManifest.allOf forbids judgment_slo whenever
+    # spec.service.type is present and is not 'ai-gate' — restoring v1 §11's
+    # type-specific MUST, which v1's shipped schema never enforced.
+    #
+    # Enforced here as well as in the schema because deleting the old
+    # ai-gate-from-judgment_slo inference only stops the RECLASSIFICATION;
+    # without this the same manifest is merely mis-accepted as a worker
+    # instead, and get_judgment_slos() still hands judgment SLOs to callers
+    # for a service the spec says cannot have them.
+    #
+    # Presence, not truthiness: the schema's `judgment_slo: false` rejects
+    # any value, so `judgment_slo: []` is invalid too.
+    if "judgment_slo" in spec and service_type != "ai-gate":
+        raise OpenSRMV2ParseError(
+            f"spec.judgment_slo is only permitted on an 'ai-gate' service, "
+            f"but spec.service.type is '{service_type}'. Judgment SLOs measure "
+            f"decision quality and are only meaningful on a decision-making "
+            f"service. Remove the judgment_slo block, or declare the service "
+            f"as an ai-gate if it does make decisions."
+        )
 
     # Parse classical SLOs (OpenSLO v1 documents)
     slos: list[SLODefinition] = []
@@ -131,7 +183,26 @@ def parse_opensrm_v2(
 
     # Parse judgment SLOs (§5)
     judgment_slos = spec.get("judgment_slo", [])
-    for js_data in judgment_slos:
+    # `.get(key, default)` returns the VALUE when the key is present, so a
+    # `judgment_slo:` line with a null or scalar value bypasses the default
+    # and reaches the loop below. The schema types this as an array; without
+    # the check, iterating None raised a bare TypeError that escaped every
+    # caller's `except OpenSRMV2ParseError`.
+    if not isinstance(judgment_slos, list):
+        raise OpenSRMV2ParseError(
+            f"spec.judgment_slo must be a list, got "
+            f"{type(judgment_slos).__name__}."
+        )
+    for index, js_data in enumerate(judgment_slos):
+        # Guard the ELEMENTS too, not just the list. `judgment_slo: [null]`
+        # reached _parse_judgment_slo's `.get` and leaked AttributeError,
+        # escaping the loader's (OpenSRMV2ParseError, ValueError) — the same
+        # leak the list-level guard above was added to close.
+        if not isinstance(js_data, dict):
+            raise OpenSRMV2ParseError(
+                f"spec.judgment_slo[{index}] must be a mapping, got "
+                f"{type(js_data).__name__}."
+            )
         slos.append(_parse_judgment_slo(js_data))
 
     # Parse contracts (§6)
@@ -205,44 +276,6 @@ def parse_opensrm_v2_file(
     data = resolve_v2_template(data, path.parent)
 
     return parse_opensrm_v2(data, source_file=str(path), base_dir=path.parent)
-
-
-# =============================================================================
-# Service Type Inference
-# =============================================================================
-
-
-def _infer_service_type(spec: dict[str, Any], labels: dict[str, str]) -> str:
-    """Infer service type from v2 manifest content.
-
-    Inference rules:
-      - Explicit label 'type' in metadata.labels takes precedence
-      - judgment_slo present → ai-gate
-      - instrumentation.required_events with decision events → ai-gate
-      - Otherwise: fail loudly
-
-    Raises OpenSRMV2ParseError if ambiguous.
-    """
-    # Explicit label
-    explicit = labels.get("type")
-    if explicit:
-        return explicit
-
-    # Judgment SLOs present → ai-gate
-    if spec.get("judgment_slo"):
-        return "ai-gate"
-
-    # Decision events in instrumentation → ai-gate
-    instr = spec.get("instrumentation", {})
-    for event in instr.get("required_events", []):
-        if isinstance(event, dict) and "decision" in event.get("type", ""):
-            return "ai-gate"
-
-    raise OpenSRMV2ParseError(
-        "Cannot infer service type. Add metadata.labels.type "
-        "(api, worker, stream, ai-gate, batch, database, web) "
-        "or include judgment_slo for ai-gate services."
-    )
 
 
 # =============================================================================
@@ -862,8 +895,54 @@ def resolve_v2_template(
             f"Template chaining is not allowed (one level of inheritance only)."
         )
 
+    # `type` is not inheritable. schema.json's TemplateServiceIdentity sets
+    # `"type": false` so that "a template's type can never contradict the
+    # type of a manifest extending it" (opensrm-6w9d).
+    #
+    # This must be enforced BEFORE the merge, not after: _merge_template_spec
+    # deep-merges the template's service dict under the manifest's, so a
+    # template-supplied type becomes indistinguishable from a declared one.
+    # Left unchecked, a template typed ai-gate plus an extending manifest
+    # with no type parsed cleanly and manufactured an ai-gate identity —
+    # unlocking is_ai_gate() and the judgment codepaths from a document pair
+    # validate.sh rejects on both sides.
+    template_service = template_spec.get("service")
+    if isinstance(template_service, dict) and "type" in template_service:
+        raise OpenSRMV2ParseError(
+            f"Template '{template_name}' declares spec.service.type "
+            f"('{template_service['type']}'). A template must not declare a "
+            f"service type — it is not inheritable, so that a template can "
+            f"never contradict the type of a manifest extending it. Declare "
+            f"the type on each extending manifest instead."
+        )
+
     # Apply overrides
     overrides = template_block.get("overrides", {})
+    if not isinstance(overrides, dict):
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides must be a mapping, got "
+            f"{type(overrides).__name__}."
+        )
+
+    # Same rule via the overrides door: an override may replace `service`
+    # wholesale, which would otherwise reintroduce a template-side type.
+    #
+    # Deliberately broader than _merge_template_spec, which only acts on
+    # `append`/`replace` directives: a bare dict carrying a type is inert
+    # today, but rejecting it keeps the rule about what an override may SAY
+    # rather than about what the merger happens to act on — so a future
+    # directive cannot quietly reopen this door.
+    override_service = overrides.get("service")
+    if isinstance(override_service, dict):
+        override_value = override_service.get("replace", override_service)
+        if isinstance(override_value, dict) and "type" in override_value:
+            raise OpenSRMV2ParseError(
+                f"Template override in manifest extending '{template_name}' "
+                f"sets spec.service.type ('{override_value['type']}') via "
+                f"spec.template.overrides. The service type is not "
+                f"inheritable and must be declared on the manifest itself."
+            )
+
     merged_spec = _merge_template_spec(template_spec, spec, overrides)
 
     result = dict(manifest_data)

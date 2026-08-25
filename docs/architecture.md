@@ -233,8 +233,15 @@ Implements C-X.2 (manifest format migration).
   `nthlayer/docs/superpowers/specs/2026-05-06-slo-target-convention-decision.md`
   (opensrm-5fff).
 - v2 specifics: Backstage entity refs (`kind:namespace/name`)
-  resolved at parse time (failure → parse error). Service type
-  inferred from labels.type → judgment_slo presence → decision events.
+  resolved at parse time (failure → parse error). Service type is
+  READ from the required `spec.service.type` field, never inferred;
+  `metadata.labels.type` is not consulted (opensrm-ih0v). Valid values
+  are the spec's six plus an `^x-[a-z][a-z0-9-]*$` extension branch.
+  Consumers should call `resolve_service_type` (resolves aliases, then
+  validates — that order matters, since an alias is not itself a valid
+  type); `is_valid_service_type` and `valid_service_types_phrase` are the
+  underlying predicate and the shared error wording. Only an `ai-gate` may declare
+  `judgment_slo`, matching schema.json's `ServiceManifest.allOf`.
   OpenSLO `$refs` resolved relative to manifest's directory.
 - v1→v2 compat helpers in `v1_compat.py`:
   `default_statistical_requirements`, `default_measurement`,

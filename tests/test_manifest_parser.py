@@ -85,7 +85,7 @@ def v2_manifest_data():
         },
         "spec": {
             "owner": {"group": "group:default/sre-payments"},
-            "service": {"name": "payment-service", "description": "Payments"},
+            "service": {"name": "payment-service", "type": "api", "description": "Payments"},
             "slo": [
                 {
                     "apiVersion": "openslo/v1",
@@ -137,7 +137,7 @@ def v2_ai_gate_data():
         },
         "spec": {
             "owner": {"group": "group:default/payments-ml"},
-            "service": {"name": "fraud-detect"},
+            "service": {"name": "fraud-detect", "type": "ai-gate"},
             "judgment_slo": [
                 {
                     "metadata": {"name": "fraud-reversal-rate"},
@@ -306,7 +306,7 @@ class TestV2Parser:
             "apiVersion": "opensrm.nthlayer.io/v2",
             "kind": "ServiceManifest",
             "metadata": {"name": "svc", "labels": {"tier": "critical", "type": "api"}},
-            "spec": {"service": {"name": "svc"}},
+            "spec": {"service": {"name": "svc", "type": "api"}},
         }
         with pytest.raises(OpenSRMV2ParseError, match="spec.owner"):
             parse_opensrm_v2(data)
@@ -318,13 +318,19 @@ class TestV2Parser:
             "metadata": {"name": "svc", "labels": {}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
             },
         }
         with pytest.raises(OpenSRMV2ParseError, match="metadata.labels.tier"):
             parse_opensrm_v2(data)
 
-    def test_type_inference_fails_without_signals(self):
+    def test_missing_service_type_raises(self):
+        """Was ``test_type_inference_fails_without_signals`` pre-opensrm-ih0v.
+
+        The parser no longer infers a type from any signal, so the "without
+        signals" framing no longer means anything: the field is required
+        outright, and its absence is the only case left.
+        """
         data = {
             "apiVersion": "opensrm.nthlayer.io/v2",
             "kind": "ServiceManifest",
@@ -334,7 +340,7 @@ class TestV2Parser:
                 "service": {"name": "svc"},
             },
         }
-        with pytest.raises(OpenSRMV2ParseError, match="Cannot infer service type"):
+        with pytest.raises(OpenSRMV2ParseError, match=r"spec\.service\.type is required"):
             parse_opensrm_v2(data)
 
     def test_invalid_judgment_type_raises(self):
@@ -344,7 +350,7 @@ class TestV2Parser:
             "metadata": {"name": "svc", "labels": {"tier": "critical"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "ai-gate"},
                 "judgment_slo": [
                     {
                         "metadata": {"name": "bad"},
@@ -392,7 +398,7 @@ def test_v2_parser_handles_each_judgment_slo_type(
         "metadata": {"name": "svc", "labels": {"tier": "critical"}},
         "spec": {
             "owner": {"group": "group:default/team"},
-            "service": {"name": "svc"},
+            "service": {"name": "svc", "type": "ai-gate"},
             "judgment_slo": [
                 {
                     "metadata": {"name": f"svc-{judgment_type}"},
@@ -514,7 +520,7 @@ class TestLoader:
             "metadata": {"name": "svc", "labels": {"tier": "standard", "type": "api"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
             },
         }))
         m = load_manifest(manifest_file)
@@ -543,15 +549,25 @@ class TestLoader:
             load_manifest(manifest_file)
 
     def test_load_v2_invalid_type_raises_manifest_error(self, tmp_path):
-        """ValueError from v2 path must also be wrapped."""
+        """An invalid type on the v2 path must surface as ManifestLoadError.
+
+        Post-opensrm-ih0v the parser validates the type itself and raises
+        OpenSRMV2ParseError, where it previously let the model's ValueError
+        through. The loader catches both, so this still guards the wrapping —
+        see test_load_v2_invalid_tier_wraps_model_value_error for a trigger
+        that still reaches the loader as a ValueError.
+        """
         manifest_file = tmp_path / "bad.yaml"
         manifest_file.write_text(yaml.dump({
             "apiVersion": "opensrm.nthlayer.io/v2",
             "kind": "ServiceManifest",
-            "metadata": {"name": "svc", "labels": {"tier": "critical", "type": "nonexistent_type"}},
+            "metadata": {"name": "svc", "labels": {"tier": "critical"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                # The invalid value now belongs on the field, not the label:
+                # post-opensrm-ih0v labels.type is neither read nor written,
+                # so putting it there would test nothing.
+                "service": {"name": "svc", "type": "nonexistent_type"},
             },
         }))
         with pytest.raises(ManifestLoadError, match="Invalid type"):
@@ -583,7 +599,7 @@ class TestLoader:
             "metadata": {"name": "svc", "labels": {"tier": "standard", "type": "api"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc"},
+                "service": {"name": "svc", "type": "api"},
                 "template": {"extends": "template:default/base"},
             },
         }))
@@ -672,3 +688,25 @@ class TestExtractDeclaredDependencies:
         ]
         result = extract_declared_dependencies(from_dicts=manifest_dicts)
         assert result == {"svc-a": ["svc-b"]}
+
+
+def test_load_v2_invalid_tier_wraps_model_value_error(tmp_path):
+    """The loader must still wrap a ValueError raised by the MODEL.
+
+    opensrm-ih0v moved service-type validation into the parser, so the type
+    path no longer exercises that wrapping. Tier validation still lives only
+    in ReliabilityManifest.__post_init__, so it keeps the ValueError branch
+    of loader.py's `except (OpenSRMV2ParseError, ValueError)` covered.
+    """
+    manifest_file = tmp_path / "bad-tier.yaml"
+    manifest_file.write_text(yaml.dump({
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "svc", "labels": {"tier": "nonexistent_tier"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": {"name": "svc", "type": "api"},
+        },
+    }))
+    with pytest.raises(ManifestLoadError, match="Invalid tier"):
+        load_manifest(manifest_file)

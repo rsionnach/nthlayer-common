@@ -42,6 +42,9 @@ VALID_TIERS = {
     "low",
 }
 
+# The six values OpenSRM v2 defines for spec.service.type (opensrm-6w9d).
+# This set is the spec's, not ours — do not add to it. Anything NthLayer
+# needs beyond the six goes through the extension branch below.
 VALID_SERVICE_TYPES = {
     "api",
     "worker",
@@ -49,13 +52,99 @@ VALID_SERVICE_TYPES = {
     "ai-gate",
     "batch",
     "database",
-    "web",
 }
 
+# The spec's extension escape hatch: `^x-[a-z][a-z0-9-]*$`.
+#
+# Applied with fullmatch(), never search(). Python's `$` also matches just
+# before a trailing newline, so `re.search(r"^x-[a-z][a-z0-9-]*$", "x-web\n")`
+# succeeds — while check-jsonschema (ECMA-262) rejects the same string.
+# spec/v2/validate.sh runs the strict engine, so a laxer check here would
+# accept manifests the spec's own gate refuses. fullmatch() closes that gap.
+SERVICE_TYPE_EXTENSION_PATTERN = re.compile(r"x-[a-z][a-z0-9-]*")
+
+# Input conveniences with NO standing in the spec. These resolve in
+# ReliabilityManifest.__post_init__ *before* validation, so a manifest never
+# stores an alias — which is what stops them leaking back out into documents
+# that then fail schema validation.
+#
+# `web` was an nthlayer-common service type pre-opensrm-ih0v, absent from the
+# spec's six. It maps to the extension branch rather than collapsing into
+# `api` because nthlayer-generate distinguishes the two in its dashboard
+# templates, CLI init choices, and docs generation.
 SERVICE_TYPE_ALIASES = {
     "background-job": "worker",
     "pipeline": "batch",
+    "web": "x-web",
 }
+
+
+def resolve_service_type(value: object) -> str | None:
+    """Resolve an authored service type to its canonical form, or None.
+
+    Returns the canonical type — aliases resolved — or None if the value is
+    not one nthlayer-common accepts.
+
+    Prefer this over calling SERVICE_TYPE_ALIASES and is_valid_service_type
+    yourself. The two must be applied in that order, because an alias is
+    deliberately NOT a valid service type: validating first rejects every
+    alias, which is exactly the regression opensrm-ih0v's edge-cases pass
+    caught after three call sites had each open-coded the sequence. This
+    encodes the order instead of describing it in a comment beside each one.
+
+    Returns None rather than raising so each caller keeps its own exception
+    type — OpenSRMV2ParseError in the parser, ValueError in v1_compat.
+
+    One deliberate non-user: ReliabilityManifest.__post_init__ keeps the two
+    steps separate so its "Service type is required" guard can sit between
+    them, since "" resolves to None here and would otherwise be reported as
+    an invalid type rather than a missing one.
+    """
+    if not isinstance(value, str):
+        return None
+
+    resolved = SERVICE_TYPE_ALIASES.get(value, value)
+    return resolved if is_valid_service_type(resolved) else None
+
+
+def valid_service_types_phrase() -> str:
+    """Return the accepted service types as a phrase, for use after a
+    lead-in such as "Must be one of: " or "Set it to one of: ".
+
+    The only place that wording exists. All three author-facing errors — the
+    parser's, v1_compat's and ReliabilityManifest's — describe the accepted
+    set identically and stay in step with VALID_SERVICE_TYPES, which tracks
+    the spec and therefore changes.
+    """
+    return (
+        f"{', '.join(sorted(VALID_SERVICE_TYPES))}; "
+        "or an extension type matching 'x-<lowercase-name>'"
+    )
+
+
+def is_valid_service_type(value: object) -> bool:
+    """True if ``value`` is a service type schema.json's ServiceType accepts.
+
+    The single source of truth for the rule. Both ReliabilityManifest's own
+    validation and v1_compat's upconversion check consult this, so the two
+    cannot drift apart — they previously disagreed about the empty string,
+    which one path rejected and the other wrote into a v2 document verbatim.
+
+    Note this takes a *resolved* type: aliases are not valid service types,
+    they are inputs that must be normalised through SERVICE_TYPE_ALIASES
+    first. Callers that accept author input resolve, then validate.
+    """
+    # Guard the type: values reach here straight from parsed YAML, where
+    # `type: 5` yields an int. Letting that hit fullmatch() would raise
+    # TypeError, which sails through the `except ValueError` that callers
+    # like nthlayer-generate's migrate_manifest use to catch bad manifests.
+    if not isinstance(value, str):
+        return False
+
+    return bool(
+        value in VALID_SERVICE_TYPES or SERVICE_TYPE_EXTENSION_PATTERN.fullmatch(value)
+    )
+
 
 # 8 standard judgment SLO types (v2 spec §5.2)
 JUDGMENT_SLO_TYPES = {
@@ -763,7 +852,7 @@ class ReliabilityManifest:
     name: str
     team: str
     tier: str  # critical, high, standard, low
-    type: str  # api, worker, stream, ai-gate, batch, database, web
+    type: str  # one of VALID_SERVICE_TYPES, or an x- extension type
 
     # ==========================================================================
     # Metadata
@@ -815,7 +904,20 @@ class ReliabilityManifest:
 
     def __post_init__(self) -> None:
         """Validate and normalise the manifest."""
-        if self.type in SERVICE_TYPE_ALIASES:
+        # DELIBERATELY NOT resolve_service_type(), despite that helper's
+        # docstring saying to prefer it. Resolution and validation are split
+        # here so the "Service type is required" guard below can sit between
+        # them: resolve_service_type returns None for "", so collapsing the
+        # two into one call would report `Invalid type ''` instead of the
+        # actionable "you did not set it". Pinned by
+        # test_empty_type_reports_required_not_invalid — collapse this and
+        # that test fails rather than the message quietly changing.
+        #
+        # isinstance guard before the lookup, not just inside
+        # is_valid_service_type: `self.type in SERVICE_TYPE_ALIASES` hashes
+        # the value, so a list or dict from raw YAML raised TypeError here —
+        # before validation could turn it into a ValueError.
+        if isinstance(self.type, str) and self.type in SERVICE_TYPE_ALIASES:
             self.type = SERVICE_TYPE_ALIASES[self.type]
 
         if not self.name:
@@ -828,12 +930,17 @@ class ReliabilityManifest:
             raise ValueError("Service type is required")
 
         if self.tier not in VALID_TIERS:
-            msg = f"Invalid tier '{self.tier}'. Must be one of: {', '.join(sorted(VALID_TIERS))}"
+            msg = (
+                f"Invalid tier '{self.tier}'. "
+                f"Must be one of: {', '.join(sorted(VALID_TIERS))}."
+            )
             raise ValueError(msg)
 
-        if self.type not in VALID_SERVICE_TYPES:
-            valid = ", ".join(sorted(VALID_SERVICE_TYPES))
-            msg = f"Invalid type '{self.type}'. Must be one of: {valid}"
+        if not is_valid_service_type(self.type):
+            msg = (
+                f"Invalid type '{self.type}'. "
+                f"Must be one of: {valid_service_types_phrase()}."
+            )
             raise ValueError(msg)
 
     def is_ai_gate(self) -> bool:

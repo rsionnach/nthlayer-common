@@ -100,7 +100,7 @@ def _v2_skeleton(spec_extras: dict) -> dict:
         },
         "spec": {
             "owner": {"group": "group:default/payments"},
-            "service": {"name": "fraud-detection"},
+            "service": {"name": "fraud-detection", "type": "ai-gate"},
             **spec_extras,
         },
     }
