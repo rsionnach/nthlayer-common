@@ -79,7 +79,7 @@ SERVICE_TYPE_ALIASES = {
 }
 
 
-def resolve_service_type(value: str) -> str | None:
+def resolve_service_type(value: object) -> str | None:
     """Resolve an authored service type to its canonical form, or None.
 
     Returns the canonical type — aliases resolved — or None if the value is
@@ -122,7 +122,7 @@ def valid_service_types_phrase() -> str:
     )
 
 
-def is_valid_service_type(value: str) -> bool:
+def is_valid_service_type(value: object) -> bool:
     """True if ``value`` is a service type schema.json's ServiceType accepts.
 
     The single source of truth for the rule. Both ReliabilityManifest's own

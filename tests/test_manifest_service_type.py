@@ -598,7 +598,7 @@ def test_resolve_service_type_returns_none_for_invalid(bad: object):
     exception type on either."""
     from nthlayer_common.manifest import resolve_service_type
 
-    assert resolve_service_type(bad) is None  # type: ignore[arg-type]
+    assert resolve_service_type(bad) is None
 
 
 def test_alias_table_is_single_pass():
