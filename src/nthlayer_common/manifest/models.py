@@ -80,8 +80,8 @@ SERVICE_TYPE_ALIASES = {
 
 
 def valid_service_types_phrase() -> str:
-    """Return the accepted service types as a phrase, for use after
-    "Must be one of: ".
+    """Return the accepted service types as a phrase, for use after a
+    lead-in such as "Must be one of: " or "Set it to one of: ".
 
     The only place that wording exists. All three author-facing errors — the
     parser's, v1_compat's and ReliabilityManifest's — describe the accepted
@@ -893,7 +893,10 @@ class ReliabilityManifest:
             raise ValueError("Service type is required")
 
         if self.tier not in VALID_TIERS:
-            msg = f"Invalid tier '{self.tier}'. Must be one of: {', '.join(sorted(VALID_TIERS))}"
+            msg = (
+                f"Invalid tier '{self.tier}'. "
+                f"Must be one of: {', '.join(sorted(VALID_TIERS))}."
+            )
             raise ValueError(msg)
 
         if not is_valid_service_type(self.type):
