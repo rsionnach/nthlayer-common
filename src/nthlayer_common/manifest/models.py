@@ -79,6 +79,21 @@ SERVICE_TYPE_ALIASES = {
 }
 
 
+def valid_service_types_message() -> str:
+    """The human-readable list of accepted service types, built once.
+
+    parser/v2, v1_compat and ReliabilityManifest all need to tell an author
+    what a service type may be. parser/v2 previously hardcoded the six as a
+    string literal, so it would have gone stale the moment VALID_SERVICE_TYPES
+    changed — and that set tracks the spec, which is exactly the kind of thing
+    that does change.
+    """
+    return (
+        f"{', '.join(sorted(VALID_SERVICE_TYPES))}; "
+        f"or an extension type matching 'x-<lowercase-name>'"
+    )
+
+
 def is_valid_service_type(value: str) -> bool:
     """True if ``value`` is a service type schema.json's ServiceType accepts.
 
@@ -101,6 +116,7 @@ def is_valid_service_type(value: str) -> bool:
     return bool(
         value in VALID_SERVICE_TYPES or SERVICE_TYPE_EXTENSION_PATTERN.fullmatch(value)
     )
+
 
 # 8 standard judgment SLO types (v2 spec §5.2)
 JUDGMENT_SLO_TYPES = {
@@ -881,10 +897,9 @@ class ReliabilityManifest:
             raise ValueError(msg)
 
         if not is_valid_service_type(self.type):
-            valid = ", ".join(sorted(VALID_SERVICE_TYPES))
             msg = (
-                f"Invalid type '{self.type}'. Must be one of: {valid}; "
-                f"or an extension type matching 'x-<lowercase-name>'"
+                f"Invalid type '{self.type}'. "
+                f"Must be one of: {valid_service_types_message()}"
             )
             raise ValueError(msg)
 

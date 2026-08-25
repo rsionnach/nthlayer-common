@@ -27,13 +27,13 @@ from typing import Any
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
     SERVICE_TYPE_ALIASES,
-    VALID_SERVICE_TYPES,
     ContractPromise,
     JudgmentMeasurement,
     JudgmentPromise,
     ReliabilityContract,
     StatisticalRequirements,
     is_valid_service_type,
+    valid_service_types_message,
 )
 
 # =============================================================================
@@ -226,15 +226,12 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     # (opensrm-6w9d), so a v1 manifest without one cannot produce a valid v2
     # document. Fail loudly rather than defaulting: a guessed 'api' would be
     # indistinguishable downstream from one the author actually declared.
-    # Falsy, not `is None`: v1's spec.type could be an empty string, and
-    # parser/v2 rejects that on the read side. Checking `is None` here let
-    # '' through and produced a v2 document with type: "".
-    # isinstance as well as falsy: the alias lookup below hashes this value,
-    # so a list or dict from raw YAML raised TypeError before any of the
-    # validation beneath could turn it into a ValueError. That matters
-    # because nthlayer-generate's migrate_manifest wraps this call in
-    # `except ValueError` — a TypeError crashes the CLI with a traceback
-    # instead of reporting a bad manifest and returning 1.
+    # Invariant: everything below this point may assume service_type is a
+    # non-empty str. The alias lookup hashes it and the validator matches it,
+    # so anything else must be rejected HERE, as a ValueError — that is the
+    # only exception type nthlayer-generate's migrate_manifest catches around
+    # this call, and a TypeError would crash the CLI instead of reporting a
+    # bad manifest.
     if not service_type or not isinstance(service_type, str):
         raise ValueError(
             f"v1 manifest '{name}' has no usable spec.type (got "
@@ -256,11 +253,10 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     # surfaces the problem at its cause instead of as an uncaught error from
     # ReliabilityManifest's validation much later.
     if not is_valid_service_type(service_type):
-        valid = ", ".join(sorted(VALID_SERVICE_TYPES))
         raise ValueError(
             f"v1 manifest '{name}' declares spec.type '{service_type}', which "
-            f"is not a valid v2 service type. Must be one of: {valid}; or an "
-            f"extension type matching 'x-<lowercase-name>'."
+            f"is not a valid v2 service type. Must be one of: "
+            f"{valid_service_types_message()}."
         )
 
     # Build v2 metadata + labels

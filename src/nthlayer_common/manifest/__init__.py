@@ -59,6 +59,7 @@ from nthlayer_common.manifest.models import (
     StratifiedSample,
     TelemetryEvent,
     VolumeEstimate,
+    is_valid_service_type,
 )
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError
 from nthlayer_common.manifest.parser._shared import extract_declared_dependencies
@@ -87,6 +88,7 @@ __all__ = [
     "SERVICE_TYPE_ALIASES",
     "VALID_EXHAUSTION_BEHAVIORS",
     "VALID_SERVICE_TYPES",
+    "is_valid_service_type",
     "VALID_TIERS",
     # Enums
     "DependencyCriticality",

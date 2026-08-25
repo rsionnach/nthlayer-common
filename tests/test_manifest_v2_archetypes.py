@@ -81,10 +81,12 @@ def test_archetype_validates_against_schema(spec_path: Path):
 #
 # Each entry is an example that validates green against schema.json and is
 # rejected by the reference parser — the exact seam this module exists to
-# make visible. opensrm-ih0v fixed the service-type limb of it; these four
-# are separate causes it uncovered on the way, each with its own bead.
+# make visible. opensrm-ih0v fixed the service-type limb of it; the seven
+# entries below trace to four separate root causes it uncovered on the way,
+# each with its own bead.
 #
-# Two of the four are the same disease opensrm-6w9d and opensrm-ih0v cured:
+# Two of those four causes are the same disease opensrm-6w9d and
+# opensrm-ih0v cured:
 # inference standing in for declaration. None of them is caught by
 # spec/v2/validate.sh, which never resolves $refs and never consults a
 # parser.
@@ -140,7 +142,7 @@ def test_archetype_declares_a_type_nthlayer_common_accepts(spec_path: Path):
 
     This is the one half of the seam that holds for all seven today, and it
     is deliberately independent of full parsing: every entry in
-    ``_KNOWN_DIVERGENCE`` below is blocked on some *other* field, so without
+    ``_KNOWN_DIVERGENCE`` above is blocked on some *other* field, so without
     this test the module would consist entirely of xfails and assert nothing
     positive about the service type at all.
 
