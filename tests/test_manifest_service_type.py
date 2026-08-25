@@ -618,3 +618,19 @@ def test_alias_table_is_single_pass():
         assert is_valid_service_type(target), (
             f"alias {alias!r} maps to {target!r}, which is not a valid type"
         )
+
+
+def test_empty_type_reports_required_not_invalid():
+    """The model deliberately does NOT use resolve_service_type.
+
+    Its alias resolution and validity check are split around the
+    "Service type is required" guard, so an empty type reports the
+    ACTIONABLE message ("you didn't set it") rather than the confusing one
+    ("'' is not a valid type"). resolve_service_type returns None for '',
+    so collapsing the two into one call — the obvious tidy-up, given the
+    helper's docstring says to prefer it — would silently swap the message.
+
+    This test is what makes that tidy-up fail loudly instead.
+    """
+    with pytest.raises(ValueError, match="Service type is required"):
+        ReliabilityManifest(name="s", team="t", tier="critical", type="")

@@ -94,6 +94,11 @@ def resolve_service_type(value: str) -> str | None:
 
     Returns None rather than raising so each caller keeps its own exception
     type — OpenSRMV2ParseError in the parser, ValueError in v1_compat.
+
+    One deliberate non-user: ReliabilityManifest.__post_init__ keeps the two
+    steps separate so its "Service type is required" guard can sit between
+    them, since "" resolves to None here and would otherwise be reported as
+    an invalid type rather than a missing one.
     """
     if not isinstance(value, str):
         return None
@@ -899,6 +904,15 @@ class ReliabilityManifest:
 
     def __post_init__(self) -> None:
         """Validate and normalise the manifest."""
+        # DELIBERATELY NOT resolve_service_type(), despite that helper's
+        # docstring saying to prefer it. Resolution and validation are split
+        # here so the "Service type is required" guard below can sit between
+        # them: resolve_service_type returns None for "", so collapsing the
+        # two into one call would report `Invalid type ''` instead of the
+        # actionable "you did not set it". Pinned by
+        # test_empty_type_reports_required_not_invalid — collapse this and
+        # that test fails rather than the message quietly changing.
+        #
         # isinstance guard before the lookup, not just inside
         # is_valid_service_type: `self.type in SERVICE_TYPE_ALIASES` hashes
         # the value, so a list or dict from raw YAML raised TypeError here —
