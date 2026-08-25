@@ -350,7 +350,7 @@ class TestV2Parser:
             "metadata": {"name": "svc", "labels": {"tier": "critical"}},
             "spec": {
                 "owner": {"group": "group:default/team"},
-                "service": {"name": "svc", "type": "api"},
+                "service": {"name": "svc", "type": "ai-gate"},
                 "judgment_slo": [
                     {
                         "metadata": {"name": "bad"},
@@ -398,7 +398,7 @@ def test_v2_parser_handles_each_judgment_slo_type(
         "metadata": {"name": "svc", "labels": {"tier": "critical"}},
         "spec": {
             "owner": {"group": "group:default/team"},
-            "service": {"name": "svc", "type": "api"},
+            "service": {"name": "svc", "type": "ai-gate"},
             "judgment_slo": [
                 {
                     "metadata": {"name": f"svc-{judgment_type}"},

@@ -27,11 +27,13 @@ from typing import Any
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
     SERVICE_TYPE_ALIASES,
+    VALID_SERVICE_TYPES,
     ContractPromise,
     JudgmentMeasurement,
     JudgmentPromise,
     ReliabilityContract,
     StatisticalRequirements,
+    is_valid_service_type,
 )
 
 # =============================================================================
@@ -224,7 +226,10 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     # (opensrm-6w9d), so a v1 manifest without one cannot produce a valid v2
     # document. Fail loudly rather than defaulting: a guessed 'api' would be
     # indistinguishable downstream from one the author actually declared.
-    if service_type is None:
+    # Falsy, not `is None`: v1's spec.type could be an empty string, and
+    # parser/v2 rejects that on the read side. Checking `is None` here let
+    # '' through and produced a v2 document with type: "".
+    if not service_type:
         raise ValueError(
             f"v1 manifest '{name}' has no spec.type, which is required as "
             f"spec.service.type in v2. Declare it before upconverting."
@@ -235,6 +240,21 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     # output is checked by schema.json — which knows no aliases. Writing a
     # raw v1 'background-job' here would emit a v2 document the spec rejects.
     service_type = SERVICE_TYPE_ALIASES.get(service_type, service_type)
+
+    # ...and normalising is not enough on its own: any value that is neither
+    # an alias nor already valid was previously written verbatim, so v1 types
+    # like 'Frontend' or 'ml' produced schema-invalid v2 output. Validate
+    # here rather than leaving it to the caller — nthlayer-generate's
+    # migrate_manifest catches ValueError around this call, so raising now
+    # surfaces the problem at its cause instead of as an uncaught error from
+    # ReliabilityManifest's validation much later.
+    if not is_valid_service_type(service_type):
+        valid = ", ".join(sorted(VALID_SERVICE_TYPES))
+        raise ValueError(
+            f"v1 manifest '{name}' declares spec.type '{service_type}', which "
+            f"is not a valid v2 service type. Must be one of: {valid}; or an "
+            f"extension type matching 'x-<lowercase-name>'."
+        )
 
     # Build v2 metadata + labels
     labels: dict[str, str] = {}

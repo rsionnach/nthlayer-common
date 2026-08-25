@@ -130,6 +130,27 @@ def parse_opensrm_v2(
             "or an extension type matching 'x-<lowercase-name>'."
         )
 
+    # schema.json's ServiceManifest.allOf forbids judgment_slo whenever
+    # spec.service.type is present and is not 'ai-gate' — restoring v1 §11's
+    # type-specific MUST, which v1's shipped schema never enforced.
+    #
+    # Enforced here as well as in the schema because deleting the old
+    # ai-gate-from-judgment_slo inference only stops the RECLASSIFICATION;
+    # without this the same manifest is merely mis-accepted as a worker
+    # instead, and get_judgment_slos() still hands judgment SLOs to callers
+    # for a service the spec says cannot have them.
+    #
+    # Presence, not truthiness: the schema's `judgment_slo: false` rejects
+    # any value, so `judgment_slo: []` is invalid too.
+    if "judgment_slo" in spec and service_type != "ai-gate":
+        raise OpenSRMV2ParseError(
+            f"spec.judgment_slo is only permitted on an 'ai-gate' service, "
+            f"but spec.service.type is '{service_type}'. Judgment SLOs measure "
+            f"decision quality and are only meaningful on a decision-making "
+            f"service. Remove the judgment_slo block, or declare the service "
+            f"as an ai-gate if it does make decisions."
+        )
+
     # Parse classical SLOs (OpenSLO v1 documents)
     slos: list[SLODefinition] = []
     slo_block = spec.get("slo", [])

@@ -78,6 +78,23 @@ SERVICE_TYPE_ALIASES = {
     "web": "x-web",
 }
 
+
+def is_valid_service_type(value: str) -> bool:
+    """True if ``value`` is a service type schema.json's ServiceType accepts.
+
+    The single source of truth for the rule. Both ReliabilityManifest's own
+    validation and v1_compat's upconversion check consult this, so the two
+    cannot drift apart — they previously disagreed about the empty string,
+    which one path rejected and the other wrote into a v2 document verbatim.
+
+    Note this takes a *resolved* type: aliases are not valid service types,
+    they are inputs that must be normalised through SERVICE_TYPE_ALIASES
+    first. Callers that accept author input resolve, then validate.
+    """
+    return bool(
+        value in VALID_SERVICE_TYPES or SERVICE_TYPE_EXTENSION_PATTERN.fullmatch(value)
+    )
+
 # 8 standard judgment SLO types (v2 spec §5.2)
 JUDGMENT_SLO_TYPES = {
     "reversal_rate",
@@ -852,9 +869,7 @@ class ReliabilityManifest:
             msg = f"Invalid tier '{self.tier}'. Must be one of: {', '.join(sorted(VALID_TIERS))}"
             raise ValueError(msg)
 
-        if self.type not in VALID_SERVICE_TYPES and not SERVICE_TYPE_EXTENSION_PATTERN.fullmatch(
-            self.type
-        ):
+        if not is_valid_service_type(self.type):
             valid = ", ".join(sorted(VALID_SERVICE_TYPES))
             msg = (
                 f"Invalid type '{self.type}'. Must be one of: {valid}; "

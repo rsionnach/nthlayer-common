@@ -68,14 +68,21 @@ def test_parser_ignores_labels_type():
     assert manifest.type == "worker"
 
 
-def test_worker_declaring_judgment_slo_is_not_reclassified():
-    """The inversion opensrm-6w9d exists to correct.
+def test_worker_declaring_judgment_slo_is_rejected():
+    """The inversion opensrm-6w9d exists to correct, closed from both ends.
 
     ``_infer_service_type`` returned ai-gate for anything carrying a
     judgment_slo, silently promoting a misconfigured worker into ai-gate-only
-    codepaths. The declared type must now win, leaving the schema's
-    forbid-direction conditional free to reject the manifest as invalid
-    rather than the parser quietly making it valid-looking.
+    codepaths. Deleting it stops the reclassification — but on its own that
+    only converts the manifest from wrongly-accepted-as-ai-gate to
+    wrongly-accepted-as-worker: ``get_judgment_slos()`` would still return
+    judgment SLOs for a service the spec says cannot have them, which is the
+    same harm arriving by a different road.
+
+    schema.json's ServiceManifest.allOf forbids ``judgment_slo`` outright
+    whenever ``spec.service.type`` is present and not ``ai-gate``, so the
+    parser must reject it too. Anything else is a parser-wider-than-schema
+    divergence — precisely what this bead exists to eliminate.
     """
     # Deliberately the wrapped `kind: JudgmentSLO` document shape, not the
     # schema's flat inline one: the flat shape is blocked on opensrm-a742,
@@ -95,10 +102,45 @@ def test_worker_declaring_judgment_slo_is_not_reclassified():
         ],
     )
 
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_slo"):
+        parse_opensrm_v2(document)
+
+
+def test_ai_gate_declaring_judgment_slo_is_accepted():
+    """The permitted direction — guards against over-correcting into a rule
+    that forbids judgment SLOs everywhere."""
+    document = _v2_doc(
+        {"name": "svc", "type": "ai-gate"},
+        judgment_slo=[
+            {
+                "metadata": {"name": "svc-reversal-rate"},
+                "spec": {
+                    "service": "svc",
+                    "judgment_type": "reversal_rate",
+                    "target": {"maximum_reversal_rate": 0.05},
+                },
+            }
+        ],
+    )
+
     manifest = parse_opensrm_v2(document)
 
-    assert manifest.type == "worker"
-    assert not manifest.is_ai_gate()
+    assert manifest.is_ai_gate()
+    assert len(manifest.get_judgment_slos()) == 1
+
+
+def test_empty_judgment_slo_list_still_rejected_on_worker():
+    """``"judgment_slo": false`` in the schema rejects ANY value, so an empty
+    list is invalid too — the property must be absent, not merely empty.
+
+    Keying the parser check on truthiness rather than presence would accept
+    ``judgment_slo: []`` on a worker and reopen the divergence for the one
+    input most likely to be produced by a template or codegen path.
+    """
+    document = _v2_doc({"name": "svc", "type": "worker"}, judgment_slo=[])
+
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_slo"):
+        parse_opensrm_v2(document)
 
 
 def test_parser_does_not_infer_ai_gate_from_decision_events():
@@ -236,6 +278,33 @@ def test_v1_upconversion_normalises_aliases(v1_type: str, expected: str):
     v2 = convert_v1_to_v2(_v1_doc(v1_type))
 
     assert v2["spec"]["service"]["type"] == expected
+
+
+@pytest.mark.parametrize(
+    "v1_type",
+    [
+        "",  # falsy but not None — the `is None` guard let this through
+        "Frontend",  # uppercase, matches neither the enum nor the x- branch
+        "ml",  # a plausible-looking value that is simply not in the enum
+        "x-Web",  # right prefix, wrong case for the extension pattern
+    ],
+)
+def test_v1_upconversion_rejects_values_the_schema_would_reject(v1_type: str):
+    """Upconversion must not emit a document schema.json refuses.
+
+    Guarding only ``is None`` was not enough: any other invalid value was
+    written verbatim. The failure then surfaced far from its cause — for a
+    non-empty value it escaped the ValueError that
+    nthlayer-generate's migrate_manifest catches around this call, and
+    resurfaced later as an uncaught error from ReliabilityManifest's own
+    validation.
+
+    Note ``""``: v1_compat used ``is None`` while parser/v2 used a falsy
+    check, so the empty string was rejected on one path and accepted on the
+    other. Both now use the same predicate.
+    """
+    with pytest.raises(ValueError, match=r"spec\.type|Invalid type"):
+        convert_v1_to_v2(_v1_doc(v1_type))
 
 
 def test_v1_upconversion_fails_loudly_on_missing_type():
