@@ -374,3 +374,40 @@ def test_v1_upconversion_fails_loudly_on_missing_type():
     """
     with pytest.raises(ValueError, match="spec.type"):
         convert_v1_to_v2(_v1_doc(None))
+
+
+@pytest.mark.parametrize("bad", [["api"], {"a": 1}, 5, True])
+def test_v1_upconversion_rejects_non_string_type_as_value_error(bad: object):
+    """The alias lookup hashes spec.type, so a list or dict raised TypeError
+    before any validation ran.
+
+    nthlayer-generate's migrate_manifest wraps convert_v1_to_v2 in
+    ``except ValueError``; a TypeError crashes that CLI with a traceback
+    instead of reporting a bad manifest and returning 1.
+    """
+    v1 = _v1_doc("api")
+    v1["spec"]["type"] = bad
+
+    with pytest.raises(ValueError, match=r"spec\.type|Invalid|not a valid"):
+        convert_v1_to_v2(v1)
+
+
+def test_v1_judgment_slo_error_names_only_routed_slos():
+    """The message must name what was actually routed.
+
+    _convert_v1_slos skips entries whose value is not a dict, so building
+    the list by intersecting JUDGMENT_SLO_TYPES with the raw slos keys named
+    SLOs that never reached spec.judgment_slo.
+    """
+    v1 = _v1_doc("api")
+    v1["spec"]["slos"] = {
+        "reversal_rate": "oops-not-a-dict",
+        "calibration": {"target": 0.2, "window": "7d"},
+    }
+
+    with pytest.raises(ValueError) as excinfo:
+        convert_v1_to_v2(v1)
+
+    message = str(excinfo.value)
+    assert "calibration" in message
+    assert "reversal_rate" not in message

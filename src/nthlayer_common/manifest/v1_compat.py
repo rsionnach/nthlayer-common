@@ -229,10 +229,17 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     # Falsy, not `is None`: v1's spec.type could be an empty string, and
     # parser/v2 rejects that on the read side. Checking `is None` here let
     # '' through and produced a v2 document with type: "".
-    if not service_type:
+    # isinstance as well as falsy: the alias lookup below hashes this value,
+    # so a list or dict from raw YAML raised TypeError before any of the
+    # validation beneath could turn it into a ValueError. That matters
+    # because nthlayer-generate's migrate_manifest wraps this call in
+    # `except ValueError` — a TypeError crashes the CLI with a traceback
+    # instead of reporting a bad manifest and returning 1.
+    if not service_type or not isinstance(service_type, str):
         raise ValueError(
-            f"v1 manifest '{name}' has no spec.type, which is required as "
-            f"spec.service.type in v2. Declare it before upconverting."
+            f"v1 manifest '{name}' has no usable spec.type (got "
+            f"{service_type!r}), which is required as spec.service.type "
+            f"in v2. Declare it as a string before upconverting."
         )
 
     # Normalise through the alias map before writing. SERVICE_TYPE_ALIASES
@@ -285,7 +292,13 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         # inside migrate_manifest_command, and handed direct callers an
         # invalid manifest with no error at all.
         if service_type != "ai-gate":
-            slo_names = ", ".join(sorted(JUDGMENT_SLO_TYPES & set(spec.get("slos") or {})))
+            # Names come from the entries actually routed, not from
+            # intersecting JUDGMENT_SLO_TYPES with the raw slos keys:
+            # _convert_v1_slos skips entries whose value is not a dict, so
+            # the intersection would name SLOs that were never routed.
+            slo_names = ", ".join(
+                sorted(js["spec"]["judgment_type"] for js in judgment_slos)
+            )
             raise ValueError(
                 f"v1 manifest '{name}' declares spec.type '{service_type}' but "
                 f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
