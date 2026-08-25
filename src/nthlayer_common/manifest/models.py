@@ -79,18 +79,18 @@ SERVICE_TYPE_ALIASES = {
 }
 
 
-def valid_service_types_message() -> str:
-    """The human-readable list of accepted service types, built once.
+def valid_service_types_phrase() -> str:
+    """Return the accepted service types as a phrase, for use after
+    "Must be one of: ".
 
-    parser/v2, v1_compat and ReliabilityManifest all need to tell an author
-    what a service type may be. parser/v2 previously hardcoded the six as a
-    string literal, so it would have gone stale the moment VALID_SERVICE_TYPES
-    changed — and that set tracks the spec, which is exactly the kind of thing
-    that does change.
+    The only place that wording exists. All three author-facing errors — the
+    parser's, v1_compat's and ReliabilityManifest's — describe the accepted
+    set identically and stay in step with VALID_SERVICE_TYPES, which tracks
+    the spec and therefore changes.
     """
     return (
         f"{', '.join(sorted(VALID_SERVICE_TYPES))}; "
-        f"or an extension type matching 'x-<lowercase-name>'"
+        "or an extension type matching 'x-<lowercase-name>'"
     )
 
 
@@ -899,7 +899,7 @@ class ReliabilityManifest:
         if not is_valid_service_type(self.type):
             msg = (
                 f"Invalid type '{self.type}'. "
-                f"Must be one of: {valid_service_types_message()}"
+                f"Must be one of: {valid_service_types_phrase()}."
             )
             raise ValueError(msg)
 

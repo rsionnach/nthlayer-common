@@ -45,7 +45,7 @@ from nthlayer_common.manifest.models import (
     StatisticalRequirements,
     StratifiedSample,
     VolumeEstimate,
-    valid_service_types_message,
+    valid_service_types_phrase,
 )
 from nthlayer_common.manifest.openslo.parser import (
     OpenSLOParseError,
@@ -126,8 +126,8 @@ def parse_opensrm_v2(
     service_type = service.get("type")
     if not service_type:
         raise OpenSRMV2ParseError(
-            f"spec.service.type is required. Set it to one of: "
-            f"{valid_service_types_message()}."
+            "spec.service.type is required. Set it to one of: "
+            f"{valid_service_types_phrase()}."
         )
 
     # schema.json's ServiceManifest.allOf forbids judgment_slo whenever

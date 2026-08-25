@@ -33,7 +33,7 @@ from nthlayer_common.manifest.models import (
     ReliabilityContract,
     StatisticalRequirements,
     is_valid_service_type,
-    valid_service_types_message,
+    valid_service_types_phrase,
 )
 
 # =============================================================================
@@ -256,7 +256,7 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             f"v1 manifest '{name}' declares spec.type '{service_type}', which "
             f"is not a valid v2 service type. Must be one of: "
-            f"{valid_service_types_message()}."
+            f"{valid_service_types_phrase()}."
         )
 
     # Build v2 metadata + labels

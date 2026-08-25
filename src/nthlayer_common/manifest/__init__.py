@@ -60,6 +60,7 @@ from nthlayer_common.manifest.models import (
     TelemetryEvent,
     VolumeEstimate,
     is_valid_service_type,
+    valid_service_types_phrase,
 )
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError
 from nthlayer_common.manifest.parser._shared import extract_declared_dependencies
@@ -88,8 +89,10 @@ __all__ = [
     "SERVICE_TYPE_ALIASES",
     "VALID_EXHAUSTION_BEHAVIORS",
     "VALID_SERVICE_TYPES",
-    "is_valid_service_type",
     "VALID_TIERS",
+    # Service-type helpers
+    "is_valid_service_type",
+    "valid_service_types_phrase",
     # Enums
     "DependencyCriticality",
     "SourceFormat",
