@@ -520,3 +520,35 @@ def test_non_dict_service_block_raises_domain_error(bad: object):
 
     with pytest.raises(OpenSRMV2ParseError, match="spec.service"):
         parse_opensrm_v2(document)
+
+
+@pytest.mark.parametrize(
+    ("alias", "canonical"),
+    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+)
+def test_parser_resolves_aliases_before_validating(alias: str, canonical: str):
+    """Aliases must survive the PARSER, not just ReliabilityManifest.
+
+    is_valid_service_type takes a *resolved* type — aliases are deliberately
+    not valid service types. The model resolves before validating, so
+    aliases always worked there; the parser gained its own validity check
+    and applied it to the raw value, so every documented alias became a
+    parse error. Only a test that goes through parse_opensrm_v2 catches
+    this: the model-level alias test passes either way.
+    """
+    manifest = parse_opensrm_v2(_v2_doc({"name": "svc", "type": alias}))
+
+    assert manifest.type == canonical
+
+
+def test_non_dict_template_overrides_raises_domain_error(tmp_path):
+    """``overrides`` as a list leaked AttributeError from ``.get``, escaping
+    the loader's ``(OpenSRMV2ParseError, ValueError)``."""
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base"})
+    manifest = _extending_manifest({"name": "mysvc", "type": "worker"})
+    manifest["spec"]["template"]["overrides"] = ["service"]  # type: ignore[index]
+
+    with pytest.raises(OpenSRMV2ParseError, match="overrides"):
+        resolve_v2_template(manifest, tmp_path)

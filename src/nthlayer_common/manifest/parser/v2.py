@@ -16,6 +16,7 @@ import yaml
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
+    SERVICE_TYPE_ALIASES,
     APIRef,
     BreachAction,
     BreachSemantics,
@@ -138,6 +139,15 @@ def parse_opensrm_v2(
             "spec.service.type is required. Set it to one of: "
             f"{valid_service_types_phrase()}."
         )
+    # Resolve aliases BEFORE validating. is_valid_service_type takes a
+    # *resolved* type — aliases are deliberately not valid service types —
+    # so checking the raw value here rejected every documented alias
+    # (`web`, `background-job`, `pipeline`), which the model has always
+    # accepted because it resolves first. v1_compat does the same in this
+    # order; the two must not diverge.
+    if isinstance(service_type, str):
+        service_type = SERVICE_TYPE_ALIASES.get(service_type, service_type)
+
     # Validate here as well as in ReliabilityManifest: an ABSENT type raised
     # the domain error above, while an INVALID one fell through to the
     # model's ValueError — so two spellings of the same authoring mistake
@@ -907,9 +917,20 @@ def resolve_v2_template(
 
     # Apply overrides
     overrides = template_block.get("overrides", {})
+    if not isinstance(overrides, dict):
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides must be a mapping, got "
+            f"{type(overrides).__name__}."
+        )
 
     # Same rule via the overrides door: an override may replace `service`
     # wholesale, which would otherwise reintroduce a template-side type.
+    #
+    # Deliberately broader than _merge_template_spec, which only acts on
+    # `append`/`replace` directives: a bare dict carrying a type is inert
+    # today, but rejecting it keeps the rule about what an override may SAY
+    # rather than about what the merger happens to act on — so a future
+    # directive cannot quietly reopen this door.
     override_service = overrides.get("service")
     if isinstance(override_service, dict):
         override_value = override_service.get("replace", override_service)
