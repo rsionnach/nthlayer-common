@@ -45,6 +45,7 @@ from nthlayer_common.manifest.models import (
     StatisticalRequirements,
     StratifiedSample,
     VolumeEstimate,
+    is_valid_service_type,
     valid_service_types_phrase,
 )
 from nthlayer_common.manifest.openslo.parser import (
@@ -114,6 +115,14 @@ def parse_opensrm_v2(
 
     # Service identity
     service = spec.get("service", {})
+    # spec.service is type-bearing now, so a scalar here is reachable — via a
+    # hand-written `service: api` or an overrides replace. `.get` on a str
+    # raised AttributeError, which escapes even the loader's
+    # (OpenSRMV2ParseError, ValueError).
+    if not isinstance(service, dict):
+        raise OpenSRMV2ParseError(
+            f"spec.service must be a mapping, got {type(service).__name__}."
+        )
     service_name = service.get("name") or name
     description = service.get("description")
 
@@ -128,6 +137,16 @@ def parse_opensrm_v2(
         raise OpenSRMV2ParseError(
             "spec.service.type is required. Set it to one of: "
             f"{valid_service_types_phrase()}."
+        )
+    # Validate here as well as in ReliabilityManifest: an ABSENT type raised
+    # the domain error above, while an INVALID one fell through to the
+    # model's ValueError — so two spellings of the same authoring mistake
+    # arrived as different exception types, and the ValueError escaped every
+    # caller that catches only OpenSRMV2ParseError.
+    if not is_valid_service_type(service_type):
+        raise OpenSRMV2ParseError(
+            f"Invalid type '{service_type}' in spec.service.type. "
+            f"Must be one of: {valid_service_types_phrase()}."
         )
 
     # schema.json's ServiceManifest.allOf forbids judgment_slo whenever
@@ -865,8 +884,43 @@ def resolve_v2_template(
             f"Template chaining is not allowed (one level of inheritance only)."
         )
 
+    # `type` is not inheritable. schema.json's TemplateServiceIdentity sets
+    # `"type": false` so that "a template's type can never contradict the
+    # type of a manifest extending it" (opensrm-6w9d).
+    #
+    # This must be enforced BEFORE the merge, not after: _merge_template_spec
+    # deep-merges the template's service dict under the manifest's, so a
+    # template-supplied type becomes indistinguishable from a declared one.
+    # Left unchecked, a template typed ai-gate plus an extending manifest
+    # with no type parsed cleanly and manufactured an ai-gate identity —
+    # unlocking is_ai_gate() and the judgment codepaths from a document pair
+    # validate.sh rejects on both sides.
+    template_service = template_spec.get("service")
+    if isinstance(template_service, dict) and "type" in template_service:
+        raise OpenSRMV2ParseError(
+            f"Template '{template_name}' declares spec.service.type "
+            f"('{template_service['type']}'). A template must not declare a "
+            f"service type — it is not inheritable, so that a template can "
+            f"never contradict the type of a manifest extending it. Declare "
+            f"the type on each extending manifest instead."
+        )
+
     # Apply overrides
     overrides = template_block.get("overrides", {})
+
+    # Same rule via the overrides door: an override may replace `service`
+    # wholesale, which would otherwise reintroduce a template-side type.
+    override_service = overrides.get("service")
+    if isinstance(override_service, dict):
+        override_value = override_service.get("replace", override_service)
+        if isinstance(override_value, dict) and "type" in override_value:
+            raise OpenSRMV2ParseError(
+                f"Template override in manifest extending '{template_name}' "
+                f"sets spec.service.type ('{override_value['type']}') via "
+                f"spec.template.overrides. The service type is not "
+                f"inheritable and must be declared on the manifest itself."
+            )
+
     merged_spec = _merge_template_spec(template_spec, spec, overrides)
 
     result = dict(manifest_data)

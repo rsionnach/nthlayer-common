@@ -549,7 +549,14 @@ class TestLoader:
             load_manifest(manifest_file)
 
     def test_load_v2_invalid_type_raises_manifest_error(self, tmp_path):
-        """ValueError from v2 path must also be wrapped."""
+        """An invalid type on the v2 path must surface as ManifestLoadError.
+
+        Post-opensrm-ih0v the parser validates the type itself and raises
+        OpenSRMV2ParseError, where it previously let the model's ValueError
+        through. The loader catches both, so this still guards the wrapping —
+        see test_load_v2_invalid_tier_wraps_model_value_error for a trigger
+        that still reaches the loader as a ValueError.
+        """
         manifest_file = tmp_path / "bad.yaml"
         manifest_file.write_text(yaml.dump({
             "apiVersion": "opensrm.nthlayer.io/v2",
@@ -681,3 +688,25 @@ class TestExtractDeclaredDependencies:
         ]
         result = extract_declared_dependencies(from_dicts=manifest_dicts)
         assert result == {"svc-a": ["svc-b"]}
+
+
+def test_load_v2_invalid_tier_wraps_model_value_error(tmp_path):
+    """The loader must still wrap a ValueError raised by the MODEL.
+
+    opensrm-ih0v moved service-type validation into the parser, so the type
+    path no longer exercises that wrapping. Tier validation still lives only
+    in ReliabilityManifest.__post_init__, so it keeps the ValueError branch
+    of loader.py's `except (OpenSRMV2ParseError, ValueError)` covered.
+    """
+    manifest_file = tmp_path / "bad-tier.yaml"
+    manifest_file.write_text(yaml.dump({
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "svc", "labels": {"tier": "nonexistent_tier"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": {"name": "svc", "type": "api"},
+        },
+    }))
+    with pytest.raises(ManifestLoadError, match="Invalid tier"):
+        load_manifest(manifest_file)

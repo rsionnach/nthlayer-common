@@ -411,3 +411,112 @@ def test_v1_judgment_slo_error_names_only_routed_slos():
     message = str(excinfo.value)
     assert "calibration" in message
     assert "reversal_rate" not in message
+
+
+# =============================================================================
+# Template inheritance — `type` is not inheritable (schema: TemplateServiceIdentity)
+# =============================================================================
+
+
+def _write_template(tmp_path, service: dict[str, object], **spec_extra: object):
+    import yaml
+
+    (tmp_path / "base.yaml").write_text(
+        yaml.dump(
+            {
+                "apiVersion": "opensrm.nthlayer.io/v2",
+                "kind": "ServiceManifestTemplate",
+                "metadata": {"name": "base"},
+                "spec": {"service": service, **spec_extra},
+            }
+        )
+    )
+
+
+def _extending_manifest(service: dict[str, object]) -> dict[str, object]:
+    return {
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "mysvc", "labels": {"tier": "critical"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": service,
+            "template": {"extends": "base"},
+        },
+    }
+
+
+def test_template_declaring_service_type_is_rejected(tmp_path):
+    """schema.json's TemplateServiceIdentity sets ``"type": false``.
+
+    A template MUST NOT declare a type, "so that a template's type can never
+    contradict the type of a manifest extending it". Without this check the
+    deep-merge let a template inject one: a template typed ai-gate plus an
+    extending manifest with no type parsed cleanly and manufactured an
+    ai-gate identity, unlocking is_ai_gate() and the judgment codepaths —
+    from a document pair validate.sh rejects on BOTH sides.
+
+    This is opensrm-6w9d's template trap with the arrow reversed. There it
+    was two conformant validators disagreeing about a contradiction; here it
+    is an inheritable type where the spec guarantees none exists.
+    """
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base", "type": "ai-gate"})
+    manifest = _extending_manifest({"name": "mysvc"})
+
+    with pytest.raises(OpenSRMV2ParseError, match="type"):
+        resolve_v2_template(manifest, tmp_path)
+
+
+def test_template_override_injecting_service_type_is_rejected(tmp_path):
+    """The same rule via the overrides door.
+
+    Forbidding the field on the template body alone would leave
+    spec.template.overrides free to replace `service` wholesale with a dict
+    carrying a type — the same injection by another route.
+    """
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base"})
+    manifest = _extending_manifest({"name": "mysvc", "type": "worker"})
+    manifest["spec"]["template"]["overrides"] = {  # type: ignore[index]
+        "service": {"name": "mysvc", "type": "ai-gate"}
+    }
+
+    with pytest.raises(OpenSRMV2ParseError, match="type"):
+        resolve_v2_template(manifest, tmp_path)
+
+
+def test_template_without_service_type_still_resolves(tmp_path):
+    """The legitimate case — a template supplying non-type defaults."""
+    from nthlayer_common.manifest.parser.v2 import resolve_v2_template
+
+    _write_template(tmp_path, {"name": "base", "description": "from template"})
+    manifest = _extending_manifest({"name": "mysvc", "type": "worker"})
+
+    resolved = resolve_v2_template(manifest, tmp_path)
+    parsed = parse_opensrm_v2(resolved)
+
+    assert parsed.type == "worker"
+    assert parsed.description == "from template"
+
+
+def test_parser_raises_domain_error_for_invalid_type():
+    """An ABSENT type raised OpenSRMV2ParseError but an INVALID one leaked
+    ValueError from the model, escaping every caller that catches only the
+    domain error — including migrate_manifest's round-trip guard."""
+    with pytest.raises(OpenSRMV2ParseError, match="Web"):
+        parse_opensrm_v2(_v2_doc({"name": "svc", "type": "Web"}))
+
+
+@pytest.mark.parametrize("bad", ["api", ["api"], 5])
+def test_non_dict_service_block_raises_domain_error(bad: object):
+    """``spec.service: api`` raised AttributeError from ``.get``, escaping
+    even the loader's ``(OpenSRMV2ParseError, ValueError)``. spec.service is
+    now type-bearing, so a scalar there is reachable and must be rejected."""
+    document = _v2_doc({"name": "svc", "type": "api"})
+    document["spec"]["service"] = bad  # type: ignore[index]
+
+    with pytest.raises(OpenSRMV2ParseError, match="spec.service"):
+        parse_opensrm_v2(document)
