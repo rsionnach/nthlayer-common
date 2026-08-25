@@ -277,6 +277,21 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
     if classical_slos:
         v2_spec["slo"] = classical_slos
     if judgment_slos:
+        # v2 permits judgment_slo only on an ai-gate (ServiceManifest.allOf).
+        # v1's shipped schema never enforced its own §11 equivalent, so v1
+        # manifests pairing a non-ai-gate type with a judgment SLO really do
+        # exist — they are precisely what migration runs into. Emitting the
+        # document anyway produced output that failed its own round-trip
+        # inside migrate_manifest_command, and handed direct callers an
+        # invalid manifest with no error at all.
+        if service_type != "ai-gate":
+            slo_names = ", ".join(sorted(JUDGMENT_SLO_TYPES & set(spec.get("slos") or {})))
+            raise ValueError(
+                f"v1 manifest '{name}' declares spec.type '{service_type}' but "
+                f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
+                f"only on an 'ai-gate' service. Either declare the service as "
+                f"an ai-gate, or remove the judgment SLOs before upconverting."
+            )
         v2_spec["judgment_slo"] = judgment_slos
 
     # Dependencies: name → component ref

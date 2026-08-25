@@ -307,6 +307,64 @@ def test_v1_upconversion_rejects_values_the_schema_would_reject(v1_type: str):
         convert_v1_to_v2(_v1_doc(v1_type))
 
 
+def test_v1_upconversion_rejects_judgment_slos_on_non_ai_gate():
+    """v1 never enforced its own §11, so v1 manifests carrying this shape
+    genuinely exist — they are exactly what migration encounters.
+
+    ``convert_v1_to_v2`` routes any SLO named in JUDGMENT_SLO_TYPES into
+    ``spec.judgment_slo`` regardless of the service's type, so a v1
+    ``type: api`` service with a ``reversal_rate`` SLO produced a v2
+    document that ServiceManifest.allOf rejects — and which failed its own
+    round-trip inside migrate_manifest_command. Direct callers got the
+    invalid document back with no error at all.
+    """
+    v1 = _v1_doc("api")
+    v1["spec"]["slos"] = {"reversal_rate": {"target": 0.05, "window": "7d"}}
+
+    with pytest.raises(ValueError, match="judgment"):
+        convert_v1_to_v2(v1)
+
+
+def test_v1_upconversion_allows_judgment_slos_on_ai_gate():
+    """The permitted direction, so the guard above cannot be over-tightened
+    into one that blocks legitimate ai-gate migrations."""
+    v1 = _v1_doc("ai-gate")
+    v1["spec"]["slos"] = {"reversal_rate": {"target": 0.05, "window": "7d"}}
+
+    v2 = convert_v1_to_v2(v1)
+
+    assert v2["spec"]["service"]["type"] == "ai-gate"
+    assert len(v2["spec"]["judgment_slo"]) == 1
+
+
+@pytest.mark.parametrize("bad", [None, "not-a-list", 42])
+def test_non_list_judgment_slo_raises_domain_error(bad: object):
+    """``spec.get("judgment_slo", [])`` returns the value, not the default,
+    when the key is present with a null or wrong-typed value.
+
+    The schema types judgment_slo as an array, so these are all invalid —
+    but iterating them raised a bare TypeError that escaped every caller's
+    ``except OpenSRMV2ParseError``, turning a bad manifest into a crash
+    instead of a rejection.
+    """
+    document = _v2_doc({"name": "svc", "type": "ai-gate"}, judgment_slo=bad)
+
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_slo"):
+        parse_opensrm_v2(document)
+
+
+@pytest.mark.parametrize("bad", [5, None, ["api"], {"type": "api"}])
+def test_non_string_service_type_raises_value_error(bad: object):
+    """Types arrive from raw YAML, so a non-string is reachable.
+
+    It must surface as ValueError like every other invalid type, not as a
+    TypeError from the regex — nthlayer-generate's migrate_manifest catches
+    ValueError, and a TypeError would sail straight through it.
+    """
+    with pytest.raises(ValueError, match="Invalid type|type is required"):
+        ReliabilityManifest(name="s", team="t", tier="critical", type=bad)  # type: ignore[arg-type]
+
+
 def test_v1_upconversion_fails_loudly_on_missing_type():
     """v1's ``spec.type`` was optional; ``spec.service.type`` is required.
 

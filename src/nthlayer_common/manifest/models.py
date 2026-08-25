@@ -91,6 +91,13 @@ def is_valid_service_type(value: str) -> bool:
     they are inputs that must be normalised through SERVICE_TYPE_ALIASES
     first. Callers that accept author input resolve, then validate.
     """
+    # Guard the type: values reach here straight from parsed YAML, where
+    # `type: 5` yields an int. Letting that hit fullmatch() would raise
+    # TypeError, which sails through the `except ValueError` that callers
+    # like nthlayer-generate's migrate_manifest use to catch bad manifests.
+    if not isinstance(value, str):
+        return False
+
     return bool(
         value in VALID_SERVICE_TYPES or SERVICE_TYPE_EXTENSION_PATTERN.fullmatch(value)
     )
@@ -853,7 +860,11 @@ class ReliabilityManifest:
 
     def __post_init__(self) -> None:
         """Validate and normalise the manifest."""
-        if self.type in SERVICE_TYPE_ALIASES:
+        # isinstance guard before the lookup, not just inside
+        # is_valid_service_type: `self.type in SERVICE_TYPE_ALIASES` hashes
+        # the value, so a list or dict from raw YAML raised TypeError here —
+        # before validation could turn it into a ValueError.
+        if isinstance(self.type, str) and self.type in SERVICE_TYPE_ALIASES:
             self.type = SERVICE_TYPE_ALIASES[self.type]
 
         if not self.name:

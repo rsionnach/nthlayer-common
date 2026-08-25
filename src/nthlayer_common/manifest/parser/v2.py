@@ -162,6 +162,16 @@ def parse_opensrm_v2(
 
     # Parse judgment SLOs (§5)
     judgment_slos = spec.get("judgment_slo", [])
+    # `.get(key, default)` returns the VALUE when the key is present, so a
+    # `judgment_slo:` line with a null or scalar value bypasses the default
+    # and reaches the loop below. The schema types this as an array; without
+    # the check, iterating None raised a bare TypeError that escaped every
+    # caller's `except OpenSRMV2ParseError`.
+    if not isinstance(judgment_slos, list):
+        raise OpenSRMV2ParseError(
+            f"spec.judgment_slo must be a list, got "
+            f"{type(judgment_slos).__name__}."
+        )
     for js_data in judgment_slos:
         slos.append(_parse_judgment_slo(js_data))
 
