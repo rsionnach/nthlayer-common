@@ -4,6 +4,22 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [2.0.0](https://github.com/rsionnach/nthlayer-common/compare/v1.7.0...v2.0.0) (2026-08-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **manifest:** v2 manifests must declare spec.service.type; metadata.labels.type is no longer consulted. convert_v1_to_v2 raises on a v1 manifest without spec.type. VALID_SERVICE_TYPES no longer contains 'web' — it is now the alias web -> x-web.
+
+### Features
+
+* **manifest:** read spec.service.type instead of inferring it ([28d7add](https://github.com/rsionnach/nthlayer-common/commit/28d7adda0e3d9c46e6b92f68fe12da5e97bdd8b5))
+
+
+### Documentation
+
+* add contributing guide (opensrm-tu04.4) ([f42ce8d](https://github.com/rsionnach/nthlayer-common/commit/f42ce8dabf8775f3f4160eeb3966dd06450fa955))
+
 ## [1.7.0](https://github.com/rsionnach/nthlayer-common/compare/v1.6.0...v1.7.0) (2026-06-17)
 
 
