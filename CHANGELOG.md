@@ -4,6 +4,24 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [2.1.1](https://github.com/rsionnach/nthlayer-common/compare/v2.1.0...v2.1.1) (2026-08-28)
+
+
+### Bug Fixes
+
+* **manifest:** body recovery must check the keys the parsers require ([142b583](https://github.com/rsionnach/nthlayer-common/commit/142b58384d80463053a3327380a16cbf01e2c877))
+* **manifest:** body recovery must check the keys the parsers require ([2dcbce7](https://github.com/rsionnach/nthlayer-common/commit/2dcbce706a59ff592f33bdd0d52e6a1e04ea25ed))
+* **manifest:** skip directories in iter_manifest_files (opensrm-3470) ([9119393](https://github.com/rsionnach/nthlayer-common/commit/9119393ef2bdcf8bd5acd7bf3dd7d46c8cc8d108))
+* **manifest:** skip directories in iter_manifest_files (opensrm-3470) ([008db84](https://github.com/rsionnach/nthlayer-common/commit/008db84065ca48afe2be5060d7be132653bc36b2))
+* **manifest:** the body-recovery step was inert (opensrm-3470) ([907da3a](https://github.com/rsionnach/nthlayer-common/commit/907da3abef2d8581e200474e899791e13948a686))
+* **manifest:** the body-recovery step was inert (opensrm-3470) ([c8f2762](https://github.com/rsionnach/nthlayer-common/commit/c8f27628458ec152c7e2a3545c68193337ddfb38))
+
+
+### Documentation
+
+* **manifest:** document scan.py and fix the __all__ grouping (opensrm-3470) ([8608205](https://github.com/rsionnach/nthlayer-common/commit/860820572484b41e58da5af11d0a3c8b16ee10d9))
+* **manifest:** document scan.py and fix the __all__ grouping (opensrm-3470) ([f97ff02](https://github.com/rsionnach/nthlayer-common/commit/f97ff0243bd9fe0a96e4a86708253048c9f9bc23))
+
 ## [2.1.0](https://github.com/rsionnach/nthlayer-common/compare/v2.0.0...v2.1.0) (2026-08-28)
 
 
