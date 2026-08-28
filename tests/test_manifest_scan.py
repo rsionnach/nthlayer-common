@@ -158,3 +158,20 @@ def test_iter_manifest_files_on_a_missing_directory_is_empty(tmp_path):
     """Callers check is_dir() for their own error messages; this returning
     empty rather than raising keeps that their decision."""
     assert iter_manifest_files(tmp_path / "nope") == []
+
+
+def test_iter_manifest_files_skips_directories(tmp_path):
+    """A DIRECTORY named ``foo.yaml`` is not a manifest file.
+
+    Yielding it makes load_manifest raise IsADirectoryError — an OSError,
+    which callers catch — and then foreign_yaml_reason hits the same error
+    and returns None, meaning "this was aiming to be a manifest". So a
+    directory gets counted as a broken manifest and, since opensrm-3470,
+    surfaces as an operator-visible warning about unevaluated SLOs.
+
+    Wrong in the noisy direction rather than the silent one, but wrong.
+    """
+    (tmp_path / "subdir.yaml").mkdir()
+    (tmp_path / "real.yaml").write_text("spec: {}\n")
+
+    assert [p.name for p in iter_manifest_files(tmp_path)] == ["real.yaml"]
