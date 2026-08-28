@@ -48,7 +48,15 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     path = Path(specs_dir)
     if not path.is_dir():
         return []
-    return sorted(p for p in path.iterdir() if p.suffix in MANIFEST_SUFFIXES)
+    # is_file() as well as the suffix: a DIRECTORY named `foo.yaml` would
+    # otherwise be yielded, and every caller then treats it as a manifest
+    # that failed to load — load_manifest raises IsADirectoryError (an
+    # OSError they catch) and foreign_yaml_reason returns None on the same
+    # error, meaning 'this was aiming to be a manifest'. Wrong in the noisy
+    # direction rather than the silent one, but wrong.
+    return sorted(
+        p for p in path.iterdir() if p.is_file() and p.suffix in MANIFEST_SUFFIXES
+    )
 
 
 def foreign_yaml_reason(spec_file: str | Path) -> str | None:
