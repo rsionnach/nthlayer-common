@@ -73,6 +73,11 @@ from nthlayer_common.manifest.parser.loader import (
 )
 from nthlayer_common.manifest.parser.v1 import OpenSRMParseError
 from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
+from nthlayer_common.manifest.scan import (
+    MANIFEST_SUFFIXES,
+    foreign_yaml_reason,
+    iter_manifest_files,
+)
 
 __all__ = [
     # Loader
@@ -93,6 +98,10 @@ __all__ = [
     "VALID_TIERS",
     # Service-type helpers
     "is_valid_service_type",
+    # Directory scanning (opensrm-3470)
+    "MANIFEST_SUFFIXES",
+    "foreign_yaml_reason",
+    "iter_manifest_files",
     "resolve_service_type",
     "valid_service_types_phrase",
     # Enums
