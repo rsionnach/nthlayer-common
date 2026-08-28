@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [2.1.0](https://github.com/rsionnach/nthlayer-common/compare/v2.0.0...v2.1.0) (2026-08-28)
+
+
+### Features
+
+* **manifest:** promote the foreign-YAML scan gate into nthlayer-common ([674321e](https://github.com/rsionnach/nthlayer-common/commit/674321e4ac38585d5c9bfbcff7bd8a5ac063f817))
+* **manifest:** promote the foreign-YAML scan gate into nthlayer-common ([49594de](https://github.com/rsionnach/nthlayer-common/commit/49594dea247b9b1ea4e929a1831226677d63acc6))
+
 ## [2.0.0](https://github.com/rsionnach/nthlayer-common/compare/v1.7.0...v2.0.0) (2026-08-25)
 
 
