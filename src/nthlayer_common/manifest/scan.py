@@ -48,12 +48,8 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     path = Path(specs_dir)
     if not path.is_dir():
         return []
-    # is_file() as well as the suffix: a DIRECTORY named `foo.yaml` would
-    # otherwise be yielded, and every caller then treats it as a manifest
-    # that failed to load — load_manifest raises IsADirectoryError (an
-    # OSError they catch) and foreign_yaml_reason returns None on the same
-    # error, meaning 'this was aiming to be a manifest'. Wrong in the noisy
-    # direction rather than the silent one, but wrong.
+    # is_file() too: a directory named `foo.yaml` would otherwise be
+    # counted as a broken manifest by every caller.
     return sorted(
         p for p in path.iterdir() if p.is_file() and p.suffix in MANIFEST_SUFFIXES
     )
@@ -85,9 +81,10 @@ def foreign_yaml_reason(spec_file: str | Path) -> str | None:
     its body is indistinguishable in principle from any other headerless
     YAML mapping — both are dicts with no apiVersion, no kind, no
     ``spec.service``. No content heuristic separates those, and adding more
-    markers would not change it. Such a file is dropped; the caller should
-    record it at debug so an investigator chasing a number that looks wrong
-    can pick the trail back up.
+    markers would not change it. For such a file this returns a reason, so
+    the caller can record it rather than drop it without trace — which is
+    what lets an investigator chasing a number that looks wrong pick the
+    trail back up.
     """
     path = Path(spec_file)
     try:

@@ -45,6 +45,8 @@ src/nthlayer_common/
     overrides/           # Human override ingestion (gen_ai.override, opensrm-jmy.4)
     governance_bridge/   # External governance webhook protocol (opensrm-jmy.5)
     manifest/            # Unified OpenSRM manifest parsing (v1, v2, OpenSLO, legacy)
+                         #   + scan.py: walking a directory that holds
+                         #     manifests alongside other YAML
 ```
 
 ## Subsystem references
@@ -209,6 +211,28 @@ integration and the inbound adapter sidecar are tracked in follow-ups
 Unified OpenSRM manifest parsing — v1 (srm/v1), v2
 (opensrm.nthlayer.io/v2), OpenSLO subpackage, legacy NthLayer formats.
 Implements C-X.2 (manifest format migration).
+
+**Scanning a mixed directory** (`manifest/scan.py`). `load_manifest`
+raises for any YAML it cannot parse as a manifest, including files that
+never claimed to be one. Callers walking a specs directory need to
+separate "a manifest that was aiming to load and failed" from "foreign
+YAML sharing the directory" — count the first, and the operator learns
+their view is partial; count the second, and a coverage caveat fires on
+every mixed-directory run until nobody reads it.
+
+- `iter_manifest_files(dir) -> list[Path]` — every `.yaml`/`.yml` FILE
+  directly under `dir`, sorted. Both suffixes always: `.yml` invisibility
+  is a silent subset reached by file extension.
+- `foreign_yaml_reason(path) -> str | None` — `None` when the file was
+  aiming to be a manifest (so the caller counts it), a short reason when
+  it plainly was not (so the caller can log rather than drop it silently).
+  Recovers intent only while evidence of intent survives; see its
+  docstring for the stated limit.
+- `MANIFEST_SUFFIXES` — the two suffixes, for callers doing their own walk.
+
+Used by `nthlayer_workers` observe and learn. **Look here before writing
+a fourth directory walk** — three existed before this was shared
+(opensrm-oh27, opensrm-3470).
 
 - `load_manifest(path, environment?, format="auto",
   suppress_deprecation_warning?) -> ReliabilityManifest` —
