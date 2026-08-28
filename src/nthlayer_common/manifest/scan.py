@@ -146,8 +146,16 @@ def foreign_yaml_reason(spec_file: str | Path) -> str | None:
     #       spec.service       a MAPPING; OpenSLO writes the same key as a
     #                          plain string, which is what keeps OpenSLO out
     #       spec.outcomes      a mapping
+    #   v1  spec.type          REQUIRED by parse_srm_v1 (v1.py:91)
+    #   v2  spec.owner         REQUIRED by parse_opensrm_v2 (v2.py:104)
     # spec.slos is accepted as either shape: v1 writes a mapping, and a
     # partially-converted file is exactly the kind of thing that lands here.
+    #
+    # The required keys matter most: a file carrying the one key its format
+    # cannot be parsed without makes a stronger claim to being a manifest
+    # than any of the optional ones above. Checking only the optional keys
+    # was the same mistake as testing spec.slos for the wrong type —
+    # reasoning about shapes without asking what the parsers demand.
     spec = data.get("spec")
     if isinstance(spec, dict) and (
         isinstance(spec.get("service"), dict)
@@ -155,6 +163,8 @@ def foreign_yaml_reason(spec_file: str | Path) -> str | None:
         or isinstance(spec.get("slo"), list)
         or isinstance(spec.get("judgment_slo"), list)
         or isinstance(spec.get("outcomes"), dict)
+        or isinstance(spec.get("type"), str)
+        or isinstance(spec.get("owner"), dict)
     ):
         return None
 
