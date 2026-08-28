@@ -53,7 +53,10 @@ _AIMING = {
     # Header stripped by a bad merge or a mis-indent, body intact. This is the
     # common corruption, and the case the gate's last extension exists for.
     "headerless, spec.service mapping": "spec:\n  service:\n    name: s\n    type: api\n",
-    "headerless, spec.slos": "spec:\n  slos:\n    - name: availability\n",
+    # v1 writes spec.slos as a MAPPING of name -> config. Encoding it as a
+    # list here is what let the inert-guard bug hide: the fixture agreed
+    # with the broken predicate instead of with the parser.
+    "headerless, spec.slos mapping": "spec:\n  slos:\n    availability:\n      target: 99.9\n",
     "headerless, spec.outcomes": "spec:\n  outcomes:\n    decision_value: {}\n",
     # A typo'd kind or a drifted API group is an ordinary way a real manifest
     # breaks: aiming at us and missing still counts.
@@ -250,3 +253,27 @@ def test_a_dangling_symlink_is_still_listed(tmp_path):
     (tmp_path / "broken.yaml").symlink_to(tmp_path / "does-not-exist.yaml")
 
     assert [p.name for p in iter_manifest_files(tmp_path)] == ["broken.yaml"]
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        # parser/v1.py:91 — "spec.type is required"
+        ("v1 required type", "spec:\n  type: api\n  dependencies:\n    - name: x\n"),
+        # parser/v2.py:104 — "spec.owner is required in v2 manifests"
+        ("v2 required owner", "spec:\n  owner:\n    group: group:default/t\n  contracts: []\n"),
+    ],
+)
+def test_body_recovery_covers_the_keys_the_parsers_require(tmp_path, label, body):
+    """Body recovery checked OPTIONAL keys and omitted the required ones.
+
+    A file carrying the one key its format cannot be parsed without is about
+    as strong a claim to being a manifest as a body can make — stronger than
+    the optional keys already accepted. Same class as the inert-list bug: a
+    predicate reasoning about shapes without checking what the parsers
+    actually demand.
+    """
+    path = tmp_path / "x.yaml"
+    path.write_text(body)
+
+    assert foreign_yaml_reason(path) is None, f"{label} was dropped as foreign"

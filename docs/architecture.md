@@ -220,9 +220,12 @@ YAML sharing the directory" — count the first, and the operator learns
 their view is partial; count the second, and a coverage caveat fires on
 every mixed-directory run until nobody reads it.
 
-- `iter_manifest_files(dir) -> list[Path]` — every `.yaml`/`.yml` FILE
-  directly under `dir`, sorted. Both suffixes always: `.yml` invisibility
-  is a silent subset reached by file extension.
+- `iter_manifest_files(dir) -> list[Path]` — every `.yaml`/`.yml` entry
+  directly under `dir` that is not a directory, sorted, suffix matched
+  case-insensitively. Both suffixes always, and `.YAML` too: an unlisted
+  file is a silent subset reached by file extension. Dangling symlinks are
+  listed deliberately, so a stale overlay link is counted as a failure
+  rather than vanishing.
 - `foreign_yaml_reason(path) -> str | None` — `None` when the file was
   aiming to be a manifest (so the caller counts it), a short reason when
   it plainly was not (so the caller can log rather than drop it silently).
