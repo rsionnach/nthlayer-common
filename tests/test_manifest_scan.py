@@ -277,3 +277,25 @@ def test_body_recovery_covers_the_keys_the_parsers_require(tmp_path, label, body
     path.write_text(body)
 
     assert foreign_yaml_reason(path) is None, f"{label} was dropped as foreign"
+
+
+def test_backstage_component_is_not_a_manifest(tmp_path):
+    """A Backstage catalog-info.yaml carries `spec.type` and `spec.owner` too.
+
+    Accepting any string `spec.type` as a manifest marker counts every
+    Backstage Component in a specs directory as a broken manifest — the
+    noisy direction, which is how a coverage caveat stops being read.
+
+    `spec.type` only counts when it is a value OpenSRM would accept:
+    `service` is not one, `api` is. Backstage's `spec.owner` is a string
+    where v2's is a mapping, so that marker already discriminates.
+    """
+    path = tmp_path / "catalog-info.yaml"
+    path.write_text(
+        "apiVersion: backstage.io/v1alpha1\n"
+        "kind: Component\n"
+        "metadata: {name: svc}\n"
+        "spec: {type: service, lifecycle: production, owner: team-a}\n"
+    )
+
+    assert foreign_yaml_reason(path) is not None

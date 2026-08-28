@@ -26,6 +26,7 @@ from pathlib import Path
 
 import yaml
 
+from nthlayer_common.manifest.models import is_valid_service_type
 from nthlayer_common.manifest.parser.v1 import is_srm_v1_format
 from nthlayer_common.manifest.parser.v2 import is_opensrm_v2_format
 
@@ -146,7 +147,12 @@ def foreign_yaml_reason(spec_file: str | Path) -> str | None:
     #       spec.service       a MAPPING; OpenSLO writes the same key as a
     #                          plain string, which is what keeps OpenSLO out
     #       spec.outcomes      a mapping
-    #   v1  spec.type          REQUIRED by parse_srm_v1 (v1.py:91)
+    #   v1  spec.type          REQUIRED by parse_srm_v1 (v1.py:91), and
+    #                          checked against is_valid_service_type rather
+    #                          than "is a string": a Backstage catalog-info
+    #                          carries spec.type too (`service`, `library`),
+    #                          and counting those makes every Backstage
+    #                          Component in the directory a broken manifest
     #   v2  spec.owner         REQUIRED by parse_opensrm_v2 (v2.py:104)
     # spec.slos is accepted as either shape: v1 writes a mapping, and a
     # partially-converted file is exactly the kind of thing that lands here.
@@ -163,7 +169,7 @@ def foreign_yaml_reason(spec_file: str | Path) -> str | None:
         or isinstance(spec.get("slo"), list)
         or isinstance(spec.get("judgment_slo"), list)
         or isinstance(spec.get("outcomes"), dict)
-        or isinstance(spec.get("type"), str)
+        or is_valid_service_type(spec.get("type"))
         or isinstance(spec.get("owner"), dict)
     ):
         return None
