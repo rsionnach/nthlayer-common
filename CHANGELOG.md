@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [2.1.2](https://github.com/rsionnach/nthlayer-common/compare/v2.1.1...v2.1.2) (2026-08-28)
+
+
+### Bug Fixes
+
+* **manifest:** spec.type is only a manifest marker if it is a valid type ([0d4ee5a](https://github.com/rsionnach/nthlayer-common/commit/0d4ee5a96e313ac5d9585c3f76864cb7d5287ce8))
+* **manifest:** spec.type is only a manifest marker if it is a valid type ([303a2f1](https://github.com/rsionnach/nthlayer-common/commit/303a2f1d8ac71d712be0b629eb435ef42a89d3f1))
+
 ## [2.1.1](https://github.com/rsionnach/nthlayer-common/compare/v2.1.0...v2.1.1) (2026-08-28)
 
 
