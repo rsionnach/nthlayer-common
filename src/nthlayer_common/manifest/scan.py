@@ -38,8 +38,10 @@ MANIFEST_SUFFIXES = (".yaml", ".yml")
 def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     """Every ``.yaml``/``.yml`` file directly under ``specs_dir``, sorted.
 
-    Sorted because callers dedupe on a first-wins basis: unsorted, which
-    manifest wins for a service with two files would vary by filesystem.
+    Sorted so the order is stable across machines. That matters to any
+    caller that dedupes first-wins — learn/retrospective does; observe's
+    spec_loader does not, and whether it should is opensrm-3470's follow-up
+    rather than a property this function can assume.
 
     Returns empty for a path that is not a directory rather than raising,
     so a caller that wants its own error message for that case keeps the
@@ -48,10 +50,20 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     path = Path(specs_dir)
     if not path.is_dir():
         return []
-    # is_file() too: a directory named `foo.yaml` would otherwise be
-    # counted as a broken manifest by every caller.
+    # `not p.is_dir()` rather than `p.is_file()`: excluding DIRECTORIES was
+    # the point — a directory named `foo.yaml` would be counted as a broken
+    # manifest by every caller. is_file() also excludes a dangling symlink,
+    # which silently drops a stale overlay link that previously reached
+    # load_manifest and was counted.
+    #
+    # Suffix compared case-folded: `.YAML` was excluded outright — never
+    # loaded, never counted, never logged — which is the silent-subset-by-
+    # extension failure MANIFEST_SUFFIXES exists to prevent, one case-fold
+    # away.
     return sorted(
-        p for p in path.iterdir() if p.is_file() and p.suffix in MANIFEST_SUFFIXES
+        p
+        for p in path.iterdir()
+        if not p.is_dir() and p.suffix.lower() in MANIFEST_SUFFIXES
     )
 
 
@@ -122,10 +134,26 @@ def foreign_yaml_reason(spec_file: str | Path) -> str | None:
     if near_miss:
         return None
 
+    # Body recovery: a bad merge or a mis-indent can strip the header while
+    # leaving the body intact, and that is the common corruption.
+    #
+    # The key names differ by format, and getting them wrong makes this whole
+    # branch inert — which it was until opensrm-3470's edge-cases pass:
+    #   v1  spec.slos          a MAPPING of name -> config (parser/v1 does
+    #                          slos_data.items()), not a list
+    #   v2  spec.slo           a list of OpenSLO documents
+    #       spec.judgment_slo  a list
+    #       spec.service       a MAPPING; OpenSLO writes the same key as a
+    #                          plain string, which is what keeps OpenSLO out
+    #       spec.outcomes      a mapping
+    # spec.slos is accepted as either shape: v1 writes a mapping, and a
+    # partially-converted file is exactly the kind of thing that lands here.
     spec = data.get("spec")
     if isinstance(spec, dict) and (
         isinstance(spec.get("service"), dict)
-        or isinstance(spec.get("slos"), list)
+        or isinstance(spec.get("slos"), (dict, list))
+        or isinstance(spec.get("slo"), list)
+        or isinstance(spec.get("judgment_slo"), list)
         or isinstance(spec.get("outcomes"), dict)
     ):
         return None
