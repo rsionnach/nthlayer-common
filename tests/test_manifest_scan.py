@@ -16,9 +16,8 @@ have now happened in nthlayer-workers:
 
 ``foreign_yaml_reason`` is that question, promoted here from
 ``nthlayer_workers.learn.retrospective`` so the three call sites that need
-it stop reaching into each other (opensrm-3470). ``iter_manifest_files``
-comes with it because ``.yml`` blindness is the same silent-subset bug
-reached by file extension rather than parse error.
+it stop reaching into each other (opensrm-3470). ``iter_manifest_files`` comes with it — see MANIFEST_SUFFIXES for why both
+suffixes, always.
 
 These tests are ported from the workers suite deliberately: the promotion
 must be behaviour-preserving, and porting the contract is how that is
@@ -161,16 +160,8 @@ def test_iter_manifest_files_on_a_missing_directory_is_empty(tmp_path):
 
 
 def test_iter_manifest_files_skips_directories(tmp_path):
-    """A DIRECTORY named ``foo.yaml`` is not a manifest file.
-
-    Yielding it makes load_manifest raise IsADirectoryError — an OSError,
-    which callers catch — and then foreign_yaml_reason hits the same error
-    and returns None, meaning "this was aiming to be a manifest". So a
-    directory gets counted as a broken manifest and, since opensrm-3470,
-    surfaces as an operator-visible warning about unevaluated SLOs.
-
-    Wrong in the noisy direction rather than the silent one, but wrong.
-    """
+    """A DIRECTORY named ``foo.yaml`` is not a manifest file — every caller
+    would otherwise count it as a manifest that failed to load."""
     (tmp_path / "subdir.yaml").mkdir()
     (tmp_path / "real.yaml").write_text("spec: {}\n")
 

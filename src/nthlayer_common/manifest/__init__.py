@@ -98,12 +98,12 @@ __all__ = [
     "VALID_TIERS",
     # Service-type helpers
     "is_valid_service_type",
-    # Directory scanning (opensrm-3470)
+    "resolve_service_type",
+    "valid_service_types_phrase",
+    # Directory scanning
     "MANIFEST_SUFFIXES",
     "foreign_yaml_reason",
     "iter_manifest_files",
-    "resolve_service_type",
-    "valid_service_types_phrase",
     # Enums
     "DependencyCriticality",
     "SourceFormat",
