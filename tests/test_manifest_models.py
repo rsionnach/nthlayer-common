@@ -157,14 +157,28 @@ class TestReliabilityManifest:
     def test_validate_contracts_judgment(self):
         m = ReliabilityManifest(
             name="svc", team="t", tier="critical", type="ai-gate",
+            # target is the canonical 0-100 SLI floor, the shape the v2 parser
+            # now emits. This fixture hand-built target=0.10 — a raw ratio the
+            # parser can no longer produce — and so stayed green while
+            # validate_contracts() was inverted for every judgment SLO
+            # (opensrm-ocvu). Derived from parser output rather than invented:
+            # maximum_reversal_rate 0.10 parses to 90.0.
             slos=[SLODefinition(
-                name="rev", target=0.10, slo_type="availability",
+                name="rev", target=90.0, slo_type="availability",
                 judgment_type="reversal_rate",
             )],
             contracts=[ReliabilityContract(
                 name="svc-api",
+                # Also the parser's shape: thresholds are converted to the same
+                # SLI-floor space as targets, which makes every judgment promise
+                # a floor and direction uniformly "above" (opensrm-ocvu).
+                # maximum_reversal_rate 0.05 -> 95.0. The SLO's 90.0 floor is
+                # below it, so the SLO is looser.
                 promise=ContractPromise(judgment=[
-                    JudgmentPromise(judgment_type="reversal_rate", threshold=0.05, direction="below"),
+                    JudgmentPromise(
+                        judgment_type="reversal_rate", threshold=95.0,
+                        direction="above",
+                    ),
                 ]),
             )],
         )

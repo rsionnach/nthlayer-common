@@ -197,18 +197,33 @@ def test_a_floor_is_not_complemented(tmp_path):
 def test_no_target_convention_warning_on_a_valid_v2_manifest(tmp_path):
     """TargetConventionWarning fired on every ordinary v2 manifest.
 
-    The validator was correctly flagging the parser's output. Nothing acted on
-    it and the unconverted value flowed on, which is what made this silent.
+    The validator was correctly flagging the parser's own output. Nothing acted
+    on it and the unconverted value flowed on, which is what made this silent.
+
+    MUST go through ``load_manifest``, not ``parse_opensrm_v2``. The warning is
+    emitted by ``warn_target_convention_mismatches`` in ``parser/loader.py``,
+    which only ``load_manifest`` calls — an earlier version of this test used
+    ``parse_opensrm_v2`` and therefore passed against fully pre-fix code. It
+    asserted nothing at all. Verified by re-running it on the unpatched tree:
+    1 passed.
+
     Scoped to classical and rate SLOs: the error-magnitude types still warn
     until 3c moves them out of the SLO concept entirely.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", TargetConventionWarning)
-        parse_opensrm_v2(_v2_classical("target: 0.999"), base_dir=tmp_path)
-        parse_opensrm_v2(
-            _v2_judgment("reversal_rate", "maximum_reversal_rate: 0.05"),
-            base_dir=tmp_path,
-        )
+    from nthlayer_common.manifest import load_manifest
+
+    cases = {
+        "classical.yaml": _v2_classical("target: 0.999"),
+        "judgment.yaml": _v2_judgment(
+            "reversal_rate", "maximum_reversal_rate: 0.05"
+        ),
+    }
+    for filename, doc in cases.items():
+        path = tmp_path / filename
+        path.write_text(yaml.safe_dump(doc))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", TargetConventionWarning)
+            load_manifest(path, suppress_deprecation_warning=True)
 
 
 # --- out of scope: error magnitudes are untouched until 3c -----------------
@@ -236,3 +251,68 @@ def test_error_magnitude_targets_are_left_alone(judgment_type, target_block, tmp
     )
     raw = float(target_block.split(":")[1])
     assert _targets(manifest)[0] == pytest.approx(raw)
+
+
+# --- contract validation must compare like with like -----------------------
+
+
+def _v2_with_contract(judgment_type: str, slo_target: str, promise: float) -> dict:
+    return yaml.safe_load(f"""
+apiVersion: opensrm.nthlayer.io/v2
+kind: ServiceManifest
+metadata: {{name: svc, labels: {{tier: critical}}}}
+spec:
+  owner: {{group: 'group:default/t'}}
+  service: {{name: svc, type: ai-gate}}
+  judgment_slo:
+    - metadata: {{name: guard}}
+      spec:
+        service: svc
+        judgment_type: {judgment_type}
+        target: {{{slo_target}}}
+  contracts:
+    - name: caller-contract
+      promise:
+        judgment: {{{judgment_type}: {promise}}}
+""")
+
+
+@pytest.mark.parametrize(
+    ("judgment_type", "slo_target", "promise", "expect_error"),
+    [
+        # MAXIMUM type. Contract promises "at most 5% reversed" -> SLI floor 95.
+        # An SLO at 2% reversed is a floor of 98 — STRICTER, so no error.
+        ("reversal_rate", "maximum_reversal_rate: 0.02", 0.05, False),
+        # An SLO at 8% reversed is a floor of 92 — LOOSER than the contract.
+        ("reversal_rate", "maximum_reversal_rate: 0.08", 0.05, True),
+        # FLOOR type. Contract promises "at least 95% desired outcomes".
+        # An SLO promising only 90% is LOOSER. This case passed silently before
+        # opensrm-ocvu: direction was hardcoded "below", so the comparison ran
+        # backwards for floor types and never fired.
+        ("outcomes", "desired_outcome_rate: 0.90", 0.95, True),
+        ("outcomes", "desired_outcome_rate: 0.98", 0.95, False),
+    ],
+)
+def test_contract_validation_compares_in_sli_floor_space(
+    judgment_type, slo_target, promise, expect_error, tmp_path
+):
+    """Both sides of the comparison must be in the same space.
+
+    `slo.target` became a 0-100 SLI floor under opensrm-ocvu while
+    `JudgmentPromise.threshold` was still parsed as a raw ratio with
+    `direction="below"` hardcoded — so every judgment SLO paired with a contract
+    reported as looser, because any 0-100 value exceeds any ratio. The
+    availability branch beside it already converted its promise
+    (`promise.availability * 100`); the judgment branch did not.
+
+    Thresholds are now converted by the same polarity rule as targets, which
+    makes every judgment promise a floor and `direction` uniformly "above".
+    """
+    manifest = parse_opensrm_v2(
+        _v2_with_contract(judgment_type, slo_target, promise), base_dir=tmp_path
+    )
+    errors = [e for e in manifest.validate_contracts() if "looser" in e]
+    if expect_error:
+        assert errors, "expected a looser-than-contract error, got none"
+    else:
+        assert not errors, f"unexpected error: {errors}"
