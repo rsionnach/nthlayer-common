@@ -263,7 +263,8 @@ class TestV2Parser:
         slo = m.slos[0]
         assert slo.name == "payment-availability"
         assert slo.slo_type == "availability"
-        assert slo.target == 0.9999
+        # 0.9999 declared as an OpenSLO ratio -> 99.99 canonical (opensrm-ocvu)
+        assert slo.target == pytest.approx(99.99)
         assert slo.total_query is not None
         assert slo.good_query is not None
 
@@ -273,7 +274,9 @@ class TestV2Parser:
         assert len(judgment) == 1
         j = judgment[0]
         assert j.judgment_type == "reversal_rate"
-        assert j.target == 0.05
+        # reversal_rate is a MAXIMUM: "at most 5% reversed" is an SLI floor of
+        # 95% not-reversed (opensrm-ocvu)
+        assert j.target == pytest.approx(95.0)
         assert j.measurement.source == "lineage"
         assert j.measurement.window == "7d"
         assert len(j.breach_actions) == 3
@@ -370,27 +373,49 @@ class TestV2Parser:
 # acceptance criterion: "All 8 judgment SLO types parseable"). Each type
 # has a distinct target field name; the v2 parser maps them via
 # _extract_judgment_target's target_fields dict.
+# (judgment_type, target_field, declared_value, expected_target)
+#
+# expected_target is the canonical 0-100 SLI floor, NOT the declared value.
+# These cases asserted `slo.target == target_value` until opensrm-ocvu — a
+# straight passthrough assertion written from the implementation, which
+# therefore agreed with it. It contradicted this repo's own CLAUDE.md hard
+# rule 1 ("reversal_rate target=98.5"), and nothing noticed because no test
+# compared the v1 and v2 parsers against each other.
+#
+# Three conversions, by polarity:
+#   MAXIMA  (1 - x) * 100   reversal_rate, high_confidence_failure, escalation
+#   FLOORS  x * 100         audit_sampling, outcomes
+#   PASS    unchanged       segments, stability, calibration — error
+#                           magnitudes, no SLI-floor reading; they leave the
+#                           SLO concept under decision 3c
+#
+# escalation 0.10 and outcomes 0.90 both land on 90.0 by DIFFERENT rules.
+# Applying the wrong one gives 10.0 for either, so the pair does not mask a
+# polarity mistake.
 _JUDGMENT_TYPE_TARGETS = [
-    ("reversal_rate", "maximum_reversal_rate", 0.05),
-    ("high_confidence_failure", "maximum_failure_rate", 0.01),
-    ("audit_sampling", "audit_completion_rate", 0.95),
-    ("outcomes", "desired_outcome_rate", 0.90),
-    ("escalation", "maximum_escalation_rate", 0.10),
-    ("segments", "maximum_variance_from_overall", 0.15),
-    ("stability", "maximum_drift", 0.05),
-    ("calibration", "maximum_brier_score", 0.20),
+    ("reversal_rate", "maximum_reversal_rate", 0.05, 95.0),
+    ("high_confidence_failure", "maximum_failure_rate", 0.01, 99.0),
+    ("audit_sampling", "audit_completion_rate", 0.95, 95.0),
+    ("outcomes", "desired_outcome_rate", 0.90, 90.0),
+    ("escalation", "maximum_escalation_rate", 0.10, 90.0),
+    ("segments", "maximum_variance_from_overall", 0.15, 0.15),
+    ("stability", "maximum_drift", 0.05, 0.05),
+    ("calibration", "maximum_brier_score", 0.20, 0.20),
 ]
 
 
-@pytest.mark.parametrize("judgment_type,target_field,target_value", _JUDGMENT_TYPE_TARGETS)
+@pytest.mark.parametrize(
+    "judgment_type,target_field,target_value,expected_target", _JUDGMENT_TYPE_TARGETS
+)
 def test_v2_parser_handles_each_judgment_slo_type(
-    judgment_type: str, target_field: str, target_value: float
+    judgment_type: str, target_field: str, target_value: float, expected_target: float
 ) -> None:
     """Every judgment_type in OPENSRM-CORE-v2 §5.2 parses via the v2 parser.
 
     Pins opensrm-b22.1 acceptance: "All 8 judgment SLO types parseable".
-    Each type carries its own target field name; verifies the type
-    survives the round-trip with the input target value.
+    Each type carries its own target field name; verifies the type survives the
+    round-trip and that its target is converted to the canonical 0-100 SLI
+    floor by the rule its polarity requires (opensrm-ocvu).
     """
     data = {
         "apiVersion": "opensrm.nthlayer.io/v2",
@@ -416,7 +441,7 @@ def test_v2_parser_handles_each_judgment_slo_type(
     assert len(judgment_slos) == 1
     slo = judgment_slos[0]
     assert slo.judgment_type == judgment_type
-    assert slo.target == target_value
+    assert slo.target == pytest.approx(expected_target)
     assert slo.is_judgment_slo() is True
 
 

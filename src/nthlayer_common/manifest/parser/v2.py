@@ -434,7 +434,48 @@ def _extract_judgment_target(
             f"Judgment SLO '{name}' missing target.{field_name}"
         )
 
-    return float(value)
+    return _judgment_target_percent(judgment_type, float(value))
+
+
+# Judgment types whose v2 target is a RATE, convertible to the canonical 0-100
+# SLI floor. Split by polarity, because the two directions are not
+# interchangeable and getting it wrong is silent [opensrm-ocvu].
+#
+#   MAXIMA  v2 states "at most X of these go wrong". The SLI floor is the
+#           complement: (1 - X) * 100.
+#   FLOORS  v2 already states "at least X of these go right". Scale only.
+#
+# Complementing a floor yields a plausible percentage that INVERTS the
+# constraint — audit_completion_rate 0.95 ("audit at least 95%") would become
+# 5.0 — with no exception and no warning. An earlier draft of the decision
+# record listed only `outcomes` here and would have done exactly that to
+# `audit_sampling`.
+_JUDGMENT_RATE_MAXIMA = frozenset(
+    {"reversal_rate", "high_confidence_failure", "escalation"}
+)
+_JUDGMENT_RATE_FLOORS = frozenset({"outcomes", "audit_sampling"})
+
+# Deliberately absent: segments, stability, calibration. Their targets are error
+# magnitudes — drift, variance, expected calibration error, Brier score — which
+# have no complement and no SLI-floor reading. They leave the SLO concept
+# entirely under decision 3c (see nthlayer/docs/superpowers/decisions/
+# slo-target-units-and-judgment-semantics.md) and are passed through unchanged
+# until that lands. Converting them here would mean inventing semantics the
+# spec does not define, which is how this defect arrived.
+
+
+def _judgment_target_percent(judgment_type: str, value: float) -> float:
+    """A judgment SLO's target as the canonical 0-100 SLI floor.
+
+    Unrecognised types pass through unchanged rather than being guessed at: a
+    wrong conversion is indistinguishable from a right one downstream, whereas
+    an unconverted value still trips TargetConventionWarning.
+    """
+    if judgment_type in _JUDGMENT_RATE_MAXIMA:
+        return (1.0 - value) * 100.0
+    if judgment_type in _JUDGMENT_RATE_FLOORS:
+        return value * 100.0
+    return value
 
 
 def _parse_judgment_measurement(
