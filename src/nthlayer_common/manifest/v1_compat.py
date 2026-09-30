@@ -418,7 +418,13 @@ def _v1_slo_to_judgment(
             f"are 0-100 percentages, so this migrates to a "
             f"{percent}% SLI floor — likely 100x lower than intended.",
             TargetConventionWarning,
-            stacklevel=2,
+            # 4, MEASURED not guessed. The chain is _v1_slo_to_judgment ->
+            # _convert_v1_slos -> convert_v1_to_v2 -> caller, so 2 named this
+            # function, 3 named convert_v1_to_v2's own loop line, and only 4
+            # reaches the caller. warn_target_convention_mismatches uses 3
+            # because its chain is one frame shallower — copying its value
+            # would have pointed inside this module.
+            stacklevel=4,
         )
     target_block: dict[str, Any] = {
         target_field: judgment_target_ratio(target_field, percent)

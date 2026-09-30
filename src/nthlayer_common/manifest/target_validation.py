@@ -145,8 +145,34 @@ def require_number(field_name: str, value: object, *, what: str) -> float:
         ) from exc
 
 
+def _check_finite(field_name: str, value: float, *, what: str) -> None:
+    """No judgment value is ever legitimately NaN or infinite, in any space.
+
+    SEPARATE from the range check, and applied BEFORE the magnitude
+    early-return, because the two have different scopes. Error magnitudes are
+    legitimately UNRANGED — a Brier score or a drift bound is not a ratio — so
+    they cannot take the [0, 1] check. They are never legitimately non-finite.
+
+    The first version of this guard ran the combined check after the magnitude
+    early-return, so it covered the six converted fields and left
+    maximum_drift, maximum_variance_from_overall and maximum_brier_score
+    laundering NaN exactly as before. Measured on the unguarded half: a
+    stability target of .nan against a real promise gave
+    validate_contracts() -> [], a breach reporting CLEAN — the same worst
+    outcome the range check was added to stop, on half the field set.
+
+    Splitting the checks also means this needs NO decision about the magnitudes'
+    taxonomy, which 3c is about to change.
+    """
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(
+            f"{what} for '{field_name}' must be a finite number, got {value!r}"
+        )
+
+
 def _check_declared_ratio(field_name: str, value: float) -> None:
-    """A declared judgment rate must be a legal Ratio: finite, within [0, 1].
+    """A declared judgment RATE must be within [0, 1]. Finiteness is checked
+    separately, for every field, by _check_finite.
 
     Authority is opensrm/spec/v2's schema.json, which ``$ref``s every one of
     these fields to ``Ratio = {minimum: 0, maximum: 1}``. Validating here rather
@@ -164,10 +190,6 @@ def _check_declared_ratio(field_name: str, value: float) -> None:
       ``[]`` against a real promise.
     - ``.inf`` became -inf; ``100`` became -9900.0.
     """
-    if value != value or value in (float("inf"), float("-inf")):
-        raise ValueError(
-            f"'{field_name}' must be a finite ratio in [0, 1], got {value!r}"
-        )
     if not 0.0 <= value <= 1.0:
         raise ValueError(
             f"'{field_name}' must be a ratio in [0, 1] (opensrm v2 types it as "
@@ -188,6 +210,7 @@ def judgment_target_percent(field_name: str, value: object) -> float:
     converts — for one outside the Ratio domain. See _check_declared_ratio.
     """
     numeric = require_number(field_name, value, what="target")
+    _check_finite(field_name, numeric, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:  # error magnitude — stays in declared space
         return numeric
@@ -217,6 +240,7 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     differ by up to ~7e-15 for some values — but exact for every realistic SLI
     floor, and nothing compares a target with ``==``.
     """
+    _check_finite(field_name, percent, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:  # error magnitude — already in declared space
         return percent
@@ -224,10 +248,6 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     # already wrote a RATIO where hard rule 1 wants a percentage: `target:
     # 0.985` complemented to 0.99015, which is a LEGAL Ratio and re-parsed to
     # 0.985 — a 0.985% SLI floor, wrong by ~100x and flagged by nothing.
-    if percent != percent or percent in (float("inf"), float("-inf")):
-        raise ValueError(
-            f"'{field_name}' target must be a finite percentage, got {percent!r}"
-        )
     if not 0.0 <= percent <= 100.0:
         raise ValueError(
             f"'{field_name}' target must be a 0-100 percentage (hard rule 1), "

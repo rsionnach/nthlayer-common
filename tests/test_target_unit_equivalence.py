@@ -587,3 +587,50 @@ def test_migration_does_not_warn_for_an_error_magnitude_in_zero_to_one():
     # and it is emitted unchanged, since magnitudes are not converted
     target = v2["spec"]["judgment_slo"][0]["spec"]["target"]
     assert target["maximum_brier_score"] == pytest.approx(0.2)
+
+
+# Finiteness is checked for EVERY field; the [0, 1] range only for converted
+# ones. The first version of the guard combined them and ran both AFTER the
+# magnitude early-return, so the three error magnitudes kept laundering NaN:
+# measured, a stability target of .nan against a real promise gave
+# validate_contracts() -> [], a breach reporting CLEAN, on half the field set.
+@pytest.mark.parametrize(
+    ("judgment_type", "field"),
+    [
+        ("stability", "maximum_drift"),
+        ("segments", "maximum_variance_from_overall"),
+        ("calibration", "maximum_brier_score"),
+    ],
+)
+@pytest.mark.parametrize("bad", [".nan", ".inf", "-.inf"])
+def test_error_magnitudes_reject_non_finite_targets(judgment_type, field, bad, tmp_path):
+    doc = _v2_judgment(judgment_type, f"{field}: {bad}")
+
+    with pytest.raises(OpenSRMV2ParseError):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("bad", [".nan", ".inf", "-.inf"])
+def test_error_magnitude_promises_reject_non_finite(bad, tmp_path):
+    """The promise side too — a NaN THRESHOLD silenced the comparison just as
+    effectively as a NaN target."""
+    doc = _v2_with_contract("stability", "maximum_drift: 0.02", bad)
+
+    with pytest.raises(OpenSRMV2ParseError):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("declared", ["0.2", "1.5", "12"])
+def test_error_magnitudes_stay_unranged(declared, tmp_path):
+    """The other half, and the reason finiteness had to be SEPARATED from range.
+
+    A Brier score or a drift bound is not a ratio, so magnitudes are
+    legitimately outside [0, 1]. Applying the range check to them would reject
+    valid manifests, and would also encode a taxonomy decision 3c is about to
+    change.
+    """
+    doc = _v2_judgment("stability", f"maximum_drift: {declared}")
+
+    manifest = parse_opensrm_v2(doc, base_dir=tmp_path)
+
+    assert manifest.slos[0].target == pytest.approx(float(declared))
