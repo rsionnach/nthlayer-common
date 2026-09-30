@@ -667,6 +667,16 @@ class TestLoader:
         Asserts a non-zero count rather than trusting the glob: an empty
         directory would otherwise make the loop body vanish and the test pass
         having loaded nothing, which is the same silent pass the skip produced.
+
+        WHAT THIS DOES **NOT** COVER, stated because the first version of this
+        docstring overclaimed it. All four shipped specs are v1, so the
+        TargetConventionWarning assertion below does NOT bind the v2 INBOUND
+        boundary and is not the bead's acceptance criterion ("the warning does
+        not fire on a valid v2 manifest"). Kill-checked: neutralising
+        judgment_target_percent entirely leaves this test PASSING while 19
+        others fail. Its value is real but narrower — the v1 path and
+        load_manifest, exercised against artefacts nobody wrote for a test.
+        The v2 side is covered by tests/test_target_unit_equivalence.py.
         """
         demo_dir = (
             Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs"
