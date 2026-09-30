@@ -68,7 +68,13 @@ def v1_ai_gate_data():
         "spec": {
             "type": "ai-gate",
             "slos": {
-                "reversal_rate": {"target": 0.015, "window": "2m"},
+                # 98.5, not 0.015. v1 targets are 0-100 percentages (hard
+                # rule 1); 0.015 was a RATIO, a shape derived from what the
+                # parser accepts rather than what the spec requires, and v1
+                # parses it verbatim so it would trip TargetConventionWarning
+                # on any load_manifest path. No assertion here reads the
+                # target, which is why it survived [opensrm-ocvu].
+                "reversal_rate": {"target": 98.5, "window": "2m"},
                 "availability": {"target": 99.9, "window": "30d"},
             },
         },

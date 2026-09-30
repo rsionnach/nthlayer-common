@@ -22,6 +22,7 @@ Migration (opensrm-b22.2):
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from nthlayer_common.manifest.models import (
@@ -35,8 +36,11 @@ from nthlayer_common.manifest.models import (
 )
 from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
+    TargetConventionWarning,
+    converts_to_sli_floor,
     judgment_promise,
     judgment_target_ratio,
+    require_number,
 )
 
 # =============================================================================
@@ -378,11 +382,47 @@ def _v1_slo_to_judgment(
     # CONVERTED OUTBOUND — the document this emits is read back by the v2
     # parser, which converts inbound, so the two must be inverses. See
     # judgment_target_ratio() for what went wrong without it [opensrm-ocvu].
-    target_block: dict[str, Any] = {}
-    if target is not None:
-        target_block[target_field] = judgment_target_ratio(
-            target_field, float(target)
+    # RAISE rather than emit `target: {}`. The v2 parser requires the field, so
+    # a v1 SLO with no target produced a document that could not be re-parsed —
+    # "missing target.maximum_reversal_rate" — surfacing at load time, far from
+    # the manifest that caused it. The round trip this module now advertises has
+    # to fail at migration time instead [opensrm-ocvu].
+    if target is None:
+        raise ValueError(
+            f"v1 SLO '{slo_name}' on service '{service_name}' has no target, so "
+            f"it cannot be migrated to a v2 judgment_slo, which requires "
+            f"target.{target_field}."
         )
+    percent = require_number(target_field, target, what="v1 target")
+    # A v1 target in (0, 1) is almost certainly a RATIO written where hard rule 1
+    # wants a percentage, and complementing it yields a plausible wrong answer
+    # rather than an error: `target: 0.985` becomes maximum_reversal_rate
+    # 0.99015, which is a LEGAL Ratio, and re-parses to 0.985 — a 0.985% SLI
+    # floor, wrong by ~100x and flagged by nothing [opensrm-ocvu].
+    #
+    # WARN rather than raise, reusing this repo's existing heuristic and its
+    # stated policy: the same (0, 1) bounds target_validation documents, and
+    # "loud enough to catch contributor mistakes; it never rejects". 0.985% is
+    # a legal floor, just an implausible one, so rejecting it would be this
+    # module deciding something the convention deliberately leaves open.
+    # ONLY for fields this converts. The error MAGNITUDES (segments, stability,
+    # calibration) legitimately live in (0, 1) — a Brier score of 0.2 is a
+    # perfectly ordinary value — and they pass through unconverted, so a
+    # sub-1 target is correct for them. The first version of this warning fired
+    # on `calibration: {target: 0.2}` in the repo's own suite, which is the same
+    # converted-vs-unconverted distinction this whole bead turns on.
+    if converts_to_sli_floor(target_field) and 0.0 < percent < 1.0:
+        warnings.warn(
+            f"v1 SLO '{slo_name}' on service '{service_name}' has "
+            f"target={percent}, which looks like a ratio (0.0-1.0). v1 targets "
+            f"are 0-100 percentages, so this migrates to a "
+            f"{percent}% SLI floor — likely 100x lower than intended.",
+            TargetConventionWarning,
+            stacklevel=2,
+        )
+    target_block: dict[str, Any] = {
+        target_field: judgment_target_ratio(target_field, percent)
+    }
 
     spec_block: dict[str, Any] = {
         "judgment_type": slo_name,

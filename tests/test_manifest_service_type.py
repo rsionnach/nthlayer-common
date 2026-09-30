@@ -319,7 +319,7 @@ def test_v1_upconversion_rejects_judgment_slos_on_non_ai_gate():
     invalid document back with no error at all.
     """
     v1 = _v1_doc("api")
-    v1["spec"]["slos"] = {"reversal_rate": {"target": 0.05, "window": "7d"}}
+    v1["spec"]["slos"] = {"reversal_rate": {"target": 95.0, "window": "7d"}}
 
     with pytest.raises(ValueError, match="judgment"):
         convert_v1_to_v2(v1)
@@ -329,7 +329,7 @@ def test_v1_upconversion_allows_judgment_slos_on_ai_gate():
     """The permitted direction, so the guard above cannot be over-tightened
     into one that blocks legitimate ai-gate migrations."""
     v1 = _v1_doc("ai-gate")
-    v1["spec"]["slos"] = {"reversal_rate": {"target": 0.05, "window": "7d"}}
+    v1["spec"]["slos"] = {"reversal_rate": {"target": 95.0, "window": "7d"}}
 
     v2 = convert_v1_to_v2(v1)
 

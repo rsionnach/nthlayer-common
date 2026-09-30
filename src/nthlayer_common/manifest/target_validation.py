@@ -86,7 +86,7 @@ JUDGMENT_TARGET_FIELDS: dict[str, str] = {
 # describe the declared one too.
 #
 # VALUE means complement-vs-scale. MEMBERSHIP means "this is a rate field we
-# convert at all" — see _converts_to_sli_floor(), which names that second
+# convert at all" — see converts_to_sli_floor(), which names that second
 # question so callers do not have to read a dict lookup for it.
 #
 #   True   declared value is a CEILING (a maximum bad rate) -> complement
@@ -113,7 +113,7 @@ TARGET_FIELD_IS_CEILING: dict[str, bool] = {
 }
 
 
-def _converts_to_sli_floor(field_name: str) -> bool:
+def converts_to_sli_floor(field_name: str) -> bool:
     """Whether this module converts *field_name* into SLI-floor space at all.
 
     Membership, not value: the three error magnitudes are absent from
@@ -122,20 +122,79 @@ def _converts_to_sli_floor(field_name: str) -> bool:
     return field_name in TARGET_FIELD_IS_CEILING
 
 
-def judgment_target_percent(field_name: str, value: float) -> float:
+def require_number(field_name: str, value: object, *, what: str) -> float:
+    """*value* as a float, or ValueError naming the field.
+
+    ``float()`` alone raises TypeError for None / dict / list, which is not a
+    type either parser declares and so escaped their callers as a stack trace.
+    A YAML key written with no value — ``reversal_rate:`` — is an ordinary typo
+    that produced exactly that. ValueError is what this package already raises
+    for malformed input (ReliabilityManifest's own validation, and
+    convert_v1_to_v2's apiVersion guard), and load_manifest already wraps it.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(
+            f"{what} for '{field_name}' must be a number, got "
+            f"{type(value).__name__}: {value!r}"
+        )
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{what} for '{field_name}' must be a number, got {value!r}"
+        ) from exc
+
+
+def _check_declared_ratio(field_name: str, value: float) -> None:
+    """A declared judgment rate must be a legal Ratio: finite, within [0, 1].
+
+    Authority is opensrm/spec/v2's schema.json, which ``$ref``s every one of
+    these fields to ``Ratio = {minimum: 0, maximum: 1}``. Validating here rather
+    than trusting the input is load-bearing because COMPLEMENTING an
+    out-of-range value launders it into something that looks plausible and
+    defeats both existing safety nets:
+
+    - ``maximum_reversal_rate: 5`` became a target of **-400.0**, and
+      _check_one below returns None for ``target <= 0``, so no
+      TargetConventionWarning fired. Before the inbound conversion existed the
+      same input arrived as 5.0 and DID trip the warning, so this was a
+      regression in the net, not merely a gap.
+    - ``.nan`` became a NaN target, and every NaN comparison is False, so
+      validate_contracts() reported a contract breach as CLEAN — measured,
+      ``[]`` against a real promise.
+    - ``.inf`` became -inf; ``100`` became -9900.0.
+    """
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(
+            f"'{field_name}' must be a finite ratio in [0, 1], got {value!r}"
+        )
+    if not 0.0 <= value <= 1.0:
+        raise ValueError(
+            f"'{field_name}' must be a ratio in [0, 1] (opensrm v2 types it as "
+            f"Ratio), got {value!r}. A percentage here is complemented into a "
+            f"negative target that no validator flags."
+        )
+
+
+def judgment_target_percent(field_name: str, value: object) -> float:
     """A judgment target as the canonical 0-100 SLI floor.
 
     Fields absent from TARGET_FIELD_IS_CEILING pass through UNCHANGED rather
     than being guessed at: a wrong conversion is indistinguishable from a right
     one downstream, whereas an unconverted value still trips
     TargetConventionWarning.
+
+    Raises ValueError for a non-numeric value, and — for a field this module
+    converts — for one outside the Ratio domain. See _check_declared_ratio.
     """
+    numeric = require_number(field_name, value, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:  # error magnitude — stays in declared space
-        return value
+        return numeric
+    _check_declared_ratio(field_name, numeric)
     if is_ceiling:
-        return (1.0 - value) * 100.0
-    return value * 100.0
+        return (1.0 - numeric) * 100.0
+    return numeric * 100.0
 
 
 def judgment_target_ratio(field_name: str, percent: float) -> float:
@@ -161,6 +220,19 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:  # error magnitude — already in declared space
         return percent
+    # Symmetric with the inbound check, and it catches the v1 manifest that
+    # already wrote a RATIO where hard rule 1 wants a percentage: `target:
+    # 0.985` complemented to 0.99015, which is a LEGAL Ratio and re-parsed to
+    # 0.985 — a 0.985% SLI floor, wrong by ~100x and flagged by nothing.
+    if percent != percent or percent in (float("inf"), float("-inf")):
+        raise ValueError(
+            f"'{field_name}' target must be a finite percentage, got {percent!r}"
+        )
+    if not 0.0 <= percent <= 100.0:
+        raise ValueError(
+            f"'{field_name}' target must be a 0-100 percentage (hard rule 1), "
+            f"got {percent!r}"
+        )
     if is_ceiling:
         return 1.0 - percent / 100.0
     return percent / 100.0
@@ -185,10 +257,10 @@ def judgment_promise_direction(field_name: str) -> str:
     alone is a raw error magnitude, where lower is better, so the promise is a
     CEILING and the comparison is "below".
     """
-    return "above" if _converts_to_sli_floor(field_name) else "below"
+    return "above" if converts_to_sli_floor(field_name) else "below"
 
 
-def judgment_promise(judgment_type: str, declared: float) -> JudgmentPromise:
+def judgment_promise(judgment_type: str, declared: object) -> JudgmentPromise:
     """Build a contract promise for *judgment_type* from its DECLARED value.
 
     The one place threshold and direction are decided together. Both parsers
@@ -205,7 +277,7 @@ def judgment_promise(judgment_type: str, declared: float) -> JudgmentPromise:
     field = JUDGMENT_TARGET_FIELDS.get(judgment_type, "")
     return JudgmentPromise(
         judgment_type=judgment_type,
-        threshold=judgment_target_percent(field, float(declared)),
+        threshold=judgment_target_percent(field, declared),
         direction=judgment_promise_direction(field),
     )
 

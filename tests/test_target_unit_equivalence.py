@@ -414,3 +414,176 @@ def test_v1_and_v2_produce_identical_judgment_promises():
 
     assert v1_promise.threshold == v2_promise.threshold == 95.0
     assert v1_promise.direction == v2_promise.direction == "above"
+
+
+# =============================================================================
+# Domain validation at the conversion boundary [opensrm-ocvu edge-cases pass]
+# =============================================================================
+#
+# The complement LAUNDERS an out-of-domain value: it turns garbage into
+# something inside the plausible range that both existing safety nets then miss.
+# Measured before these guards existed:
+#
+#   maximum_reversal_rate: 5     -> target -400.0, no TargetConventionWarning
+#                                   (_check_one returns None for target <= 0)
+#   maximum_reversal_rate: .nan  -> NaN target, and validate_contracts()
+#                                   returned [] against a real promise, because
+#                                   every NaN comparison is False — a breach
+#                                   reported CLEAN
+#   maximum_reversal_rate: 100   -> -9900.0
+#
+# The domain is not invented here: opensrm/spec/v2/schema.json $refs every one
+# of these fields to Ratio = {minimum: 0, maximum: 1}.
+
+
+# YAML literals, not Python floats: `nan` in a YAML scalar is the STRING "nan",
+# so only `.nan` / `.inf` / `-.inf` reach the parser as non-finite numbers. A
+# Python float formatted into the document would have tested string handling.
+@pytest.mark.parametrize(
+    "declared",
+    ["5", "100", "-0.1", ".nan", ".inf", "-.inf"],
+)
+def test_out_of_domain_judgment_target_is_rejected(declared, tmp_path):
+    """...and rejected as the PARSER's declared error type, not a bare ValueError."""
+    doc = _v2_judgment("reversal_rate", f"maximum_reversal_rate: {declared}")
+
+    with pytest.raises(OpenSRMV2ParseError):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("declared", "expected_floor"),
+    [("0.02", 98.0), ("0", 100.0), ("1", 0.0)],
+)
+def test_domain_boundaries_still_accepted(declared, expected_floor, tmp_path):
+    """0 and 1 are legal ratios. Degenerate, but the spec allows them, so the
+    guard must not over-reject — the failure mode that would make this bead's
+    fix worse than the bug."""
+    doc = _v2_judgment("reversal_rate", f"maximum_reversal_rate: {declared}")
+
+    manifest = parse_opensrm_v2(doc, base_dir=tmp_path)
+
+    assert manifest.slos[0].target == pytest.approx(expected_floor)
+
+
+def test_nan_target_cannot_pass_contract_validation(tmp_path):
+    """The specific laundering that mattered most.
+
+    A NaN target made validate_contracts() return [] against a real promise,
+    so a contract breach reported clean. Asserted at the parse boundary,
+    because that is where it is now stopped.
+    """
+    doc = _v2_with_contract(
+        "reversal_rate", "maximum_reversal_rate: .nan", 0.05
+    )
+
+    with pytest.raises(OpenSRMV2ParseError):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("bad", [None, [1, 2], {"a": 1}, "abc", True])
+def test_non_numeric_promise_raises_a_declared_error(bad):
+    """`judgment: {reversal_rate:}` is an ordinary YAML typo.
+
+    It reached float() and raised TypeError — a type NEITHER parser declares,
+    so it escaped callers' except clauses as a stack trace. New on the v1 path
+    when this bead routed v1 through the shared factory, so it is this bead's
+    regression to fix. `True` is included because bool is an int subclass and
+    float(True) == 1.0 would otherwise be accepted silently.
+    """
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {
+            "type": "ai-gate",
+            "slos": {"reversal_rate": {"target": 98.5}},
+            "contract": {"judgment": {"reversal_rate": bad}},
+        },
+    }
+
+    with pytest.raises(ValueError):
+        parse_srm_v1(doc)
+
+
+def test_migration_rejects_a_v1_slo_with_no_target():
+    """Emitting `target: {}` produced a v2 document that could not be re-parsed,
+    surfacing at load time far from the manifest that caused it."""
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {"type": "ai-gate", "slos": {"reversal_rate": {"window": "2m"}}},
+    }
+
+    with pytest.raises(ValueError, match="no target"):
+        convert_v1_to_v2(doc)
+
+
+def test_migration_warns_when_a_v1_target_looks_like_a_ratio():
+    """`target: 0.985` in v1 complements to 0.99015 — a LEGAL Ratio — and
+    re-parses to 0.985, a 0.985% SLI floor, wrong by ~100x and flagged by
+    nothing.
+
+    Warns rather than raises, reusing this repo's existing (0, 1) heuristic and
+    its stated policy that the warning never rejects: 0.985% is a legal floor,
+    just an implausible one.
+    """
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {"type": "ai-gate", "slos": {"reversal_rate": {"target": 0.985}}},
+    }
+
+    with pytest.warns(TargetConventionWarning, match="looks like a ratio"):
+        convert_v1_to_v2(doc)
+
+
+def test_migration_does_not_warn_for_a_normal_percentage():
+    """The other half — otherwise the assertion above passes for any input."""
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {"type": "ai-gate", "slos": {"reversal_rate": {"target": 98.5}}},
+    }
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", TargetConventionWarning)
+        convert_v1_to_v2(doc)
+
+    assert not [
+        w for w in caught if issubclass(w.category, TargetConventionWarning)
+    ]
+
+
+def test_migration_does_not_warn_for_an_error_magnitude_in_zero_to_one():
+    """An error MAGNITUDE below 1 is correct, not a ratio mistake.
+
+    segments / stability / calibration pass through unconverted, and a Brier
+    score of 0.2 is an ordinary value. The first version of the warning above
+    fired on `calibration: {target: 0.2}` in this repo's own suite — the same
+    converted-vs-unconverted distinction the whole bead turns on, got wrong in
+    the guard written to protect it.
+    """
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {
+            "type": "ai-gate",
+            "slos": {"calibration": {"target": 0.2}},
+        },
+    }
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", TargetConventionWarning)
+        v2 = convert_v1_to_v2(doc)
+
+    assert not [
+        w for w in caught if issubclass(w.category, TargetConventionWarning)
+    ]
+    # and it is emitted unchanged, since magnitudes are not converted
+    target = v2["spec"]["judgment_slo"][0]["spec"]["target"]
+    assert target["maximum_brier_score"] == pytest.approx(0.2)

@@ -426,7 +426,15 @@ def _extract_judgment_target(
             f"Judgment SLO '{name}' missing target.{field_name}"
         )
 
-    return judgment_target_percent(field_name, float(value))
+    # No float() here — judgment_target_percent validates the type itself and
+    # raises ValueError, whereas float() raised TypeError for None / dict /
+    # list, a type this parser does not declare. Re-raised as this parser's own
+    # error so a malformed target is indistinguishable in KIND from a missing
+    # one, which is raised above [opensrm-ocvu].
+    try:
+        return judgment_target_percent(field_name, value)
+    except ValueError as exc:
+        raise OpenSRMV2ParseError(f"Judgment SLO '{name}': {exc}") from exc
 
 
 def _parse_judgment_measurement(
@@ -549,8 +557,15 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
         judgment_promises = []
         for jtype, threshold in promise_data.get("judgment", {}).items():
             # Threshold and direction decided together, in one place shared with
-            # the v1 path — see judgment_promise() [opensrm-ocvu].
-            judgment_promises.append(judgment_promise(jtype, threshold))
+            # the v1 path — see judgment_promise() [opensrm-ocvu]. Re-raised as
+            # this parser's own error type; a `judgment: {reversal_rate:}` typo
+            # otherwise escaped as a bare TypeError.
+            try:
+                judgment_promises.append(judgment_promise(jtype, threshold))
+            except ValueError as exc:
+                raise OpenSRMV2ParseError(
+                    f"Contract '{name}' promise: {exc}"
+                ) from exc
 
         promise = ContractPromise(
             availability=promise_data.get("availability"),
