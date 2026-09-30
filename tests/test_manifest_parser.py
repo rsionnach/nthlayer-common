@@ -380,8 +380,10 @@ class TestV2Parser:
 
 # All 8 judgment SLO types declared in OPENSRM-CORE-v2 §5.2 (opensrm-b22.1
 # acceptance criterion: "All 8 judgment SLO types parseable"). Each type
-# has a distinct target field name; the v2 parser maps them via
-# _extract_judgment_target's target_fields dict.
+# has a distinct target field name; both parsers map them via
+# target_validation.JUDGMENT_TARGET_FIELDS. (Was _extract_judgment_target's
+# local target_fields dict, which opensrm-ocvu replaced with the shared map so
+# v1 and v2 could not disagree.)
 # (judgment_type, target_field, declared_value, expected_target)
 #
 # expected_target is the canonical 0-100 SLI floor, NOT the declared value.

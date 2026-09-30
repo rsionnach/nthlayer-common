@@ -28,7 +28,6 @@ from nthlayer_common.manifest.models import (
     FallbackDeclaration,
     Instrumentation,
     JudgmentMeasurement,
-    JudgmentPromise,
     Outcomes,
     Ownership,
     ProbeConfig,
@@ -55,7 +54,7 @@ from nthlayer_common.manifest.openslo.parser import (
 from nthlayer_common.manifest.parser._shared import parse_observability
 from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
-    judgment_promise_direction,
+    judgment_promise,
     judgment_target_percent,
 )
 
@@ -549,20 +548,9 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
         promise_data = c_data.get("promise", {})
         judgment_promises = []
         for jtype, threshold in promise_data.get("judgment", {}).items():
-            # Threshold AND direction both come from the field, via the same
-            # lookup SLO targets use, so the two sides of
-            # validate_contracts()' comparison cannot end up in different
-            # spaces [opensrm-ocvu]. Hardcoding either one produced a defect:
-            # "below" put a 0-100 floor against a raw ratio so every judgment
-            # SLO read as looser, and "above" then inverted the three error
-            # MAGNITUDES that judgment_target_percent deliberately leaves
-            # unconverted.
-            field = JUDGMENT_TARGET_FIELDS.get(jtype, "")
-            judgment_promises.append(JudgmentPromise(
-                judgment_type=jtype,
-                threshold=judgment_target_percent(field, float(threshold)),
-                direction=judgment_promise_direction(field),
-            ))
+            # Threshold and direction decided together, in one place shared with
+            # the v1 path — see judgment_promise() [opensrm-ocvu].
+            judgment_promises.append(judgment_promise(jtype, threshold))
 
         promise = ContractPromise(
             availability=promise_data.get("availability"),

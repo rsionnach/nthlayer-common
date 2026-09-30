@@ -28,7 +28,6 @@ from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
     ContractPromise,
     JudgmentMeasurement,
-    JudgmentPromise,
     ReliabilityContract,
     StatisticalRequirements,
     resolve_service_type,
@@ -36,8 +35,7 @@ from nthlayer_common.manifest.models import (
 )
 from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
-    judgment_promise_direction,
-    judgment_target_percent,
+    judgment_promise,
     judgment_target_ratio,
 )
 
@@ -139,20 +137,10 @@ def convert_v1_contract(
       - Contract name derived from service: "{service_name}-api"
       - No api_ref, conditions, or breach_semantics (v1 didn't express these)
 
-    Judgment thresholds go through judgment_target_percent() and
-    judgment_promise_direction(), the SAME helpers parser/v2.py uses
-    [opensrm-ocvu]. v1 declares them exactly as v2 does — a raw ratio naming a
+    Judgment thresholds go through judgment_promise(), shared with parser/v2.py
+    [opensrm-ocvu], so v1 and v2 cannot hold different conventions for one
+    shared model. v1 declares them exactly as v2 does — a raw ratio naming a
     maximum acceptable rate — while v1 judgment SLO targets are already 0-100.
-    Emitting the raw ratio with a hardcoded "below" therefore compared a 0-100
-    floor against a ratio, and every v1 manifest carrying a judgment contract
-    reported a strictly STRICTER SLO as looser. Measured before the fix: an SLO
-    at 98.5 against a contract promising 0.05 (a 95.0 floor) produced
-    "Judgment SLO 'reversal_rate' (98.5) is looser than contract 'svc-api'
-    threshold (0.05)".
-
-    That is the same defect this bead fixed on the v2 side, and leaving it here
-    would have kept one shared model with two contradictory producers — which
-    is the v1/v2 divergence the bead exists to close, not a separate concern.
     """
     promise = ContractPromise(
         availability=availability,
@@ -161,14 +149,7 @@ def convert_v1_contract(
 
     if judgment:
         for jtype, threshold in judgment.items():
-            field = JUDGMENT_TARGET_FIELDS.get(jtype, "")
-            promise.judgment.append(
-                JudgmentPromise(
-                    judgment_type=jtype,
-                    threshold=judgment_target_percent(field, float(threshold)),
-                    direction=judgment_promise_direction(field),
-                )
-            )
+            promise.judgment.append(judgment_promise(jtype, threshold))
 
     return ReliabilityContract(
         name=f"{service_name}-api",
@@ -394,18 +375,9 @@ def _v1_slo_to_judgment(
     """Convert a v1 SLO whose name matches a judgment type into a v2 judgment_slo entry."""
     target_field = JUDGMENT_TARGET_FIELDS[slo_name]
     target = v1_slo.get("target")
-    # CONVERTED OUTBOUND, because the document this emits is read back by the
-    # v2 parser, which now converts inbound [opensrm-ocvu]. v1 declares a 0-100
-    # SLI floor (hard rule 1); v2 declares a ratio in a maximum_*/desired_*
-    # field. Copying the percentage verbatim — which is what this did, on the
-    # since-falsified reasoning that v2 "carries the operator-specified value
-    # as-is" — made the round trip produce -9750.0 from 98.5 on
-    # nthlayer/demo/specs/fraud-detect.yaml, and emitted a document that
-    # violates v2's Ratio maximum of 1.
-    #
-    # The classical path beside this one has always had its counterpart
-    # (_v1_slo_to_openslo divides by 100). Only the judgment path lacked one,
-    # which is why this was a silent no-op until the inbound boundary existed.
+    # CONVERTED OUTBOUND — the document this emits is read back by the v2
+    # parser, which converts inbound, so the two must be inverses. See
+    # judgment_target_ratio() for what went wrong without it [opensrm-ocvu].
     target_block: dict[str, Any] = {}
     if target is not None:
         target_block[target_field] = judgment_target_ratio(

@@ -24,9 +24,25 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
    - Examples: `availability target=99.9` for 99.9% availability;
      `reversal_rate target=98.5` (SLI is `1 - reversal_rate * 100`).
    - The OpenSLO surface (`slo_models.SLO`) uses 0.0-1.0 ratio.
-     Conversion happens at the boundary in
-     `nthlayer-generate.slos.pipeline._build_slo_from_manifest` which
-     divides by 100.0.
+     Conversion happens **at both boundaries**:
+     - OUTBOUND — `nthlayer-generate.slos.pipeline._build_slo_from_manifest`
+       divides by 100.0; `v1_compat._v1_slo_to_openslo` likewise for
+       classical SLOs, and `_v1_slo_to_judgment` via
+       `judgment_target_ratio()` for judgment ones.
+     - INBOUND — `manifest/target_validation.py` owns the judgment
+       polarity convention and both parsers use it (opensrm-ocvu):
+       `JUDGMENT_TARGET_FIELDS` (type → target field),
+       `TARGET_FIELD_IS_CEILING` (complement / scale / leave alone),
+       `judgment_target_percent()`, `judgment_target_ratio()`,
+       `judgment_promise_direction()` and `judgment_promise()`.
+       It lives there rather than in either parser so v1 and v2 cannot
+       hold different conventions for one shared model. Package-internal
+       but cross-module, so deliberately not re-exported (hard rule 3).
+     - Only the three MAXIMA complement (`reversal_rate`,
+       `high_confidence_failure`, `escalation`). `outcomes` and
+       `audit_sampling` are already floors — scale only. Error
+       magnitudes (`segments`, `stability`, `calibration`) are left
+       unconverted pending decision 3c.
    - Load-time validator in `manifest/target_validation.py` flags
      targets in `(0, 1)` as likely ratio author errors via
      `TargetConventionWarning(UserWarning)`. Tests in
