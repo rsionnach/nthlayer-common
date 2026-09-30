@@ -16,6 +16,10 @@ from typing import Any
 import yaml
 
 from nthlayer_common.manifest.models import SLODefinition
+from nthlayer_common.manifest.target_validation import (
+    check_finite,
+    require_number,
+)
 
 
 class OpenSLOParseError(Exception):
@@ -224,10 +228,38 @@ def _objective_target_percent(objective: dict[str, Any], name: str) -> float:
             f"OpenSLO '{name}' objective sets both target and targetPercent; "
             f"OpenSLO permits exactly one"
         )
-    if has_percent:
-        return float(objective["targetPercent"])
-    if has_target:
-        return float(objective["target"]) * 100.0
+    # Both branches go through require_number + check_finite, the same guards
+    # the JUDGMENT boundary uses, re-raised as this parser's own error type
+    # [opensrm-ocvu]. Without them this function — which this bead added — had
+    # the two defects the judgment side had already been fixed for:
+    #
+    #   target: .nan  -> SLODefinition.target = nan, and with a contract
+    #                    promise validate_contracts() returned [], a breach
+    #                    reporting CLEAN. Identical outcome, identical field.
+    #   target: {}    -> bare TypeError out of float(), which is not a type
+    #                    this parser declares.
+    #
+    # RANGE is deliberately NOT checked here. `targetPercent: 50` meaning "50%"
+    # versus `target: 50` meaning a 5000% floor is a real ambiguity, but
+    # rejecting it would also reject `target` values this parser accepts today,
+    # and plain `target` has been unranged since long before this bead. That is
+    # a scoped decision, not a fix to make inside one.
+    try:
+        if has_percent:
+            value = require_number(
+                f"{name}.targetPercent", objective["targetPercent"],
+                what="objective target",
+            )
+            check_finite(f"{name}.targetPercent", value, what="objective target")
+            return value
+        if has_target:
+            value = require_number(
+                f"{name}.target", objective["target"], what="objective target",
+            )
+            check_finite(f"{name}.target", value, what="objective target")
+            return value * 100.0
+    except ValueError as exc:
+        raise OpenSLOParseError(f"OpenSLO '{name}': {exc}") from exc
     raise OpenSLOParseError(
         f"OpenSLO '{name}' objective missing target (or targetPercent)"
     )

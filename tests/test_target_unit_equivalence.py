@@ -606,7 +606,10 @@ def test_migration_does_not_warn_for_an_error_magnitude_in_zero_to_one():
 def test_error_magnitudes_reject_non_finite_targets(judgment_type, field, bad, tmp_path):
     doc = _v2_judgment(judgment_type, f"{field}: {bad}")
 
-    with pytest.raises(OpenSRMV2ParseError):
+    # match="finite", not a bare raises: _extract_judgment_target raises the
+    # SAME type for a MISSING target, so a typo in the field name above would
+    # otherwise go green while testing nothing.
+    with pytest.raises(OpenSRMV2ParseError, match="finite"):
         parse_opensrm_v2(doc, base_dir=tmp_path)
 
 
@@ -616,7 +619,7 @@ def test_error_magnitude_promises_reject_non_finite(bad, tmp_path):
     effectively as a NaN target."""
     doc = _v2_with_contract("stability", "maximum_drift: 0.02", bad)
 
-    with pytest.raises(OpenSRMV2ParseError):
+    with pytest.raises(OpenSRMV2ParseError, match="finite"):
         parse_opensrm_v2(doc, base_dir=tmp_path)
 
 
@@ -634,3 +637,94 @@ def test_error_magnitudes_stay_unranged(declared, tmp_path):
     manifest = parse_opensrm_v2(doc, base_dir=tmp_path)
 
     assert manifest.slos[0].target == pytest.approx(float(declared))
+
+
+# =============================================================================
+# The CLASSICAL boundary needs the same guards [opensrm-ocvu edge-cases iter 3]
+# =============================================================================
+#
+# _objective_target_percent is a function THIS bead added, and it shipped with
+# the two defects the judgment side had already been fixed for. Measured before
+# these guards:
+#
+#   objectives: [{target: .nan}] -> SLODefinition.target = nan, and with a
+#                                   contract promise validate_contracts()
+#                                   returned [] — a breach reporting CLEAN, the
+#                                   identical outcome on the identical field
+#   target: {}                   -> bare TypeError out of float(), a type this
+#                                   parser does not declare
+#
+# RANGE stays unchecked and that is deliberate: plain `target` has been unranged
+# since long before this bead, so rejecting out-of-range here would reject
+# manifests that parse today. Scoped decision, not a fix.
+
+
+def _v2_classical(objective: str, promise: str | None = None) -> dict:
+    contracts = (
+        f"\n  contracts:\n    - name: c\n      promise: {{availability: {promise}}}"
+        if promise
+        else ""
+    )
+    return yaml.safe_load(f"""
+apiVersion: opensrm.nthlayer.io/v2
+kind: ServiceManifest
+metadata: {{name: svc, labels: {{tier: critical}}}}
+spec:
+  owner: {{group: 'group:default/t'}}
+  service: {{name: svc, type: api}}
+  slo:
+    - apiVersion: openslo/v1
+      kind: SLO
+      metadata: {{name: availability}}
+      spec:
+        indicator:
+          metadata: {{name: availability}}
+          spec:
+            thresholdMetric:
+              metricSource: {{type: Prometheus, spec: {{query: up}}}}
+        objectives: [{{{objective}}}]{contracts}
+""")
+
+
+@pytest.mark.parametrize("field", ["target", "targetPercent"])
+@pytest.mark.parametrize("bad", [".nan", ".inf", "-.inf"])
+def test_classical_target_rejects_non_finite(field, bad, tmp_path):
+    doc = _v2_classical(f"{field}: {bad}")
+
+    # OpenSRMV2ParseError, not OpenSLOParseError: parse_opensrm_v2 wraps the
+    # inner error, and this file already establishes that asserting the inner
+    # type passes only by reaching past the public surface.
+    with pytest.raises(OpenSRMV2ParseError, match="finite"):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize("field", ["target", "targetPercent"])
+@pytest.mark.parametrize("bad", ["{}", "[]"])
+def test_classical_target_rejects_non_numeric(field, bad, tmp_path):
+    """A bare TypeError is not a type this parser declares."""
+    doc = _v2_classical(f"{field}: {bad}")
+
+    with pytest.raises(OpenSRMV2ParseError, match="must be a number"):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+def test_classical_nan_target_cannot_pass_contract_validation(tmp_path):
+    """The specific laundering, on the classical field."""
+    doc = _v2_classical("target: .nan", promise="0.999")
+
+    # OpenSRMV2ParseError, not OpenSLOParseError: parse_opensrm_v2 wraps the
+    # inner error, and this file already establishes that asserting the inner
+    # type passes only by reaching past the public surface.
+    with pytest.raises(OpenSRMV2ParseError, match="finite"):
+        parse_opensrm_v2(doc, base_dir=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("objective", "expected"),
+    [("target: 0.999", 99.9), ("targetPercent: 99.9", 99.9), ("target: 0", 0.0)],
+)
+def test_classical_legitimate_targets_still_accepted(objective, expected, tmp_path):
+    """The over-rejection guard: these must keep working."""
+    manifest = parse_opensrm_v2(_v2_classical(objective), base_dir=tmp_path)
+
+    assert manifest.slos[0].target == pytest.approx(expected)

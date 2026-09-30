@@ -145,7 +145,7 @@ def require_number(field_name: str, value: object, *, what: str) -> float:
         ) from exc
 
 
-def _check_finite(field_name: str, value: float, *, what: str) -> None:
+def check_finite(field_name: str, value: float, *, what: str) -> None:
     """No judgment value is ever legitimately NaN or infinite, in any space.
 
     SEPARATE from the range check, and applied BEFORE the magnitude
@@ -172,7 +172,7 @@ def _check_finite(field_name: str, value: float, *, what: str) -> None:
 
 def _check_declared_ratio(field_name: str, value: float) -> None:
     """A declared judgment RATE must be within [0, 1]. Finiteness is checked
-    separately, for every field, by _check_finite.
+    separately, for every field, by check_finite.
 
     Authority is opensrm/spec/v2's schema.json, which ``$ref``s every one of
     these fields to ``Ratio = {minimum: 0, maximum: 1}``. Validating here rather
@@ -210,7 +210,7 @@ def judgment_target_percent(field_name: str, value: object) -> float:
     converts — for one outside the Ratio domain. See _check_declared_ratio.
     """
     numeric = require_number(field_name, value, what="target")
-    _check_finite(field_name, numeric, what="target")
+    check_finite(field_name, numeric, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:  # error magnitude — stays in declared space
         return numeric
@@ -240,7 +240,7 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     differ by up to ~7e-15 for some values — but exact for every realistic SLI
     floor, and nothing compares a target with ``==``.
     """
-    _check_finite(field_name, percent, what="target")
+    check_finite(field_name, percent, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:  # error magnitude — already in declared space
         return percent
