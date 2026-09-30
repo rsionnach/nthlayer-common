@@ -33,7 +33,7 @@ import warnings
 import pytest
 import yaml
 
-from nthlayer_common.manifest.parser.v1 import parse_srm_v1
+from nthlayer_common.manifest.parser.v1 import OpenSRMParseError, parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import (
     OpenSRMV2ParseError,
     parse_opensrm_v2,
@@ -728,3 +728,66 @@ def test_classical_legitimate_targets_still_accepted(objective, expected, tmp_pa
     manifest = parse_opensrm_v2(_v2_classical(objective), base_dir=tmp_path)
 
     assert manifest.slos[0].target == pytest.approx(expected)
+
+
+# The LAST unguarded writer of SLODefinition.target [opensrm-ocvu iter 4].
+# Leaving it would have recreated this bead's own subject one level down: v2
+# classical rejecting a NaN target while v1 classical accepted it. Measured
+# before the guard: target=nan with a contract gave validate_contracts() -> [],
+# the fourth instance of breach-reports-clean found in this gate.
+
+
+def _v1_classical_doc(target: object) -> dict:
+    return {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {
+            "type": "api",
+            "slos": {"availability": {"target": target}},
+            "contract": {"availability": 99.9},
+        },
+    }
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_v1_classical_target_rejects_non_finite(bad):
+    with pytest.raises(OpenSRMParseError, match="finite"):
+        parse_srm_v1(_v1_classical_doc(bad))
+
+
+@pytest.mark.parametrize("bad", [{}, [], True])
+def test_v1_classical_target_rejects_non_numeric(bad):
+    """`True` included for the same reason as elsewhere: bool is an int
+    subclass, so float(True) == 1.0 would be accepted silently.
+
+    `None` is deliberately NOT in this list: an existing guard earlier in
+    _parse_slos catches it first with a better message ("requires a target or
+    minimum value"), and asserting "must be a number" for it would have forced
+    my expectation over the code's actual, more specific behaviour. Pinned by
+    the test below so that guard cannot quietly stop running.
+    """
+    with pytest.raises(OpenSRMParseError, match="must be a number"):
+        parse_srm_v1(_v1_classical_doc(bad))
+
+
+def test_v1_classical_absent_target_keeps_its_own_error():
+    """The pre-existing missing-target guard runs BEFORE the numeric one, and
+    says something more useful. Pinned so adding the numeric guard cannot have
+    silently taken over its case."""
+    with pytest.raises(OpenSRMParseError, match="requires a target or minimum"):
+        parse_srm_v1(_v1_classical_doc(None))
+
+
+@pytest.mark.parametrize("good", [99.9, 0, 100, -5])
+def test_v1_classical_target_stays_unranged(good):
+    """Over-rejection guard, and it pins the DELIBERATE range gap.
+
+    Range is unchecked here exactly as on the v2 classical path — including -5,
+    which is nonsense but has parsed in both formats since long before this
+    bead. Pinning it means a future decision to range-check has to change this
+    test deliberately rather than discover it.
+    """
+    manifest = parse_srm_v1(_v1_classical_doc(good))
+
+    assert manifest.slos[0].target == pytest.approx(float(good))

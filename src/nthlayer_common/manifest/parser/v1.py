@@ -42,6 +42,10 @@ from nthlayer_common.manifest.models import (
     TelemetryEvent,
 )
 from nthlayer_common.manifest.parser._shared import parse_observability
+from nthlayer_common.manifest.target_validation import (
+    check_finite,
+    require_number,
+)
 from nthlayer_common.manifest.v1_compat import (
     convert_v1_contract,
     default_measurement,
@@ -287,9 +291,27 @@ def _parse_slos(
             measurement = default_measurement(judgment_type, window)
             statistical_requirements = default_statistical_requirements(judgment_type)
 
+        # Guarded the same way as the v2 classical path [opensrm-ocvu]. v1 was
+        # the LAST unguarded writer of SLODefinition.target, and leaving it so
+        # would have recreated this bead's own subject one level down: v2
+        # classical rejecting a NaN target while v1 classical accepted it.
+        # Measured before the guard — `slos: {availability: {target: .nan}}`
+        # with a contract gave target=nan and validate_contracts() -> [], a
+        # breach reporting CLEAN; `target: {}` gave a bare TypeError.
+        #
+        # RANGE is not checked, matching the v2 classical path exactly: plain
+        # targets have been unranged in both formats since long before this
+        # bead, and rejecting out-of-range would reject manifests that parse
+        # today. That remains a scoped decision.
+        try:
+            numeric_target = require_number(name, target, what="SLO target")
+            check_finite(name, numeric_target, what="SLO target")
+        except ValueError as exc:
+            raise OpenSRMParseError(f"SLO '{name}': {exc}") from exc
+
         slo = SLODefinition(
             name=name,
-            target=float(target),
+            target=numeric_target,
             slo_type=slo_type,
             window=config.get("window", "30d"),
             unit=config.get("unit"),
