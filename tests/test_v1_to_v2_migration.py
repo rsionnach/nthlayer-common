@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from nthlayer_common.manifest.parser.v1 import parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 from nthlayer_common.manifest.target_validation import TargetConventionWarning
 from nthlayer_common.manifest.v1_compat import convert_v1_to_v2
@@ -113,7 +114,33 @@ class TestConvertShape:
         assert len(v2["spec"]["slo"]) == 1
         jslo = v2["spec"]["judgment_slo"][0]
         assert jslo["spec"]["judgment_type"] == "reversal_rate"
-        assert jslo["spec"]["target"] == {"maximum_reversal_rate": 98.5}
+        # Emitted as a RATIO, like the classical path above it [opensrm-ocvu].
+        # This assertion previously pinned 98.5 — the v1 percentage copied
+        # verbatim — which is both schema-illegal (v2 types these as Ratio with
+        # maximum 1) and read back by the v2 parser as (1 - 98.5) * 100, so the
+        # round trip produced -9750.0. A 98.5 SLI floor means 1.5% reversed.
+        assert jslo["spec"]["target"]["maximum_reversal_rate"] == pytest.approx(0.015)
+
+    def test_judgment_target_survives_the_round_trip(self):
+        """v1 -> v2 -> parse must return the target the v1 parser gives directly.
+
+        The existing round-trip tests assert names and judgment_type but never
+        the TARGET, which is why 1089 tests passed while migration turned 98.5
+        into -9750.0. Asserting the value through both paths is the only thing
+        that binds the outbound converter to the inbound one.
+        """
+        doc = _v1_judgment()
+
+        direct = parse_srm_v1(doc)
+        migrated = parse_opensrm_v2(convert_v1_to_v2(doc), base_dir=None)
+
+        def judgment_targets(manifest):
+            return {
+                s.name: s.target for s in manifest.slos if s.judgment_type is not None
+            }
+
+        assert judgment_targets(direct) == {"reversal_rate": pytest.approx(98.5)}
+        assert judgment_targets(migrated) == judgment_targets(direct)
 
     def test_dependency_critical_flag_carried(self):
         v2 = convert_v1_to_v2(_v1_classical())

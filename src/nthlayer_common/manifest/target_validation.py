@@ -93,6 +93,36 @@ def judgment_target_percent(field_name: str, value: float) -> float:
     return value
 
 
+def judgment_target_ratio(field_name: str, percent: float) -> float:
+    """The INVERSE of judgment_target_percent: a 0-100 SLI floor back to what a
+    v2 ``target`` block declares.
+
+    Needed because v1 -> v2 migration writes a v2 document that the v2 parser
+    then reads back through judgment_target_percent(). Without this, a v1
+    percentage was copied verbatim into a ``maximum_*`` field and re-read as a
+    ratio. Measured on nthlayer/demo/specs/fraud-detect.yaml, a real shipped
+    spec: ``reversal_rate.target: 98.5`` survived a direct v1 load as 98.5 and
+    came out of the migration as **-9750.0**, because (1 - 98.5) * 100 is what
+    the inbound converter computes from it. The emitted document was also
+    schema-illegal — v2 types these fields as ``Ratio`` with ``maximum: 1``.
+
+    The classical path has had its counterpart all along (_v1_slo_to_openslo
+    divides by 100); only the judgment path lacked one, which is why the
+    round trip was a silent no-op before the inbound boundary existed and
+    catastrophically wrong after.
+
+    Fields absent from TARGET_FIELD_IS_CEILING pass through unchanged, matching
+    judgment_target_percent(), so the pair composes to the identity for every
+    field in either category.
+    """
+    is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
+    if is_ceiling is True:
+        return 1.0 - percent / 100.0
+    if is_ceiling is False:
+        return percent / 100.0
+    return percent
+
+
 def judgment_promise_direction(field_name: str) -> str:
     """Which way a contract promise for *field_name* must be compared.
 

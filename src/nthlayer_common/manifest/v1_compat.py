@@ -38,6 +38,7 @@ from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
     judgment_promise_direction,
     judgment_target_percent,
+    judgment_target_ratio,
 )
 
 # =============================================================================
@@ -178,20 +179,6 @@ def convert_v1_contract(
 # =============================================================================
 # v1 → v2 Manifest Migration (opensrm-b22.2)
 # =============================================================================
-
-# Target field names per judgment_type — mirrors the parser's
-# _extract_judgment_target table in parser/v2.py. Kept in sync via
-# the round-trip tests for all 8 types.
-_JUDGMENT_TARGET_FIELDS: dict[str, str] = {
-    "reversal_rate": "maximum_reversal_rate",
-    "high_confidence_failure": "maximum_failure_rate",
-    "audit_sampling": "audit_completion_rate",
-    "outcomes": "desired_outcome_rate",
-    "escalation": "maximum_escalation_rate",
-    "segments": "maximum_variance_from_overall",
-    "stability": "maximum_drift",
-    "calibration": "maximum_brier_score",
-}
 
 
 def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
@@ -405,16 +392,25 @@ def _v1_slo_to_judgment(
     service_name: str, slo_name: str, v1_slo: dict[str, Any]
 ) -> dict[str, Any]:
     """Convert a v1 SLO whose name matches a judgment type into a v2 judgment_slo entry."""
-    target_field = _JUDGMENT_TARGET_FIELDS[slo_name]
+    target_field = JUDGMENT_TARGET_FIELDS[slo_name]
     target = v1_slo.get("target")
-    # Judgment targets in v1 land follow the percentage convention
-    # (opensrm-5fff). OpenSRM v2 judgment_slo target shape carries the
-    # operator-specified value as-is — v1 spec target=98.5 is preserved
-    # as maximum_reversal_rate=98.5 in v2 (consumer subsystem decides
-    # how to interpret).
+    # CONVERTED OUTBOUND, because the document this emits is read back by the
+    # v2 parser, which now converts inbound [opensrm-ocvu]. v1 declares a 0-100
+    # SLI floor (hard rule 1); v2 declares a ratio in a maximum_*/desired_*
+    # field. Copying the percentage verbatim — which is what this did, on the
+    # since-falsified reasoning that v2 "carries the operator-specified value
+    # as-is" — made the round trip produce -9750.0 from 98.5 on
+    # nthlayer/demo/specs/fraud-detect.yaml, and emitted a document that
+    # violates v2's Ratio maximum of 1.
+    #
+    # The classical path beside this one has always had its counterpart
+    # (_v1_slo_to_openslo divides by 100). Only the judgment path lacked one,
+    # which is why this was a silent no-op until the inbound boundary existed.
     target_block: dict[str, Any] = {}
     if target is not None:
-        target_block[target_field] = target
+        target_block[target_field] = judgment_target_ratio(
+            target_field, float(target)
+        )
 
     spec_block: dict[str, Any] = {
         "judgment_type": slo_name,

@@ -1,5 +1,6 @@
 """Tests for manifest parsers (v1, v2, OpenSLO, loader)."""
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from nthlayer_common.manifest.openslo.parser import OpenSLOParseError as OpenSLO
 from nthlayer_common.manifest.openslo.parser import parse_openslo_slos
 from nthlayer_common.manifest.parser.v1 import parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
+from nthlayer_common.manifest.target_validation import TargetConventionWarning
 
 # =============================================================================
 # Fixtures
@@ -650,13 +652,47 @@ class TestLoader:
             parse_openslo_slos([{"$ref": "../../etc/passwd"}], base_dir=tmp_path)
 
     def test_load_demo_specs(self):
-        """Verify loader works with actual demo specs."""
-        demo_dir = Path(__file__).parent.parent.parent / "demo" / "specs"
-        if not demo_dir.exists():
-            pytest.skip("demo/specs not found")
+        """Verify loader works with actual demo specs.
 
-        for spec_file in demo_dir.glob("*.yaml"):
-            m = load_manifest(spec_file)
+        The path was `parent.parent.parent / "demo" / "specs"`, which omits the
+        `nthlayer` component and so resolved to `<ecosystem>/demo/specs` — a
+        directory that exists in no layout. This test had therefore been
+        SKIPPING SILENTLY in both a worktree and the main checkout, almost
+        certainly since the repo split moved demo/ into the front door. It is
+        the only test here that loads REAL shipped manifests through
+        load_manifest, which is also the only path that emits
+        TargetConventionWarning, and a real demo spec is what exposed the
+        migration CRITICAL in this bead's gate [opensrm-ocvu].
+
+        Asserts a non-zero count rather than trusting the glob: an empty
+        directory would otherwise make the loop body vanish and the test pass
+        having loaded nothing, which is the same silent pass the skip produced.
+        """
+        demo_dir = (
+            Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs"
+        )
+        if not demo_dir.exists():
+            pytest.skip(f"demo/specs not found at {demo_dir}")
+
+        specs = sorted(demo_dir.glob("*.yaml"))
+        assert len(specs) >= 4, f"expected the demo specs, found {specs}"
+
+        for spec_file in specs:
+            # No TargetConventionWarning on a REAL shipped spec. This is the
+            # bead's own acceptance criterion, and load_manifest is the only
+            # path that emits the warning — so this is the one assertion in the
+            # suite that checks the convention against artefacts nobody wrote
+            # for a test [opensrm-ocvu].
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", TargetConventionWarning)
+                m = load_manifest(spec_file)
+            convention = [
+                str(w.message)
+                for w in caught
+                if issubclass(w.category, TargetConventionWarning)
+            ]
+            assert not convention, f"{spec_file.name}: {convention}"
+
             assert m.name
             assert m.source_format == SourceFormat.SRM_V1
 
