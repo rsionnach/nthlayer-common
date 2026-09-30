@@ -33,6 +33,7 @@ import warnings
 import pytest
 import yaml
 
+from nthlayer_common.manifest.parser.v1 import parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import (
     OpenSRMV2ParseError,
     parse_opensrm_v2,
@@ -291,6 +292,23 @@ spec:
         # backwards for floor types and never fired.
         ("outcomes", "desired_outcome_rate: 0.90", 0.95, True),
         ("outcomes", "desired_outcome_rate: 0.98", 0.95, False),
+        # ERROR MAGNITUDES — segments / stability / calibration. These are
+        # deliberately NOT converted (decision 3c takes them out of the SLO
+        # concept), so both sides stay in raw lower-is-better magnitude space
+        # and the promise is a CEILING, not a floor.
+        #
+        # This block is the regression test for a defect the FIX for the round-1
+        # CRITICAL introduced: making direction uniformly "above" read these
+        # unconverted magnitudes as floors and inverted them BOTH ways —
+        # measured, drift 0.02 against a 0.05 promise reported "looser" while
+        # 0.08 against 0.05 reported clean. The parametrise then covered only
+        # reversal_rate and outcomes, so nothing saw it.
+        ("stability", "maximum_drift: 0.02", 0.05, False),
+        ("stability", "maximum_drift: 0.08", 0.05, True),
+        ("segments", "maximum_variance_from_overall: 0.01", 0.03, False),
+        ("segments", "maximum_variance_from_overall: 0.04", 0.03, True),
+        ("calibration", "maximum_brier_score: 0.05", 0.10, False),
+        ("calibration", "maximum_brier_score: 0.15", 0.10, True),
     ],
 )
 def test_contract_validation_compares_in_sli_floor_space(
@@ -316,3 +334,83 @@ def test_contract_validation_compares_in_sli_floor_space(
         assert errors, "expected a looser-than-contract error, got none"
     else:
         assert not errors, f"unexpected error: {errors}"
+
+
+# =============================================================================
+# v1 must agree with v2 on contract thresholds too [opensrm-ocvu]
+# =============================================================================
+
+
+def _v1_with_judgment_contract(slo_target: float, promise: float) -> dict:
+    """A v1 manifest whose judgment SLO is paired with a judgment contract.
+
+    v1 declares the SLO target as a 0-100 SLI floor and the contract threshold
+    as a raw ratio naming a maximum acceptable rate — exactly as v2 does.
+    """
+    return {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "payments", "tier": "critical"},
+        "spec": {
+            "type": "ai-gate",
+            "slos": {"reversal_rate": {"target": slo_target}},
+            "contract": {"judgment": {"reversal_rate": promise}},
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("slo_target", "promise", "expect_error"),
+    [
+        # 98.5 floor vs a 5%-max promise (a 95.0 floor) — STRICTER.
+        (98.5, 0.05, False),
+        # 92.0 floor vs the same promise — LOOSER.
+        (92.0, 0.05, True),
+    ],
+)
+def test_v1_contract_thresholds_share_the_v2_convention(
+    slo_target, promise, expect_error
+):
+    """The v1 path must not keep its own convention.
+
+    opensrm-ocvu moved v2 thresholds into SLI-floor space and left
+    v1_compat.convert_v1_contract emitting a raw ratio with a hardcoded
+    "below", so one shared model had two contradictory producers. Every v1
+    manifest carrying a judgment contract then reported a strictly stricter SLO
+    as looser — unconditionally. Measured before the fix:
+
+        Judgment SLO 'reversal_rate' (98.5) is looser than
+        contract 'svc-api' threshold (0.05)
+
+    Both paths now derive threshold AND direction from the same helpers, so
+    this is the test that fails if either one drifts again.
+    """
+    manifest = parse_srm_v1(_v1_with_judgment_contract(slo_target, promise))
+
+    errors = [e for e in manifest.validate_contracts() if "looser" in e]
+    if expect_error:
+        assert errors, "expected a looser-than-contract error, got none"
+    else:
+        assert not errors, f"unexpected error: {errors}"
+
+
+def test_v1_and_v2_produce_identical_judgment_promises():
+    """The equivalence itself, asserted on structured values.
+
+    The same declaration — a reversal_rate SLO plus a 5% contract promise — must
+    yield the same JudgmentPromise threshold and direction whichever format it
+    arrives in. Asserting the promise fields directly rather than the presence
+    of an error message, so a future divergence cannot hide behind two
+    independently-correct verdicts.
+    """
+    v1 = parse_srm_v1(_v1_with_judgment_contract(98.5, 0.05))
+    v1_promise = v1.contracts[0].promise.judgment[0]
+
+    v2 = parse_opensrm_v2(
+        _v2_with_contract("reversal_rate", "maximum_reversal_rate: 0.015", 0.05),
+        base_dir=None,
+    )
+    v2_promise = v2.contracts[0].promise.judgment[0]
+
+    assert v1_promise.threshold == v2_promise.threshold == 95.0
+    assert v1_promise.direction == v2_promise.direction == "above"

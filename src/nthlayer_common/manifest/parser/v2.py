@@ -53,6 +53,11 @@ from nthlayer_common.manifest.openslo.parser import (
     parse_openslo_slos,
 )
 from nthlayer_common.manifest.parser._shared import parse_observability
+from nthlayer_common.manifest.target_validation import (
+    JUDGMENT_TARGET_FIELDS,
+    judgment_promise_direction,
+    judgment_target_percent,
+)
 
 logger = structlog.get_logger()
 
@@ -410,7 +415,7 @@ def _extract_judgment_target(
 
     Each judgment type has a different target field name in the spec.
     """
-    field_name = _JUDGMENT_TARGET_FIELDS.get(judgment_type)
+    field_name = JUDGMENT_TARGET_FIELDS.get(judgment_type)
     if not field_name:
         raise OpenSRMV2ParseError(
             f"No target field mapping for judgment_type '{judgment_type}'"
@@ -422,77 +427,7 @@ def _extract_judgment_target(
             f"Judgment SLO '{name}' missing target.{field_name}"
         )
 
-    return _judgment_target_percent(field_name, float(value))
-
-
-# The REQUIRED target field for each judgment type, per opensrm/spec/v2's
-# if/then blocks. Module level because contract promises are keyed by judgment
-# TYPE while polarity is a property of the FIELD, so the contract parser needs
-# this indirection too [opensrm-ocvu].
-#
-# `calibration` requires TWO fields (maximum_brier_score and
-# maximum_expected_calibration_error) and only the first is read here —
-# pre-existing, and resolved by decision 3c, which removes calibration from the
-# SLO concept altogether.
-_JUDGMENT_TARGET_FIELDS: dict[str, str] = {
-    "reversal_rate": "maximum_reversal_rate",
-    "high_confidence_failure": "maximum_failure_rate",
-    "audit_sampling": "audit_completion_rate",
-    "outcomes": "desired_outcome_rate",
-    "escalation": "maximum_escalation_rate",
-    "segments": "maximum_variance_from_overall",
-    "stability": "maximum_drift",
-    "calibration": "maximum_brier_score",
-}
-
-# Polarity of each v2 judgment target FIELD, not of the judgment type
-# [opensrm-ocvu]. Keyed by field because that is where the schema puts it:
-# `maximum_*` is a ceiling on badness, `*_completion_rate` / `desired_*` /
-# `*_agreement_rate` are floors on goodness. Keying by TYPE happened to work
-# only because each type currently has one target field — `escalation` already
-# declares a second, `escalation_human_agreement_rate`, which is a FLOOR while
-# its type is in the maxima set. Unread today, so latent rather than live, but
-# a type-keyed map would silently invert it the moment anything read it.
-#
-#   CEILING  (1 - x) * 100   v2 says "at most x go wrong"
-#   FLOOR    x * 100         v2 says "at least x go right"
-#
-# Complementing a floor yields a plausible percentage that INVERTS the
-# constraint — audit_completion_rate 0.95 becomes 5.0 — with no exception and no
-# warning. An earlier draft of the decision record listed only `outcomes` as a
-# floor and would have done exactly that to `audit_sampling`.
-_TARGET_FIELD_IS_CEILING = {
-    "maximum_reversal_rate": True,
-    "maximum_failure_rate": True,
-    "maximum_escalation_rate": True,
-    "escalation_human_agreement_rate": False,
-    "desired_outcome_rate": False,
-    "audit_completion_rate": False,
-}
-
-# Deliberately absent: maximum_variance_from_overall, maximum_drift,
-# maximum_brier_score, maximum_expected_calibration_error. Those are error
-# MAGNITUDES — no complement exists, so there is no SLI-floor reading. They
-# leave the SLO concept entirely under decision 3c (see nthlayer/docs/
-# superpowers/decisions/slo-target-units-and-judgment-semantics.md) and pass
-# through unchanged until then. Converting them would mean inventing semantics
-# the spec does not define, which is how this defect arrived.
-
-
-def _judgment_target_percent(field_name: str, value: float) -> float:
-    """A judgment target as the canonical 0-100 SLI floor.
-
-    Fields absent from _TARGET_FIELD_IS_CEILING pass through unchanged rather
-    than being guessed at: a wrong conversion is indistinguishable from a right
-    one downstream, whereas an unconverted value still trips
-    TargetConventionWarning.
-    """
-    is_ceiling = _TARGET_FIELD_IS_CEILING.get(field_name)
-    if is_ceiling is True:
-        return (1.0 - value) * 100.0
-    if is_ceiling is False:
-        return value * 100.0
-    return value
+    return judgment_target_percent(field_name, float(value))
 
 
 def _parse_judgment_measurement(
@@ -614,23 +549,19 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
         promise_data = c_data.get("promise", {})
         judgment_promises = []
         for jtype, threshold in promise_data.get("judgment", {}).items():
-            # Converted by the SAME polarity rule as SLO targets, so both sides
-            # of validate_contracts()' comparison live in one space
-            # [opensrm-ocvu]. Leaving thresholds raw while targets became 0-100
-            # made every judgment SLO report as looser than its contract, since
-            # any percentage exceeds any ratio.
-            #
-            # In SLI-floor space every promise is a FLOOR — "this must stay at
-            # or above X" — so direction is uniformly "above". The previous
-            # hardcoded "below" also carried the same polarity error the targets
-            # had: for outcomes and audit_sampling the declared value is a
-            # minimum, so the comparison ran backwards and never fired for them.
+            # Threshold AND direction both come from the field, via the same
+            # lookup SLO targets use, so the two sides of
+            # validate_contracts()' comparison cannot end up in different
+            # spaces [opensrm-ocvu]. Hardcoding either one produced a defect:
+            # "below" put a 0-100 floor against a raw ratio so every judgment
+            # SLO read as looser, and "above" then inverted the three error
+            # MAGNITUDES that judgment_target_percent deliberately leaves
+            # unconverted.
+            field = JUDGMENT_TARGET_FIELDS.get(jtype, "")
             judgment_promises.append(JudgmentPromise(
                 judgment_type=jtype,
-                threshold=_judgment_target_percent(
-                    _JUDGMENT_TARGET_FIELDS.get(jtype, ""), float(threshold)
-                ),
-                direction="above",
+                threshold=judgment_target_percent(field, float(threshold)),
+                direction=judgment_promise_direction(field),
             ))
 
         promise = ContractPromise(

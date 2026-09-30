@@ -212,7 +212,14 @@ class TestV1Parser:
         assert m.contracts[0].promise.availability == 0.999
         assert m.contracts[0].promise.latency_p99 == "500ms"
         assert len(m.contracts[0].promise.judgment) == 1
-        assert m.contracts[0].promise.judgment[0].direction == "below"
+        # reversal_rate declares maximum_reversal_rate, a CEILING, so the
+        # threshold is complemented into SLI-floor space and compared upward
+        # [opensrm-ocvu]. This assertion previously read direction == "below"
+        # and did not check the threshold at all, which is why it stayed green
+        # while v1 emitted a raw 0.05 against 0-100 targets and reported every
+        # judgment SLO as looser than its contract.
+        assert m.contracts[0].promise.judgment[0].threshold == 95.0
+        assert m.contracts[0].promise.judgment[0].direction == "above"
 
     def test_missing_name_raises(self):
         data = {

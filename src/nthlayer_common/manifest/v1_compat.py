@@ -34,6 +34,11 @@ from nthlayer_common.manifest.models import (
     resolve_service_type,
     valid_service_types_phrase,
 )
+from nthlayer_common.manifest.target_validation import (
+    JUDGMENT_TARGET_FIELDS,
+    judgment_promise_direction,
+    judgment_target_percent,
+)
 
 # =============================================================================
 # Statistical Requirements Defaults
@@ -131,10 +136,22 @@ def convert_v1_contract(
 
     Assumptions:
       - Contract name derived from service: "{service_name}-api"
-      - Judgment dict values are "below" thresholds (error rates, reversal
-        rates — lower is better). This matches v1 semantics where judgment
-        contract values are maximum acceptable rates.
       - No api_ref, conditions, or breach_semantics (v1 didn't express these)
+
+    Judgment thresholds go through judgment_target_percent() and
+    judgment_promise_direction(), the SAME helpers parser/v2.py uses
+    [opensrm-ocvu]. v1 declares them exactly as v2 does — a raw ratio naming a
+    maximum acceptable rate — while v1 judgment SLO targets are already 0-100.
+    Emitting the raw ratio with a hardcoded "below" therefore compared a 0-100
+    floor against a ratio, and every v1 manifest carrying a judgment contract
+    reported a strictly STRICTER SLO as looser. Measured before the fix: an SLO
+    at 98.5 against a contract promising 0.05 (a 95.0 floor) produced
+    "Judgment SLO 'reversal_rate' (98.5) is looser than contract 'svc-api'
+    threshold (0.05)".
+
+    That is the same defect this bead fixed on the v2 side, and leaving it here
+    would have kept one shared model with two contradictory producers — which
+    is the v1/v2 divergence the bead exists to close, not a separate concern.
     """
     promise = ContractPromise(
         availability=availability,
@@ -143,11 +160,12 @@ def convert_v1_contract(
 
     if judgment:
         for jtype, threshold in judgment.items():
+            field = JUDGMENT_TARGET_FIELDS.get(jtype, "")
             promise.judgment.append(
                 JudgmentPromise(
                     judgment_type=jtype,
-                    threshold=threshold,
-                    direction="below",
+                    threshold=judgment_target_percent(field, float(threshold)),
+                    direction=judgment_promise_direction(field),
                 )
             )
 
