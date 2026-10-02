@@ -836,6 +836,12 @@ def test_a_three_way_group_reports_every_drop(tmp_path, monkeypatch):
     """
     names = ("svc.yaml", "svc.YAML", "svc.yml")
     entries = [tmp_path / name for name in names]
+    # Patched on the CLASS, so it is honest only while scan_manifest_files has
+    # exactly ONE iterdir call site. Add a recursive walk and this would hand it
+    # these same three entries for every directory. `lambda` rather than a
+    # generator so each call gets a fresh iterator — a shared generator yields
+    # 3 entries then 0, and the second scan here would silently see an empty
+    # directory.
     monkeypatch.setattr(Path, "iterdir", lambda self: iter(entries))
 
     with warnings.catch_warnings(record=True) as record:
