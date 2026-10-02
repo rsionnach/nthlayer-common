@@ -22,7 +22,10 @@ consumer appeared, so the call sites stop reaching into one another
 
 from __future__ import annotations
 
+import unicodedata
+import warnings
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -30,27 +33,133 @@ from nthlayer_common.manifest.models import is_valid_service_type
 from nthlayer_common.manifest.parser.v1 import is_srm_v1_format
 from nthlayer_common.manifest.parser.v2 import is_opensrm_v2_format
 
+
+class ManifestCollisionWarning(UserWarning):
+    """Two manifest files shared a stem, so one was not loaded [opensrm-xvwt].
+
+    A warning rather than a structlog event, because this is a LIBRARY.
+    nthlayer-common never calls structlog.configure, so the default
+    PrintLogger writes to STDOUT — measured — and a consumer CLI emitting
+    machine-readable output on stdout would have a human-formatted log line
+    interleaved into it. warnings go to stderr, are filterable by category,
+    and are the pattern this package already uses for an authoring mistake it
+    should flag loudly without rejecting: see TargetConventionWarning in
+    target_validation.py.
+
+    The STRUCTURED form of the same information is scan_manifest_files()'
+    return value, which is what a caller that wants to act on it should use.
+    """
+
+
+# One home for the wording, and it names the actual risk rather than the
+# mechanism: an operator does not care that two stems matched, they care that a
+# service they declared is not being measured.
+_COLLISION_HINT = (
+    "If they declare DIFFERENT services, rename one: the dropped file is not "
+    "being measured."
+)
+
 # Suffixes a manifest may carry. Both, always: `.yml` invisibility is the
 # same silent-subset failure as an uncounted parse error, reached by file
 # extension instead — the manifest is dropped and nothing says so.
 MANIFEST_SUFFIXES = (".yaml", ".yml")
 
 
-def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
-    """Every ``.yaml``/``.yml`` file directly under ``specs_dir``, sorted.
+def _resolve_collision(group: list[Path]) -> tuple[Path, list[Path]]:
+    """Which of several same-stem manifests to keep, and which to report.
 
-    Sorted so the order is stable across machines. That matters to any
-    caller that dedupes first-wins — learn/retrospective does; observe's
-    spec_loader does not, and whether it should is opensrm-3470's follow-up
-    rather than a property this function can assume.
+    A separate named function so the rule can be exercised WITHOUT a
+    filesystem. The three-way case needs `svc.yaml` and `svc.YAML` to coexist,
+    which a case-insensitive filesystem cannot do — so a temp-directory
+    fixture skipped on macOS and ran in Linux CI, and the skip hid an
+    assertion that was wrong. See
+    tests/test_manifest_scan.py::test_collision_precedence_is_deterministic.
 
-    Returns empty for a path that is not a directory rather than raising,
-    so a caller that wants its own error message for that case keeps the
-    decision.
+    Three ranks, in order:
+
+    1. MANIFEST_SUFFIXES order IS the precedence, so the rule and the tuple
+       cannot drift apart. ``.yaml`` is what the ecosystem writes, and that is
+       counted rather than asserted: across nthlayer/demo and opensrm/spec,
+       46 manifests are ``.yaml`` and 0 are ``.yml`` or a case variant.
+    2. The EXACTLY-lowercase spelling beats a case variant. Without this rank
+       the name tiebreak kept ``svc.YAML`` over ``svc.yaml``, because
+       ``"svc.YAML" < "svc.yaml"`` in ASCII.
+    3. Name, so the choice is never filesystem-order dependent.
+
+    PRECONDITION: every path's case-folded suffix is in MANIFEST_SUFFIXES.
+    scan_manifest_files() guarantees it by filtering on the same key; a direct
+    caller that does not will get ValueError from .index(), which is the right
+    outcome for a programming error but is not a guard.
+    """
+    kept, *dropped = sorted(
+        group,
+        key=lambda p: (
+            MANIFEST_SUFFIXES.index(p.suffix.lower()),
+            0 if p.suffix == p.suffix.lower() else 1,
+            p.name,
+        ),
+    )
+    return kept, dropped
+
+
+class SuffixCollision(NamedTuple):
+    """One stem declared twice, once per manifest suffix [opensrm-xvwt].
+
+    NamedTuple rather than the @dataclass this package uses for models: these
+    two are a return shape, not a domain object — no validation, no behaviour,
+    and callers unpack them positionally.
+    """
+
+    stem: str
+    kept: Path
+    dropped: Path
+
+
+class ManifestScan(NamedTuple):
+    """What a directory scan found, and what it had to choose between."""
+
+    files: list[Path]
+    suffix_collisions: list[SuffixCollision]
+
+
+def scan_manifest_files(specs_dir: str | Path) -> ManifestScan:
+    """Manifest files under *specs_dir*, with same-stem collisions resolved.
+
+    A directory holding BOTH ``svc.yaml`` and ``svc.yml`` — the ordinary
+    result of an editor default changing, or two people adding the same
+    service — previously yielded both [opensrm-xvwt]. Neither is foreign
+    YAML, so foreign_yaml_reason() passes them and both parse, and the
+    consequences were silent in two places:
+
+    - measure's load_specs appended the service's SLOs twice, so
+      evaluate_slos wrote two verdicts per window for one service/SLO. Since
+      count_consecutive_breaches counts VERDICTS rather than windows, a
+      3-window hysteresis threshold was reached in 2 real windows or fewer.
+      A judgment SLO firing early is the same class of wrong as one that
+      never fires.
+    - observe's per-service SLO counts, and any budget arithmetic derived
+      from them, were inflated.
+
+    Nothing errored and nothing warned, because both files are valid
+    manifests.
+
+    ``.yaml`` wins, deterministically — it is the suffix the ecosystem
+    writes — with the name as tiebreak so the choice cannot vary by
+    filesystem order. The dropped path is RETURNED rather than only logged,
+    which is the same reason opensrm-3470 added a parse-failure report: this
+    is a partial view of the directory, and the operator reading SLO output
+    is who needs to know a manifest was set aside.
+
+    STEM, not parsed service name. Two files can declare the same service
+    under unrelated names, and scan.py deliberately does not parse — that is
+    what foreign_yaml_reason() exists to avoid. So this catches the common
+    shape the bead describes and not every possible duplicate; a caller that
+    needs the stronger property has to compare parsed names itself.
     """
     path = Path(specs_dir)
     if not path.is_dir():
-        return []
+        return ManifestScan([], [])
+
     # `not p.is_dir()` rather than `p.is_file()`: excluding DIRECTORIES was
     # the point — a directory named `foo.yaml` would be counted as a broken
     # manifest by every caller. is_file() also excludes a dangling symlink,
@@ -61,11 +170,100 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     # loaded, never counted, never logged — which is the silent-subset-by-
     # extension failure MANIFEST_SUFFIXES exists to prevent, one case-fold
     # away.
-    return sorted(
+    # This sort is now BELT-AND-BRACES, kept rather than removed. Both return
+    # values are re-sorted below and _resolve_collision sorts its own group, so
+    # removing it changes nothing — proven, not assumed: a differential over
+    # 4,000 random directory shapes x 3 orderings found zero output
+    # differences. It stays because iterdir order is arbitrary and a future
+    # reader should not have to re-derive that the rest of this function is
+    # order-independent.
+    candidates = sorted(
         p
         for p in path.iterdir()
         if not p.is_dir() and p.suffix.lower() in MANIFEST_SUFFIXES
     )
+
+    by_stem: dict[str, list[Path]] = {}
+    for candidate in candidates:
+        # NFC-normalised, for the same reason the suffix is case-folded: two
+        # spellings of one name must not become two services. APFS PRESERVES
+        # normalisation rather than enforcing it, so `café.yaml` written NFC
+        # and `café.yml` written NFD are two directory entries with different
+        # byte stems — visually one stem. Measured before this: both were
+        # returned and no collision reported, so the double-count this function
+        # exists to stop survived for any non-ASCII filename.
+        # The stem is NOT case-folded, deliberately, while the suffix is. A
+        # suffix is a format marker, so `.YAML` and `.yaml` mean the same
+        # thing; a stem is a name, and `SVC.yaml` beside `svc.yml` is two
+        # names an operator can tell apart. Both of the bead's shapes — an
+        # editor default changing, two people adding the same service — produce
+        # an IDENTICAL stem, so folding case here would merge files that were
+        # never one service to catch a case that does not occur.
+        by_stem.setdefault(
+            unicodedata.normalize("NFC", candidate.stem), []
+        ).append(candidate)
+
+    files: list[Path] = []
+    collisions: list[SuffixCollision] = []
+    for stem, group in by_stem.items():
+        if len(group) == 1:
+            files.append(group[0])
+            continue
+        kept, dropped = _resolve_collision(group)
+        files.append(kept)
+        collisions.extend(SuffixCollision(stem, kept, d) for d in dropped)
+
+    return ManifestScan(
+        sorted(files),
+        sorted(collisions, key=lambda c: (c.stem, c.dropped.name)),
+    )
+
+
+def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
+    """Manifest files under ``specs_dir``, sorted, ONE PER STEM.
+
+    A lossy view of scan_manifest_files(): same files, collisions raised as a
+    ManifestCollisionWarning rather than returned. Its signature is fixed — three consumers in
+    nthlayer-workers call it — so the de-duplication had to arrive without one,
+    and that is why this exists alongside the fuller function rather than
+    instead of it. A caller that should SURFACE a set-aside file to an operator
+    wants scan_manifest_files().
+
+    IT WARNS ONCE PER PROCESS, NOT ONCE PER SCAN. Python's default filter
+    dedupes on (message, category, module, lineno), and with stacklevel=2 the
+    key is the CALLER's line — so a worker re-scanning the same directory every
+    window warns on the first window and is silent thereafter. Quieter, but an
+    operator who misses the first one never sees it again, which is why the
+    three consumers should move to scan_manifest_files() and surface the
+    collision themselves: opensrm-j9wq.
+
+    NOTHING DROPS SILENTLY, and that is not belt-and-braces: grouping is by
+    stem, so a collision can be two DIFFERENT services rather than a duplicate,
+    and dropping one of those without a trace is the silent-subset failure this
+    module exists to prevent (opensrm-oh27, opensrm-3470). See
+    scan_manifest_files() for the full argument.
+
+    Sorted so the order is stable across machines. That matters to any caller
+    that dedupes first-wins — learn/retrospective does; observe's spec_loader
+    does not, and whether it should is opensrm-3470's follow-up rather than a
+    property this function can assume.
+
+    Returns empty for a path that is not a directory rather than raising, so a
+    caller that wants its own error message for that case keeps the decision.
+    """
+    scan = scan_manifest_files(specs_dir)
+    for collision in scan.suffix_collisions:
+        warnings.warn(
+            f"{collision.dropped} was not loaded: it shares the stem "
+            f"'{collision.stem}' with {collision.kept.name}. "
+            f"{_COLLISION_HINT}",
+            ManifestCollisionWarning,
+            # 2 = this function's caller. Measured, not copied: a deeper value
+            # names scan.py itself, which tells the reader nothing about which
+            # directory scan produced it.
+            stacklevel=2,
+        )
+    return scan.files
 
 
 def foreign_yaml_reason(spec_file: str | Path) -> str | None:

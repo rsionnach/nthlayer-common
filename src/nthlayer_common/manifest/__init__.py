@@ -75,8 +75,12 @@ from nthlayer_common.manifest.parser.v1 import OpenSRMParseError
 from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
 from nthlayer_common.manifest.scan import (
     MANIFEST_SUFFIXES,
+    ManifestCollisionWarning,
+    ManifestScan,
+    SuffixCollision,
     foreign_yaml_reason,
     iter_manifest_files,
+    scan_manifest_files,
 )
 
 __all__ = [
@@ -102,8 +106,12 @@ __all__ = [
     "valid_service_types_phrase",
     # Directory scanning
     "MANIFEST_SUFFIXES",
+    "ManifestCollisionWarning",
+    "ManifestScan",
+    "SuffixCollision",
     "foreign_yaml_reason",
     "iter_manifest_files",
+    "scan_manifest_files",
     # Enums
     "DependencyCriticality",
     "SourceFormat",

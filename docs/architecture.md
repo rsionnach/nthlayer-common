@@ -220,12 +220,32 @@ YAML sharing the directory" — count the first, and the operator learns
 their view is partial; count the second, and a coverage caveat fires on
 every mixed-directory run until nobody reads it.
 
-- `iter_manifest_files(dir) -> list[Path]` — every `.yaml`/`.yml` entry
-  directly under `dir` that is not a directory, sorted, suffix matched
-  case-insensitively. Both suffixes always, and `.YAML` too: an unlisted
-  file is a silent subset reached by file extension. Dangling symlinks are
-  listed deliberately, so a stale overlay link is counted as a failure
-  rather than vanishing.
+- `scan_manifest_files(dir) -> ManifestScan(files, suffix_collisions)` —
+  the full answer. `files` is every `.yaml`/`.yml` entry directly under
+  `dir` that is not a directory, sorted, suffix matched
+  case-insensitively, **one per stem**; `suffix_collisions` is a list of
+  `SuffixCollision(stem, kept, dropped)` for the rest. Both suffixes
+  always, and `.YAML` too: an unlisted file is a silent subset reached by
+  file extension. Dangling symlinks are listed deliberately, so a stale
+  overlay link is counted as a failure rather than vanishing.
+- `iter_manifest_files(dir) -> list[Path]` — the same files, with each
+  collision raised as a `ManifestCollisionWarning` instead of returned
+  (opensrm-xvwt). A warning, not a log: this is a library, and
+  nthlayer-common never calls `structlog.configure`, so a structlog event
+  went to STDOUT and would interleave with a consumer CLI's machine-readable
+  output. A
+  directory holding both `svc.yaml` and `svc.yml` previously yielded both,
+  so measure double-counted verdicts per window and observe inflated SLO
+  counts, silently, because both files are valid manifests. `.yaml` wins,
+  then the exactly-lowercase spelling over a case variant, then the name.
+  Signature unchanged because three nthlayer-workers call sites depend on
+  it; a caller that should SURFACE a set-aside file to an operator wants
+  `scan_manifest_files`. Grouping is by STEM, so a collision may be two
+  DIFFERENT services rather than a duplicate — which is why nothing drops
+  without a notice. Stems are NFC-normalised, since APFS preserves rather
+  than enforces normalisation, so `café.yaml` (NFC) and `café.yml` (NFD)
+  would otherwise be two services — note the reported `SuffixCollision.stem`
+  is therefore NFC, matching neither filename byte-for-byte when one is NFD.
 - `foreign_yaml_reason(path) -> str | None` — `None` when the file was
   aiming to be a manifest (so the caller counts it), a short reason when
   it plainly was not (so the caller can log rather than drop it silently).
@@ -233,7 +253,7 @@ every mixed-directory run until nobody reads it.
   docstring for the stated limit.
 - `MANIFEST_SUFFIXES` — the two suffixes, for callers doing their own walk.
 
-Used by `nthlayer_workers` observe and learn. **Look here before writing
+Used by `nthlayer_workers` observe, learn and measure. **Look here before writing
 a fourth directory walk** — three existed before this was shared
 (opensrm-oh27, opensrm-3470).
 
