@@ -676,6 +676,24 @@ class TestLoader:
         directory would otherwise make the loop body vanish and the test pass
         having loaded nothing, which is the same silent pass the skip produced.
 
+        IT STILL SKIPS IN CI, and saying otherwise was an overclaim in this
+        bead's own commit messages [opensrm-46rb]. The path fix is real and this
+        runs LOCALLY, where the front door is a sibling checkout. But
+        .github/workflows/ci.yml checks out ONE sibling — rsionnach/opensrm —
+        and never rsionnach/nthlayer, so in CI the directory is genuinely absent
+        and the guard below fires. Verified in the PR #71 job log rather than
+        inferred: 1166 passed / 0 skipped locally versus 1155 passed / 8 SKIPPED
+        in CI, those 8 being every test that reads a real shipped manifest.
+        Local-only verification is what hid the difference.
+
+        opensrm-46rb carries the decision, because the obvious fix — checking out
+        the front door too — buys a second cross-repo CI coupling at floating
+        main. Until then this remains a skip rather than an assert, which is why
+        it is NOT the pattern to copy: see
+        tests/test_judgment_targets_against_spec_examples.py, which asserts
+        instead and whose 11 cases do run in CI, because the sibling it needs is
+        the one that gets checked out.
+
         WHAT THIS DOES **NOT** COVER, stated because the first version of this
         docstring overclaimed it. All four shipped specs are v1, so the
         TargetConventionWarning assertion below does NOT bind the v2 INBOUND
