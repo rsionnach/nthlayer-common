@@ -471,6 +471,23 @@ def test_iter_manifest_files_still_returns_empty_for_a_non_directory(tmp_path):
     assert scan_manifest_files(tmp_path / "missing") == ([], [])
 
 
+def _v2_named(service: str) -> str:
+    """A real v2 manifest declaring *service*.
+
+    Needed because _V2_BODY/_V1_BODY both declare `checkout`, so a fixture
+    built from them cannot exercise the two-DIFFERENT-services case the test
+    below is about — the correctness pass caught the docstring claiming a
+    scenario the fixture did not create.
+    """
+    return (
+        "apiVersion: opensrm.nthlayer.io/v2\nkind: ServiceManifest\n"
+        f"metadata: {{name: {service}, labels: {{tier: critical}}}}\n"
+        "spec:\n"
+        "  owner: {group: 'group:default/payments'}\n"
+        f"  service: {{name: {service}, type: api}}\n"
+    )
+
+
 def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
     """The correctness pass's IMPORTANT, and it corrects the reasoning this
     fix started from.
@@ -487,13 +504,24 @@ def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
     true for a GENUINE duplicate. For two different services sharing a stem it
     is worse.
     """
-    _write(tmp_path, "payments.yaml", _V2_BODY)
-    _write(tmp_path, "payments.yml", _V1_BODY)
+    from nthlayer_common.manifest import load_manifest
+
+    kept_path = _write(tmp_path, "payments.yaml", _v2_named("payments"))
+    dropped_path = _write(tmp_path, "payments.yml", _v2_named("payments-api"))
+
+    # PINNED, because the point is that these are two DIFFERENT services and
+    # not a duplicate. Asserting it here means the scenario cannot drift back
+    # into a same-service fixture, which is what the first version of this test
+    # actually built while its docstring described this one.
+    assert load_manifest(kept_path).name == "payments"
+    assert load_manifest(dropped_path).name == "payments-api"
 
     with capture_logs() as events:
         found = iter_manifest_files(tmp_path)
 
     assert [p.name for p in found] == ["payments.yaml"]
+    # The second service is simply gone — this is the cost being logged.
+    assert [load_manifest(p).name for p in found] == ["payments"]
 
     # STRUCTURED, not caplog.text. Two reasons: structlog bypasses the stdlib
     # handlers caplog captures, so a text assertion silently matched nothing;
