@@ -232,8 +232,8 @@ every mixed-directory run until nobody reads it.
   collision raised as a `ManifestCollisionWarning` instead of returned
   (opensrm-xvwt). A warning, not a log: this is a library, and
   nthlayer-common never calls `structlog.configure`, so a structlog event
-  went to STDOUT and would interleave with a consumer CLI's
-  machine-readable output. A
+  went to STDOUT and would interleave with a consumer CLI's machine-readable
+  output. A
   directory holding both `svc.yaml` and `svc.yml` previously yielded both,
   so measure double-counted verdicts per window and observe inflated SLO
   counts, silently, because both files are valid manifests. `.yaml` wins,
@@ -244,7 +244,8 @@ every mixed-directory run until nobody reads it.
   DIFFERENT services rather than a duplicate — which is why nothing drops
   without a notice. Stems are NFC-normalised, since APFS preserves rather
   than enforces normalisation, so `café.yaml` (NFC) and `café.yml` (NFD)
-  would otherwise be two services.
+  would otherwise be two services — note the reported `SuffixCollision.stem`
+  is therefore NFC, matching neither filename byte-for-byte when one is NFD.
 - `foreign_yaml_reason(path) -> str | None` — `None` when the file was
   aiming to be a manifest (so the caller counts it), a short reason when
   it plainly was not (so the caller can log rather than drop it silently).
@@ -252,7 +253,7 @@ every mixed-directory run until nobody reads it.
   docstring for the stated limit.
 - `MANIFEST_SUFFIXES` — the two suffixes, for callers doing their own walk.
 
-Used by `nthlayer_workers` observe and learn. **Look here before writing
+Used by `nthlayer_workers` observe, learn and measure. **Look here before writing
 a fourth directory walk** — three existed before this was shared
 (opensrm-oh27, opensrm-3470).
 

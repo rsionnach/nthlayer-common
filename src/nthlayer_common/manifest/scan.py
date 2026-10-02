@@ -55,8 +55,8 @@ class ManifestCollisionWarning(UserWarning):
 # mechanism: an operator does not care that two stems matched, they care that a
 # service they declared is not being measured.
 _COLLISION_HINT = (
-    "two manifest files share a stem; only one was loaded. If they declare "
-    "DIFFERENT services, rename one — the dropped file is not being measured."
+    "If they declare DIFFERENT services, rename one: the dropped file is not "
+    "being measured."
 )
 
 # Suffixes a manifest may carry. Both, always: `.yml` invisibility is the
@@ -222,12 +222,20 @@ def scan_manifest_files(specs_dir: str | Path) -> ManifestScan:
 def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     """Manifest files under ``specs_dir``, sorted, ONE PER STEM.
 
-    A lossy view of scan_manifest_files(): same files, collisions logged at
-    warning rather than returned. Its signature is fixed — three consumers in
+    A lossy view of scan_manifest_files(): same files, collisions raised as a
+    ManifestCollisionWarning rather than returned. Its signature is fixed — three consumers in
     nthlayer-workers call it — so the de-duplication had to arrive without one,
     and that is why this exists alongside the fuller function rather than
     instead of it. A caller that should SURFACE a set-aside file to an operator
     wants scan_manifest_files().
+
+    IT WARNS ONCE PER PROCESS, NOT ONCE PER SCAN. Python's default filter
+    dedupes on (message, category, module, lineno), and with stacklevel=2 the
+    key is the CALLER's line — so a worker re-scanning the same directory every
+    window warns on the first window and is silent thereafter. Quieter, but an
+    operator who misses the first one never sees it again, which is why the
+    three consumers should move to scan_manifest_files() and surface the
+    collision themselves: opensrm-j9wq.
 
     NOTHING DROPS SILENTLY, and that is not belt-and-braces: grouping is by
     stem, so a collision can be two DIFFERENT services rather than a duplicate,
