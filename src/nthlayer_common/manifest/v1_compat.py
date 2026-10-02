@@ -22,17 +22,25 @@ Migration (opensrm-b22.2):
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
     ContractPromise,
     JudgmentMeasurement,
-    JudgmentPromise,
     ReliabilityContract,
     StatisticalRequirements,
     resolve_service_type,
     valid_service_types_phrase,
+)
+from nthlayer_common.manifest.target_validation import (
+    JUDGMENT_TARGET_FIELDS,
+    TargetConventionWarning,
+    converts_to_sli_floor,
+    judgment_promise,
+    judgment_target_ratio,
+    require_number,
 )
 
 # =============================================================================
@@ -131,10 +139,12 @@ def convert_v1_contract(
 
     Assumptions:
       - Contract name derived from service: "{service_name}-api"
-      - Judgment dict values are "below" thresholds (error rates, reversal
-        rates — lower is better). This matches v1 semantics where judgment
-        contract values are maximum acceptable rates.
       - No api_ref, conditions, or breach_semantics (v1 didn't express these)
+
+    Judgment thresholds go through judgment_promise(), shared with parser/v2.py
+    [opensrm-ocvu], so v1 and v2 cannot hold different conventions for one
+    shared model. v1 declares them exactly as v2 does — a raw ratio naming a
+    maximum acceptable rate — while v1 judgment SLO targets are already 0-100.
     """
     promise = ContractPromise(
         availability=availability,
@@ -143,13 +153,7 @@ def convert_v1_contract(
 
     if judgment:
         for jtype, threshold in judgment.items():
-            promise.judgment.append(
-                JudgmentPromise(
-                    judgment_type=jtype,
-                    threshold=threshold,
-                    direction="below",
-                )
-            )
+            promise.judgment.append(judgment_promise(jtype, threshold))
 
     return ReliabilityContract(
         name=f"{service_name}-api",
@@ -160,20 +164,6 @@ def convert_v1_contract(
 # =============================================================================
 # v1 → v2 Manifest Migration (opensrm-b22.2)
 # =============================================================================
-
-# Target field names per judgment_type — mirrors the parser's
-# _extract_judgment_target table in parser/v2.py. Kept in sync via
-# the round-trip tests for all 8 types.
-_JUDGMENT_TARGET_FIELDS: dict[str, str] = {
-    "reversal_rate": "maximum_reversal_rate",
-    "high_confidence_failure": "maximum_failure_rate",
-    "audit_sampling": "audit_completion_rate",
-    "outcomes": "desired_outcome_rate",
-    "escalation": "maximum_escalation_rate",
-    "segments": "maximum_variance_from_overall",
-    "stability": "maximum_drift",
-    "calibration": "maximum_brier_score",
-}
 
 
 def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
@@ -387,16 +377,58 @@ def _v1_slo_to_judgment(
     service_name: str, slo_name: str, v1_slo: dict[str, Any]
 ) -> dict[str, Any]:
     """Convert a v1 SLO whose name matches a judgment type into a v2 judgment_slo entry."""
-    target_field = _JUDGMENT_TARGET_FIELDS[slo_name]
+    target_field = JUDGMENT_TARGET_FIELDS[slo_name]
     target = v1_slo.get("target")
-    # Judgment targets in v1 land follow the percentage convention
-    # (opensrm-5fff). OpenSRM v2 judgment_slo target shape carries the
-    # operator-specified value as-is — v1 spec target=98.5 is preserved
-    # as maximum_reversal_rate=98.5 in v2 (consumer subsystem decides
-    # how to interpret).
-    target_block: dict[str, Any] = {}
-    if target is not None:
-        target_block[target_field] = target
+    # CONVERTED OUTBOUND — the document this emits is read back by the v2
+    # parser, which converts inbound, so the two must be inverses. See
+    # judgment_target_ratio() for what went wrong without it [opensrm-ocvu].
+    # RAISE rather than emit `target: {}`. The v2 parser requires the field, so
+    # a v1 SLO with no target produced a document that could not be re-parsed —
+    # "missing target.maximum_reversal_rate" — surfacing at load time, far from
+    # the manifest that caused it. The round trip this module now advertises has
+    # to fail at migration time instead [opensrm-ocvu].
+    if target is None:
+        raise ValueError(
+            f"v1 SLO '{slo_name}' on service '{service_name}' has no target, so "
+            f"it cannot be migrated to a v2 judgment_slo, which requires "
+            f"target.{target_field}."
+        )
+    percent = require_number(target_field, target, what="v1 target")
+    # A v1 target in (0, 1) is almost certainly a RATIO written where hard rule 1
+    # wants a percentage, and complementing it yields a plausible wrong answer
+    # rather than an error: `target: 0.985` becomes maximum_reversal_rate
+    # 0.99015, which is a LEGAL Ratio, and re-parses to 0.985 — a 0.985% SLI
+    # floor, wrong by ~100x and flagged by nothing [opensrm-ocvu].
+    #
+    # WARN rather than raise, reusing this repo's existing heuristic and its
+    # stated policy: the same (0, 1) bounds target_validation documents, and
+    # "loud enough to catch contributor mistakes; it never rejects". 0.985% is
+    # a legal floor, just an implausible one, so rejecting it would be this
+    # module deciding something the convention deliberately leaves open.
+    # ONLY for fields this converts. The error MAGNITUDES (segments, stability,
+    # calibration) legitimately live in (0, 1) — a Brier score of 0.2 is a
+    # perfectly ordinary value — and they pass through unconverted, so a
+    # sub-1 target is correct for them. The first version of this warning fired
+    # on `calibration: {target: 0.2}` in the repo's own suite, which is the same
+    # converted-vs-unconverted distinction this whole bead turns on.
+    if converts_to_sli_floor(target_field) and 0.0 < percent < 1.0:
+        warnings.warn(
+            f"v1 SLO '{slo_name}' on service '{service_name}' has "
+            f"target={percent}, which looks like a ratio (0.0-1.0). v1 targets "
+            f"are 0-100 percentages, so this migrates to a "
+            f"{percent}% SLI floor — likely 100x lower than intended.",
+            TargetConventionWarning,
+            # 4, MEASURED not guessed. The chain is _v1_slo_to_judgment ->
+            # _convert_v1_slos -> convert_v1_to_v2 -> caller, so 2 named this
+            # function, 3 named convert_v1_to_v2's own loop line, and only 4
+            # reaches the caller. warn_target_convention_mismatches uses 3
+            # because its chain is one frame shallower — copying its value
+            # would have pointed inside this module.
+            stacklevel=4,
+        )
+    target_block: dict[str, Any] = {
+        target_field: judgment_target_ratio(target_field, percent)
+    }
 
     spec_block: dict[str, Any] = {
         "judgment_type": slo_name,

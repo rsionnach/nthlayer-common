@@ -28,7 +28,6 @@ from nthlayer_common.manifest.models import (
     FallbackDeclaration,
     Instrumentation,
     JudgmentMeasurement,
-    JudgmentPromise,
     Outcomes,
     Ownership,
     ProbeConfig,
@@ -53,6 +52,11 @@ from nthlayer_common.manifest.openslo.parser import (
     parse_openslo_slos,
 )
 from nthlayer_common.manifest.parser._shared import parse_observability
+from nthlayer_common.manifest.target_validation import (
+    JUDGMENT_TARGET_FIELDS,
+    judgment_promise,
+    judgment_target_percent,
+)
 
 logger = structlog.get_logger()
 
@@ -410,19 +414,7 @@ def _extract_judgment_target(
 
     Each judgment type has a different target field name in the spec.
     """
-    # Type-specific target field names
-    target_fields: dict[str, str] = {
-        "reversal_rate": "maximum_reversal_rate",
-        "high_confidence_failure": "maximum_failure_rate",
-        "audit_sampling": "audit_completion_rate",
-        "outcomes": "desired_outcome_rate",
-        "escalation": "maximum_escalation_rate",
-        "segments": "maximum_variance_from_overall",
-        "stability": "maximum_drift",
-        "calibration": "maximum_brier_score",
-    }
-
-    field_name = target_fields.get(judgment_type)
+    field_name = JUDGMENT_TARGET_FIELDS.get(judgment_type)
     if not field_name:
         raise OpenSRMV2ParseError(
             f"No target field mapping for judgment_type '{judgment_type}'"
@@ -434,7 +426,15 @@ def _extract_judgment_target(
             f"Judgment SLO '{name}' missing target.{field_name}"
         )
 
-    return float(value)
+    # No float() here — judgment_target_percent validates the type itself and
+    # raises ValueError, whereas float() raised TypeError for None / dict /
+    # list, a type this parser does not declare. Re-raised as this parser's own
+    # error so a malformed target is indistinguishable in KIND from a missing
+    # one, which is raised above [opensrm-ocvu].
+    try:
+        return judgment_target_percent(field_name, value)
+    except ValueError as exc:
+        raise OpenSRMV2ParseError(f"Judgment SLO '{name}': {exc}") from exc
 
 
 def _parse_judgment_measurement(
@@ -556,11 +556,16 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
         promise_data = c_data.get("promise", {})
         judgment_promises = []
         for jtype, threshold in promise_data.get("judgment", {}).items():
-            judgment_promises.append(JudgmentPromise(
-                judgment_type=jtype,
-                threshold=float(threshold),
-                direction="below",  # contract thresholds are maximums (lower is better)
-            ))
+            # Threshold and direction decided together, in one place shared with
+            # the v1 path — see judgment_promise() [opensrm-ocvu]. Re-raised as
+            # this parser's own error type; a `judgment: {reversal_rate:}` typo
+            # otherwise escaped as a bare TypeError.
+            try:
+                judgment_promises.append(judgment_promise(jtype, threshold))
+            except ValueError as exc:
+                raise OpenSRMV2ParseError(
+                    f"Contract '{name}' promise: {exc}"
+                ) from exc
 
         promise = ContractPromise(
             availability=promise_data.get("availability"),

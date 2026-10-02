@@ -16,6 +16,10 @@ from typing import Any
 import yaml
 
 from nthlayer_common.manifest.models import SLODefinition
+from nthlayer_common.manifest.target_validation import (
+    check_finite,
+    require_number,
+)
 
 
 class OpenSLOParseError(Exception):
@@ -114,9 +118,7 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
         raise OpenSLOParseError(f"OpenSLO '{name}' has no objectives")
 
     objective = objectives[0]
-    target = objective.get("target")
-    if target is None:
-        raise OpenSLOParseError(f"OpenSLO '{name}' objective missing target")
+    target = _objective_target_percent(objective, name)
 
     # Parse indicator
     indicator = spec.get("indicator", {})
@@ -182,8 +184,11 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     description = objective.get("displayName") or metadata.get("displayName")
 
     return SLODefinition(
+        # No float(): _objective_target_percent already returns one, having gone
+        # through require_number. The redundant cast was a leftover from when
+        # this read objective["target"] directly [opensrm-ocvu].
         name=name,
-        target=float(target),
+        target=target,
         slo_type=slo_type,
         window=window,
         unit=unit,
@@ -192,6 +197,74 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
         total_query=total_query,
         good_query=good_query,
         description=description,
+    )
+
+
+def _objective_target_percent(objective: dict[str, Any], name: str) -> float:
+    """An OpenSLO objective's target, as the canonical 0-100 percentage.
+
+    OpenSLO accepts EITHER ``target`` (a fraction in [0,1)) OR ``targetPercent``
+    (0-100), exactly one of them. NthLayer's internal convention is 0-100 for
+    every consumer (nthlayer-common CLAUDE.md hard rule 1), so a fraction is
+    converted here — at the inbound boundary — and a percentage is taken as-is.
+
+    This boundary was missing entirely [opensrm-ocvu]. The outbound one has
+    always existed (nthlayer_generate/slos/pipeline.py divides by 100), so a
+    ratio reached SLODefinition.target unconverted and every consumer comparing
+    a target to a measured value got an answer 100x out, silently, depending
+    only on which format the manifest happened to be written in.
+
+    It also broke the documented v1 -> v2 migration: v1_compat converts a v1
+    percentage to a ratio for the OpenSLO document it emits, and reading that
+    back without converting turned a 99.9 target into 0.999. The module
+    promised the output "round-trips through parse_opensrm_v2"; it did not.
+    """
+    has_target = "target" in objective and objective["target"] is not None
+    has_percent = (
+        "targetPercent" in objective and objective["targetPercent"] is not None
+    )
+
+    if has_target and has_percent:
+        # OpenSLO requires exactly one. Picking a winner here would let two
+        # disagreeing values sit in a manifest with only one taking effect.
+        raise OpenSLOParseError(
+            f"OpenSLO '{name}' objective sets both target and targetPercent; "
+            f"OpenSLO permits exactly one"
+        )
+    # Both branches go through require_number + check_finite, the same guards
+    # the JUDGMENT boundary uses, re-raised as this parser's own error type
+    # [opensrm-ocvu]. Without them this function — which this bead added — had
+    # the two defects the judgment side had already been fixed for:
+    #
+    #   target: .nan  -> SLODefinition.target = nan, and with a contract
+    #                    promise validate_contracts() returned [], a breach
+    #                    reporting CLEAN. Identical outcome, identical field.
+    #   target: {}    -> bare TypeError out of float(), which is not a type
+    #                    this parser declares.
+    #
+    # RANGE is deliberately NOT checked here. `targetPercent: 50` meaning "50%"
+    # versus `target: 50` meaning a 5000% floor is a real ambiguity, but
+    # rejecting it would also reject `target` values this parser accepts today,
+    # and plain `target` has been unranged since long before this bead. That is
+    # a scoped decision, not a fix to make inside one.
+    try:
+        if has_percent:
+            value = require_number(
+                "targetPercent", objective["targetPercent"],
+                what="objective target",
+            )
+            check_finite("targetPercent", value, what="objective target")
+            return value
+        if has_target:
+            value = require_number(
+                "target", objective["target"], what="objective target",
+            )
+            check_finite("target", value, what="objective target")
+            return value * 100.0
+    except ValueError as exc:
+        raise OpenSLOParseError(f"OpenSLO '{name}': {exc}") from exc
+    raise OpenSLOParseError(
+        f"OpenSLO '{name}' objective missing target (or targetPercent)"
     )
 
 

@@ -24,9 +24,38 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
    - Examples: `availability target=99.9` for 99.9% availability;
      `reversal_rate target=98.5` (SLI is `1 - reversal_rate * 100`).
    - The OpenSLO surface (`slo_models.SLO`) uses 0.0-1.0 ratio.
-     Conversion happens at the boundary in
-     `nthlayer-generate.slos.pipeline._build_slo_from_manifest` which
-     divides by 100.0.
+     Conversion happens **at both boundaries**:
+     - OUTBOUND — `nthlayer-generate.slos.pipeline._build_slo_from_manifest`
+       divides by 100.0; `v1_compat._v1_slo_to_openslo` likewise for
+       classical SLOs, and `_v1_slo_to_judgment` via
+       `judgment_target_ratio()` for judgment ones.
+     - INBOUND — `manifest/target_validation.py` owns the whole target
+       convention, and all four parsers/converters use it (opensrm-ocvu).
+       It lives there rather than in any one parser so v1 and v2 cannot
+       hold different conventions for one shared model. All
+       package-internal but cross-module, so deliberately not
+       re-exported (hard rule 3):
+       - judgment polarity — `JUDGMENT_TARGET_FIELDS` (type → target
+         field), `TARGET_FIELD_IS_CEILING` (complement / scale / leave
+         alone), `converts_to_sli_floor()` (membership, i.e. "is this
+         converted at all"), `judgment_target_percent()` [inbound],
+         `judgment_target_ratio()` [outbound],
+         `judgment_promise_direction()`, `judgment_promise()` [factory].
+       - domain guards, used on the CLASSICAL writers too, not just
+         judgment — `require_number()` (numeric or a string spelling
+         one; raises ValueError where a bare `float()` raised an
+         undeclared TypeError) and `check_finite()` (no target is ever
+         legitimately NaN or infinite, in any space — a NaN target made
+         `validate_contracts()` report a breach as clean).
+       - OpenSLO `targetPercent` is accepted as well as `target`
+         (`openslo/parser.py::_objective_target_percent`); `target` is a
+         ratio and multiplied by 100, `targetPercent` is already 0-100
+         and taken as-is. Exactly one of the two, per OpenSLO.
+     - Only the three MAXIMA complement (`reversal_rate`,
+       `high_confidence_failure`, `escalation`). `outcomes` and
+       `audit_sampling` are already floors — scale only. Error
+       magnitudes (`segments`, `stability`, `calibration`) are left
+       unconverted pending decision 3c.
    - Load-time validator in `manifest/target_validation.py` flags
      targets in `(0, 1)` as likely ratio author errors via
      `TargetConventionWarning(UserWarning)`. Tests in

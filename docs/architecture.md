@@ -250,15 +250,32 @@ a fourth directory walk** — three existed before this was shared
   `observability`, `deployment`, `contracts`, `instrumentation`,
   `alerting` (raw dict for nthlayer-generate), `outcomes` (opensrm-jmy.1).
 - SLO target convention: **0-100 percentage canonical** across all
-  NthLayer-internal consumers. The OpenSLO surface
-  (`slo_models.SLO`) uses 0.0-1.0 ratio; conversion happens at the
-  boundary in nthlayer-generate. Load-time validator
-  (`target_validation.py`) flags targets in (0, 1) as likely ratio
-  author errors via `TargetConventionWarning(UserWarning)` — filterable
-  via `warnings.filterwarnings(action,
-  category=TargetConventionWarning)`. See
+  NthLayer-internal consumers, for classical *and* judgment SLOs. The
+  OpenSLO surface (`slo_models.SLO`) uses 0.0-1.0 ratio; conversion
+  happens at **both** boundaries — outbound in nthlayer-generate and
+  `v1_compat`, inbound in both manifest parsers.
+  `target_validation.py` owns that convention: the load-time validator
+  flagging targets in (0, 1) as likely ratio author errors via
+  `TargetConventionWarning(UserWarning)` — filterable via
+  `warnings.filterwarnings(action, category=TargetConventionWarning)` —
+  **and** the judgment target polarity maps and converters
+  (`JUDGMENT_TARGET_FIELDS`, `TARGET_FIELD_IS_CEILING`,
+  `converts_to_sli_floor`, `judgment_target_percent`,
+  `judgment_target_ratio`, `judgment_promise_direction`,
+  `judgment_promise`) **and** the domain guards `require_number` and
+  `check_finite`, which apply to the CLASSICAL writers as well as the
+  judgment ones. Those live there rather than in any one parser so v1
+  and v2 cannot disagree about one shared model; they are
+  package-internal but cross-module, so they are not re-exported.
+  OpenSLO `targetPercent` is accepted alongside `target` —
+  `target` is a ratio and scaled by 100, `targetPercent` is already
+  0-100 — exactly one of the two per OpenSLO. Only the three maxima complement; `outcomes` and
+  `audit_sampling` scale only; error magnitudes are left unconverted
+  pending decision 3c. See
   `nthlayer/docs/superpowers/specs/2026-05-06-slo-target-convention-decision.md`
-  (opensrm-5fff).
+  (opensrm-5fff) and
+  `nthlayer/docs/superpowers/decisions/slo-target-units-and-judgment-semantics.md`
+  (opensrm-ocvu).
 - v2 specifics: Backstage entity refs (`kind:namespace/name`)
   resolved at parse time (failure → parse error). Service type is
   READ from the required `spec.service.type` field, never inferred;

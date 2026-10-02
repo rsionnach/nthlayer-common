@@ -1,5 +1,6 @@
 """Tests for manifest parsers (v1, v2, OpenSLO, loader)."""
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from nthlayer_common.manifest.openslo.parser import OpenSLOParseError as OpenSLO
 from nthlayer_common.manifest.openslo.parser import parse_openslo_slos
 from nthlayer_common.manifest.parser.v1 import parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
+from nthlayer_common.manifest.target_validation import TargetConventionWarning
 
 # =============================================================================
 # Fixtures
@@ -66,7 +68,13 @@ def v1_ai_gate_data():
         "spec": {
             "type": "ai-gate",
             "slos": {
-                "reversal_rate": {"target": 0.015, "window": "2m"},
+                # 98.5, not 0.015. v1 targets are 0-100 percentages (hard
+                # rule 1); 0.015 was a RATIO, a shape derived from what the
+                # parser accepts rather than what the spec requires, and v1
+                # parses it verbatim so it would trip TargetConventionWarning
+                # on any load_manifest path. No assertion here reads the
+                # target, which is why it survived [opensrm-ocvu].
+                "reversal_rate": {"target": 98.5, "window": "2m"},
                 "availability": {"target": 99.9, "window": "30d"},
             },
         },
@@ -212,7 +220,14 @@ class TestV1Parser:
         assert m.contracts[0].promise.availability == 0.999
         assert m.contracts[0].promise.latency_p99 == "500ms"
         assert len(m.contracts[0].promise.judgment) == 1
-        assert m.contracts[0].promise.judgment[0].direction == "below"
+        # reversal_rate declares maximum_reversal_rate, a CEILING, so the
+        # threshold is complemented into SLI-floor space and compared upward
+        # [opensrm-ocvu]. This assertion previously read direction == "below"
+        # and did not check the threshold at all, which is why it stayed green
+        # while v1 emitted a raw 0.05 against 0-100 targets and reported every
+        # judgment SLO as looser than its contract.
+        assert m.contracts[0].promise.judgment[0].threshold == 95.0
+        assert m.contracts[0].promise.judgment[0].direction == "above"
 
     def test_missing_name_raises(self):
         data = {
@@ -263,7 +278,8 @@ class TestV2Parser:
         slo = m.slos[0]
         assert slo.name == "payment-availability"
         assert slo.slo_type == "availability"
-        assert slo.target == 0.9999
+        # 0.9999 declared as an OpenSLO ratio -> 99.99 canonical (opensrm-ocvu)
+        assert slo.target == pytest.approx(99.99)
         assert slo.total_query is not None
         assert slo.good_query is not None
 
@@ -273,7 +289,9 @@ class TestV2Parser:
         assert len(judgment) == 1
         j = judgment[0]
         assert j.judgment_type == "reversal_rate"
-        assert j.target == 0.05
+        # reversal_rate is a MAXIMUM: "at most 5% reversed" is an SLI floor of
+        # 95% not-reversed (opensrm-ocvu)
+        assert j.target == pytest.approx(95.0)
         assert j.measurement.source == "lineage"
         assert j.measurement.window == "7d"
         assert len(j.breach_actions) == 3
@@ -368,29 +386,53 @@ class TestV2Parser:
 
 # All 8 judgment SLO types declared in OPENSRM-CORE-v2 §5.2 (opensrm-b22.1
 # acceptance criterion: "All 8 judgment SLO types parseable"). Each type
-# has a distinct target field name; the v2 parser maps them via
-# _extract_judgment_target's target_fields dict.
+# has a distinct target field name; both parsers map them via
+# target_validation.JUDGMENT_TARGET_FIELDS. (Was _extract_judgment_target's
+# local target_fields dict, which opensrm-ocvu replaced with the shared map so
+# v1 and v2 could not disagree.)
+# (judgment_type, target_field, declared_value, expected_target)
+#
+# expected_target is the canonical 0-100 SLI floor, NOT the declared value.
+# These cases asserted `slo.target == target_value` until opensrm-ocvu — a
+# straight passthrough assertion written from the implementation, which
+# therefore agreed with it. It contradicted this repo's own CLAUDE.md hard
+# rule 1 ("reversal_rate target=98.5"), and nothing noticed because no test
+# compared the v1 and v2 parsers against each other.
+#
+# Three conversions, by polarity:
+#   MAXIMA  (1 - x) * 100   reversal_rate, high_confidence_failure, escalation
+#   FLOORS  x * 100         audit_sampling, outcomes
+#   PASS    unchanged       segments, stability, calibration — error
+#                           magnitudes, no SLI-floor reading; they leave the
+#                           SLO concept under decision 3c
+#
+# escalation 0.10 and outcomes 0.90 both land on 90.0 by DIFFERENT rules.
+# Applying the wrong one gives 10.0 for either, so the pair does not mask a
+# polarity mistake.
 _JUDGMENT_TYPE_TARGETS = [
-    ("reversal_rate", "maximum_reversal_rate", 0.05),
-    ("high_confidence_failure", "maximum_failure_rate", 0.01),
-    ("audit_sampling", "audit_completion_rate", 0.95),
-    ("outcomes", "desired_outcome_rate", 0.90),
-    ("escalation", "maximum_escalation_rate", 0.10),
-    ("segments", "maximum_variance_from_overall", 0.15),
-    ("stability", "maximum_drift", 0.05),
-    ("calibration", "maximum_brier_score", 0.20),
+    ("reversal_rate", "maximum_reversal_rate", 0.05, 95.0),
+    ("high_confidence_failure", "maximum_failure_rate", 0.01, 99.0),
+    ("audit_sampling", "audit_completion_rate", 0.95, 95.0),
+    ("outcomes", "desired_outcome_rate", 0.90, 90.0),
+    ("escalation", "maximum_escalation_rate", 0.10, 90.0),
+    ("segments", "maximum_variance_from_overall", 0.15, 0.15),
+    ("stability", "maximum_drift", 0.05, 0.05),
+    ("calibration", "maximum_brier_score", 0.20, 0.20),
 ]
 
 
-@pytest.mark.parametrize("judgment_type,target_field,target_value", _JUDGMENT_TYPE_TARGETS)
+@pytest.mark.parametrize(
+    "judgment_type,target_field,target_value,expected_target", _JUDGMENT_TYPE_TARGETS
+)
 def test_v2_parser_handles_each_judgment_slo_type(
-    judgment_type: str, target_field: str, target_value: float
+    judgment_type: str, target_field: str, target_value: float, expected_target: float
 ) -> None:
     """Every judgment_type in OPENSRM-CORE-v2 §5.2 parses via the v2 parser.
 
     Pins opensrm-b22.1 acceptance: "All 8 judgment SLO types parseable".
-    Each type carries its own target field name; verifies the type
-    survives the round-trip with the input target value.
+    Each type carries its own target field name; verifies the type survives the
+    round-trip and that its target is converted to the canonical 0-100 SLI
+    floor by the rule its polarity requires (opensrm-ocvu).
     """
     data = {
         "apiVersion": "opensrm.nthlayer.io/v2",
@@ -416,7 +458,7 @@ def test_v2_parser_handles_each_judgment_slo_type(
     assert len(judgment_slos) == 1
     slo = judgment_slos[0]
     assert slo.judgment_type == judgment_type
-    assert slo.target == target_value
+    assert slo.target == pytest.approx(expected_target)
     assert slo.is_judgment_slo() is True
 
 
@@ -618,13 +660,75 @@ class TestLoader:
             parse_openslo_slos([{"$ref": "../../etc/passwd"}], base_dir=tmp_path)
 
     def test_load_demo_specs(self):
-        """Verify loader works with actual demo specs."""
-        demo_dir = Path(__file__).parent.parent.parent / "demo" / "specs"
-        if not demo_dir.exists():
-            pytest.skip("demo/specs not found")
+        """Verify loader works with actual demo specs.
 
-        for spec_file in demo_dir.glob("*.yaml"):
-            m = load_manifest(spec_file)
+        The path was `parent.parent.parent / "demo" / "specs"`, which omits the
+        `nthlayer` component and so resolved to `<ecosystem>/demo/specs` — a
+        directory that exists in no layout. This test had therefore been
+        SKIPPING SILENTLY in both a worktree and the main checkout, almost
+        certainly since the repo split moved demo/ into the front door. It is
+        the only test here that loads REAL shipped manifests through
+        load_manifest, which is also the only path that emits
+        TargetConventionWarning, and a real demo spec is what exposed the
+        migration CRITICAL in this bead's gate [opensrm-ocvu].
+
+        Asserts a non-zero count rather than trusting the glob: an empty
+        directory would otherwise make the loop body vanish and the test pass
+        having loaded nothing, which is the same silent pass the skip produced.
+
+        IT STILL SKIPS IN CI, and saying otherwise was an overclaim in this
+        bead's own commit messages [opensrm-46rb]. The path fix is real and this
+        runs LOCALLY, where the front door is a sibling checkout. But
+        .github/workflows/ci.yml checks out ONE sibling — rsionnach/opensrm —
+        and never rsionnach/nthlayer, so in CI the directory is genuinely absent
+        and the guard below fires. Verified in the PR #71 job log rather than
+        inferred: 1166 passed / 0 skipped locally versus 1155 passed / 8 SKIPPED
+        in CI, those 8 being every test that reads a real shipped manifest.
+        Local-only verification is what hid the difference.
+
+        opensrm-46rb carries the decision, because the obvious fix — checking out
+        the front door too — buys a second cross-repo CI coupling at floating
+        main. Until then this remains a skip rather than an assert, which is why
+        it is NOT the pattern to copy: see
+        tests/test_judgment_targets_against_spec_examples.py, which asserts
+        instead and whose 11 cases do run in CI, because the sibling it needs is
+        the one that gets checked out.
+
+        WHAT THIS DOES **NOT** COVER, stated because the first version of this
+        docstring overclaimed it. All four shipped specs are v1, so the
+        TargetConventionWarning assertion below does NOT bind the v2 INBOUND
+        boundary and is not the bead's acceptance criterion ("the warning does
+        not fire on a valid v2 manifest"). Kill-checked: neutralising
+        judgment_target_percent entirely leaves this test PASSING while 19
+        others fail. Its value is real but narrower — the v1 path and
+        load_manifest, exercised against artefacts nobody wrote for a test.
+        The v2 side is covered by tests/test_target_unit_equivalence.py.
+        """
+        demo_dir = (
+            Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs"
+        )
+        if not demo_dir.exists():
+            pytest.skip(f"demo/specs not found at {demo_dir}")
+
+        specs = sorted(demo_dir.glob("*.yaml"))
+        assert len(specs) >= 4, f"expected the demo specs, found {specs}"
+
+        for spec_file in specs:
+            # No TargetConventionWarning on a REAL shipped spec. This is the
+            # bead's own acceptance criterion, and load_manifest is the only
+            # path that emits the warning — so this is the one assertion in the
+            # suite that checks the convention against artefacts nobody wrote
+            # for a test [opensrm-ocvu].
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", TargetConventionWarning)
+                m = load_manifest(spec_file)
+            convention = [
+                str(w.message)
+                for w in caught
+                if issubclass(w.category, TargetConventionWarning)
+            ]
+            assert not convention, f"{spec_file.name}: {convention}"
+
             assert m.name
             assert m.source_format == SourceFormat.SRM_V1
 
