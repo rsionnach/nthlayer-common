@@ -33,6 +33,7 @@ from structlog.testing import capture_logs
 from nthlayer_common.manifest import (
     foreign_yaml_reason,
     iter_manifest_files,
+    load_manifest,
     scan_manifest_files,
 )
 from nthlayer_common.manifest.scan import _resolve_collision
@@ -336,6 +337,21 @@ _V1_BODY = (
 )
 
 
+def _v2_named(service: str) -> str:
+    """A real v2 manifest declaring *service*.
+
+    _V2_BODY/_V1_BODY both declare `checkout`, so a fixture built from them
+    cannot exercise the two-DIFFERENT-services case.
+    """
+    return (
+        "apiVersion: opensrm.nthlayer.io/v2\nkind: ServiceManifest\n"
+        f"metadata: {{name: {service}, labels: {{tier: critical}}}}\n"
+        "spec:\n"
+        "  owner: {group: 'group:default/payments'}\n"
+        f"  service: {{name: {service}, type: api}}\n"
+    )
+
+
 def test_both_collision_fixtures_are_real_loadable_manifests(tmp_path):
     """Asserted FIRST, because every test below is about files that PARSE.
 
@@ -344,8 +360,6 @@ def test_both_collision_fixtures_are_real_loadable_manifests(tmp_path):
     situation the bead is about: two files that both load, so nothing errors
     and nothing warns.
     """
-    from nthlayer_common.manifest import load_manifest
-
     for name, body in (("a.yaml", _V2_BODY), ("b.yml", _V1_BODY)):
         path = _write(tmp_path, name, body)
         manifest = load_manifest(path)
@@ -446,19 +460,9 @@ def test_distinct_stems_are_untouched_by_the_dedupe(tmp_path):
     ],
 )
 def test_collision_precedence_is_deterministic(group, expected_kept):
-    """Exercised through the resolver directly, NOT through a temp directory.
-
-    The three-way case cannot be built on a case-insensitive filesystem —
-    macOS collapses `svc.yaml` and `svc.YAML` — so a filesystem fixture
-    skipped here and would have RUN in Linux CI. The first version of this
-    test did exactly that, and the skip hid an assertion that was wrong:
-    it expected `svc.yaml` to be kept while the sort then kept `svc.YAML`.
-    A platform-conditional skip on the one platform that cannot reach the
-    case is indistinguishable from coverage until CI disagrees.
-
-    Driving the resolver with constructed paths removes the filesystem from
-    the question entirely, so every row runs everywhere.
-    """
+    """Pins the precedence rule, through _resolve_collision() rather than a
+    temp directory so every row runs on every platform — see its docstring for
+    why that matters."""
     kept, dropped = _resolve_collision([Path(n) for n in group])
 
     assert kept.name == expected_kept
@@ -468,51 +472,19 @@ def test_collision_precedence_is_deterministic(group, expected_kept):
 def test_iter_manifest_files_still_returns_empty_for_a_non_directory(tmp_path):
     """Unchanged contract, re-pinned because the body was rewritten."""
     assert iter_manifest_files(tmp_path / "missing") == []
-    assert scan_manifest_files(tmp_path / "missing") == ([], [])
-
-
-def _v2_named(service: str) -> str:
-    """A real v2 manifest declaring *service*.
-
-    Needed because _V2_BODY/_V1_BODY both declare `checkout`, so a fixture
-    built from them cannot exercise the two-DIFFERENT-services case the test
-    below is about — the correctness pass caught the docstring claiming a
-    scenario the fixture did not create.
-    """
-    return (
-        "apiVersion: opensrm.nthlayer.io/v2\nkind: ServiceManifest\n"
-        f"metadata: {{name: {service}, labels: {{tier: critical}}}}\n"
-        "spec:\n"
-        "  owner: {group: 'group:default/payments'}\n"
-        f"  service: {{name: {service}, type: api}}\n"
-    )
+    empty = scan_manifest_files(tmp_path / "missing")
+    assert empty.files == []
+    assert empty.suffix_collisions == []
 
 
 def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
-    """The correctness pass's IMPORTANT, and it corrects the reasoning this
-    fix started from.
-
-    Grouping is by STEM, so two files declaring DIFFERENT services collide:
-    `payments.yaml` (service `payments`) beside `payments.yml` (service
-    `payments-api`). Before the fix both loaded. Resolving the collision drops
-    one, and iter_manifest_files returns only the files — so without this log
-    line a distinct service vanishes from measured SLOs with no trace, which is
-    the silent-subset failure this module exists to prevent, in the dangerous
-    direction.
-
-    "De-duplicating silently beats double-counting silently" is therefore only
-    true for a GENUINE duplicate. For two different services sharing a stem it
-    is worse.
-    """
-    from nthlayer_common.manifest import load_manifest
-
+    """Pins that a dropped manifest is LOGGED, using two genuinely different
+    services — the case that makes the drop dangerous rather than merely
+    redundant. See iter_manifest_files() for why nothing here is silent."""
     kept_path = _write(tmp_path, "payments.yaml", _v2_named("payments"))
     dropped_path = _write(tmp_path, "payments.yml", _v2_named("payments-api"))
 
-    # PINNED, because the point is that these are two DIFFERENT services and
-    # not a duplicate. Asserting it here means the scenario cannot drift back
-    # into a same-service fixture, which is what the first version of this test
-    # actually built while its docstring described this one.
+    # Asserted, so the scenario cannot drift back into a same-service fixture.
     assert load_manifest(kept_path).name == "payments"
     assert load_manifest(dropped_path).name == "payments-api"
 
@@ -533,6 +505,9 @@ def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
     assert collisions[0]["stem"] == "payments"
     assert collisions[0]["dropped"].endswith("payments.yml")
     assert collisions[0]["kept"].endswith("payments.yaml")
+    # The hint is the actionable half for whoever reads the log, and dropping
+    # it from the event was a GREEN mutation until this line existed.
+    assert "not being measured" in collisions[0]["hint"]
 
 
 def test_nothing_is_logged_when_there_is_no_collision(tmp_path):
@@ -545,3 +520,30 @@ def test_nothing_is_logged_when_there_is_no_collision(tmp_path):
 
     assert len(found) == 2
     assert [e for e in events if e["event"] == "manifest_suffix_collision"] == []
+
+
+def test_scan_actually_applies_the_rule_not_raw_sort_order():
+    """Pins the WIRING, which was invisible: replacing
+    `_resolve_collision(group)` with `group[0], group[1:]` left all 1181 tests
+    green.
+
+    Because candidates arrive `sorted()`, raw order and the rule agree for the
+    ordinary lowercase pair — `svc.yaml` sorts before `svc.yml`. The precedence
+    tests drive `_resolve_collision` directly, so they could not see the
+    substitution either: the rule was covered, its USE was not.
+
+    `svc.YML` beside `svc.yaml` is where the two disagree — uppercase sorts
+    first, so raw order keeps `svc.YML` while the rule keeps `svc.yaml` — and
+    unlike the case-variant pairs it is creatable on any filesystem.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        (tmp / "svc.YML").write_text(_v2_named("svc"))
+        (tmp / "svc.yaml").write_text(_v2_named("svc"))
+
+        scan = scan_manifest_files(tmp)
+
+    assert [p.name for p in scan.files] == ["svc.yaml"]
+    assert [c.dropped.name for c in scan.suffix_collisions] == ["svc.YML"]

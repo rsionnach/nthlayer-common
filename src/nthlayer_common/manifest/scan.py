@@ -34,6 +34,14 @@ from nthlayer_common.manifest.parser.v2 import is_opensrm_v2_format
 
 logger = structlog.get_logger()
 
+# One home for the wording, and it names the actual risk rather than the
+# mechanism: an operator does not care that two stems matched, they care that a
+# service they declared is not being measured.
+_COLLISION_HINT = (
+    "two manifest files share a stem; only one was loaded. If they declare "
+    "DIFFERENT services, rename one — the dropped file is not being measured."
+)
+
 # Suffixes a manifest may carry. Both, always: `.yml` invisibility is the
 # same silent-subset failure as an uncounted parse error, reached by file
 # extension instead — the manifest is dropped and nothing says so.
@@ -76,7 +84,12 @@ def _resolve_collision(group: list[Path]) -> tuple[Path, list[Path]]:
 
 
 class SuffixCollision(NamedTuple):
-    """One service declared twice, once per manifest suffix [opensrm-xvwt]."""
+    """One stem declared twice, once per manifest suffix [opensrm-xvwt].
+
+    NamedTuple rather than the @dataclass this package uses for models: these
+    two are a return shape, not a domain object — no validation, no behaviour,
+    and callers unpack them positionally.
+    """
 
     stem: str
     kept: Path
@@ -165,41 +178,28 @@ def scan_manifest_files(specs_dir: str | Path) -> ManifestScan:
 
 
 def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
-    """Manifest files under ``specs_dir``, sorted, one per stem.
+    """Manifest files under ``specs_dir``, sorted, ONE PER STEM.
 
-    Sorted so the order is stable across machines. That matters to any
-    caller that dedupes first-wins — learn/retrospective does; observe's
-    spec_loader does not, and whether it should is opensrm-3470's follow-up
-    rather than a property this function can assume.
+    A lossy view of scan_manifest_files(): same files, collisions logged at
+    warning rather than returned. Its signature is fixed — three consumers in
+    nthlayer-workers call it — so the de-duplication had to arrive without one,
+    and that is why this exists alongside the fuller function rather than
+    instead of it. A caller that should SURFACE a set-aside file to an operator
+    wants scan_manifest_files().
 
-    Returns empty for a path that is not a directory rather than raising,
-    so a caller that wants its own error message for that case keeps the
-    decision.
+    NOTHING DROPS SILENTLY, and that is not belt-and-braces: grouping is by
+    stem, so a collision can be two DIFFERENT services rather than a duplicate,
+    and dropping one of those without a trace is the silent-subset failure this
+    module exists to prevent (opensrm-oh27, opensrm-3470). See
+    scan_manifest_files() for the full argument.
 
-    SAME-STEM COLLISIONS ARE RESOLVED HERE, and each one is LOGGED rather
-    than discarded [opensrm-xvwt].
+    Sorted so the order is stable across machines. That matters to any caller
+    that dedupes first-wins — learn/retrospective does; observe's spec_loader
+    does not, and whether it should is opensrm-3470's follow-up rather than a
+    property this function can assume.
 
-    The logging is not belt-and-braces. Grouping is by stem, so
-    ``payments.yaml`` declaring service `payments` collides with
-    ``payments.yml`` declaring service `payments-api` — two DIFFERENT
-    services. Before the fix both loaded; resolving the collision drops one,
-    and this function returns only the files, so without a log line a
-    distinct service would vanish from measured SLOs with no trace. That is
-    the silent-subset failure this whole module exists to prevent
-    (opensrm-oh27, opensrm-3470), in the dangerous direction, and it is a
-    real cost of de-duplicating on a filename heuristic.
-
-    So "de-duplicating silently beats double-counting silently" — the
-    reasoning this started from — is only true for a genuine duplicate. For
-    two different services sharing a stem it is worse, which is why nothing
-    here is silent.
-
-    A caller that should SURFACE the set-aside file to an operator, rather
-    than only log it, wants scan_manifest_files(): it returns the collisions
-    alongside the files. All three production consumers — learn/retrospective,
-    observe/slo/spec_loader and measure/adapters/prometheus — currently call
-    this function, so migrating them is the consumer half of opensrm-xvwt and
-    waits for this release.
+    Returns empty for a path that is not a directory rather than raising, so a
+    caller that wants its own error message for that case keeps the decision.
     """
     scan = scan_manifest_files(specs_dir)
     for collision in scan.suffix_collisions:
@@ -208,11 +208,7 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
             stem=collision.stem,
             kept=str(collision.kept),
             dropped=str(collision.dropped),
-            hint=(
-                "two manifest files share a stem; only one was loaded. If they "
-                "declare DIFFERENT services, rename one — the dropped file is "
-                "not being measured."
-            ),
+            hint=_COLLISION_HINT,
         )
     return scan.files
 
