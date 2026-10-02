@@ -183,6 +183,13 @@ def scan_manifest_files(specs_dir: str | Path) -> ManifestScan:
         # byte stems — visually one stem. Measured before this: both were
         # returned and no collision reported, so the double-count this function
         # exists to stop survived for any non-ASCII filename.
+        # The stem is NOT case-folded, deliberately, while the suffix is. A
+        # suffix is a format marker, so `.YAML` and `.yaml` mean the same
+        # thing; a stem is a name, and `SVC.yaml` beside `svc.yml` is two
+        # names an operator can tell apart. Both of the bead's shapes — an
+        # editor default changing, two people adding the same service — produce
+        # an IDENTICAL stem, so folding case here would merge files that were
+        # never one service to catch a case that does not occur.
         by_stem.setdefault(
             unicodedata.normalize("NFC", candidate.stem), []
         ).append(candidate)

@@ -512,32 +512,38 @@ def test_a_dropped_manifest_is_warned_about_not_silently_discarded(tmp_path):
     assert "not being measured" in message
 
 
-def test_the_warning_goes_to_stderr_not_stdout(tmp_path):
+def test_the_notice_is_a_warning_and_never_stdout(tmp_path):
     """A LIBRARY must not write to stdout.
 
-    nthlayer-common never calls structlog.configure, so the first version of
-    this used structlog's default PrintLogger and put the collision line on
+    The first version used structlog, and because nthlayer-common never calls
+    structlog.configure the default PrintLogger put the collision line on
     STDOUT — measured, 1 line on stdout and 0 on stderr. A consumer CLI
-    emitting machine-readable output on stdout would have a human-formatted
-    log line interleaved into it.
+    emitting machine-readable output would have had a human-formatted log line
+    interleaved into it.
+
+    ASSERTS BOTH HALVES. An earlier version asserted only that stdout was
+    empty, under an "ignore" filter, so nothing was emitted anywhere and it
+    passed with the warn block deleted entirely — a test named for where the
+    notice goes, passing with no notice at all.
+
+    It does NOT assert on stderr text, which was the obvious next move and does
+    not work: pytest replaces warnings.showwarning to collect warnings, so
+    nothing reaches sys.stderr under the suite and a redirect captures an empty
+    string. That warnings go to stderr is Python's behaviour, not this
+    module's, so the checkable claims are that a WARNING is raised and that
+    stdout stays clean.
     """
     _write(tmp_path, "svc.yaml", _v2_named("svc"))
     _write(tmp_path, "svc.yml", _v2_named("svc"))
 
-    out, err = io.StringIO(), io.StringIO()
+    out = io.StringIO()
     with (
         contextlib.redirect_stdout(out),
-        contextlib.redirect_stderr(err),
-        warnings.catch_warnings(),
+        pytest.warns(ManifestCollisionWarning, match="svc.yml"),
     ):
-        # "ignore", not "always": this test asserts WHERE the notice does not
-        # go, and recording it keeps pytest from counting it as an unraised
-        # suite warning. test_a_dropped_manifest_is_warned_about... asserts
-        # that it IS raised.
-        warnings.simplefilter("ignore", ManifestCollisionWarning)
         iter_manifest_files(tmp_path)
 
-    assert out.getvalue() == ""
+    assert out.getvalue() == "", "a library must not write to stdout"
 
 
 def test_nothing_is_warned_when_there_is_no_collision(tmp_path):
