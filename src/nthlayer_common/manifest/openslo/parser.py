@@ -184,8 +184,11 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     description = objective.get("displayName") or metadata.get("displayName")
 
     return SLODefinition(
+        # No float(): _objective_target_percent already returns one, having gone
+        # through require_number. The redundant cast was a leftover from when
+        # this read objective["target"] directly [opensrm-ocvu].
         name=name,
-        target=float(target),
+        target=target,
         slo_type=slo_type,
         window=window,
         unit=unit,
