@@ -10,7 +10,7 @@ Apache-2.0.
 ### ⚠ BREAKING CHANGES
 
 * iter_manifest_files() returns FEWER paths than before for a directory holding two manifests with the same stem, and raises a new ManifestCollisionWarning for each file it sets aside — which a host running `-W error` turns into an exception. `.yaml` wins, then the exactly-lowercase spelling over a case variant, then the name; stems are NFC-normalised. Grouping is by STEM, so a collision may be two DIFFERENT services rather than a duplicate. Callers that should surface a set-aside file to an operator want the new scan_manifest_files(), which returns ManifestScan(files, suffix_collisions). THE FULL LIST OF BREAKING CHANGES IN 3.0.0, for this bead and for opensrm-ocvu, is in docs/upgrading-3.0.md.
-* nthlayer-common now converts SLO targets at the INBOUND manifest boundary, so parsed values and accepted inputs both change. Five behaviour changes, all deliberate:
+* nthlayer-common now converts SLO targets at the INBOUND manifest boundary, so parsed values and accepted inputs both change — five behaviour changes, the first of which is that **`SLODefinition.target` values change on the v2 path** (a v2 objective target of `0.999` previously parsed to `0.999` and now parses to `99.9`), so any consumer comparing a target against a measured value gets a 100x different answer than before. All five are listed in [docs/upgrading-3.0.md](docs/upgrading-3.0.md) (opensrm-ocvu).
 
 ### Features
 
