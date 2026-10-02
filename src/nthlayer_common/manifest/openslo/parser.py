@@ -250,16 +250,16 @@ def _objective_target_percent(objective: dict[str, Any], name: str) -> float:
     try:
         if has_percent:
             value = require_number(
-                f"{name}.targetPercent", objective["targetPercent"],
+                "targetPercent", objective["targetPercent"],
                 what="objective target",
             )
-            check_finite(f"{name}.targetPercent", value, what="objective target")
+            check_finite("targetPercent", value, what="objective target")
             return value
         if has_target:
             value = require_number(
-                f"{name}.target", objective["target"], what="objective target",
+                "target", objective["target"], what="objective target",
             )
-            check_finite(f"{name}.target", value, what="objective target")
+            check_finite("target", value, what="objective target")
             return value * 100.0
     except ValueError as exc:
         raise OpenSLOParseError(f"OpenSLO '{name}': {exc}") from exc

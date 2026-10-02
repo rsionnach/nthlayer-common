@@ -9,8 +9,9 @@ docs/superpowers/decisions/ and implemented in opensrm-5fff.1):
 - OpenSLO surface (``slo_models.SLO``): 0.0-1.0 ratio with explicit
   boundary conversion in ``nthlayer-generate.slos.pipeline``
 
-This module owns TWO things. It emits the load-time warning described below,
-and it owns the JUDGMENT TARGET POLARITY convention [opensrm-ocvu] — the maps
+This module owns THE TARGET CONVENTION: the load-time warning described below,
+the guards that keep a target inside its domain, the inbound/outbound
+conversions, and the promise factory [opensrm-ocvu] — the maps
 and the inbound/outbound converters both manifest parsers use, which live here
 rather than in either parser so the two cannot disagree. Those names are
 package-internal but cross-module, so they are deliberately not re-exported
@@ -32,6 +33,7 @@ Heuristic:
 
 from __future__ import annotations
 
+import math
 import warnings
 
 from nthlayer_common.manifest.models import (
@@ -125,6 +127,11 @@ def converts_to_sli_floor(field_name: str) -> bool:
 def require_number(field_name: str, value: object, *, what: str) -> float:
     """*value* as a float, or ValueError naming the field.
 
+    Strings are accepted DELIBERATELY: ``target: "0.999"`` has always parsed,
+    via the bare ``float()`` this replaces, and rejecting it would break
+    manifests that load today. So "must be a number" means "must be a number or
+    a string spelling one" — numeric-looking is enough.
+
     ``float()`` alone raises TypeError for None / dict / list, which is not a
     type either parser declares and so escaped their callers as a stack trace.
     A YAML key written with no value — ``reversal_rate:`` — is an ordinary typo
@@ -164,7 +171,7 @@ def check_finite(field_name: str, value: float, *, what: str) -> None:
     Splitting the checks also means this needs NO decision about the magnitudes'
     taxonomy, which 3c is about to change.
     """
-    if value != value or value in (float("inf"), float("-inf")):
+    if not math.isfinite(value):
         raise ValueError(
             f"{what} for '{field_name}' must be a finite number, got {value!r}"
         )
@@ -254,8 +261,8 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     # 0.985 — a 0.985% SLI floor, wrong by ~100x and flagged by nothing.
     if not 0.0 <= percent <= 100.0:
         raise ValueError(
-            f"'{field_name}' target must be a 0-100 percentage (hard rule 1), "
-            f"got {percent!r}"
+            f"'{field_name}' target must be a 0-100 percentage (e.g. 98.5 for "
+            f"a 98.5% floor), got {percent!r}"
         )
     if is_ceiling:
         return 1.0 - percent / 100.0

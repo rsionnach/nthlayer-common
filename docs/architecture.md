@@ -260,11 +260,16 @@ a fourth directory walk** — three existed before this was shared
   `warnings.filterwarnings(action, category=TargetConventionWarning)` —
   **and** the judgment target polarity maps and converters
   (`JUDGMENT_TARGET_FIELDS`, `TARGET_FIELD_IS_CEILING`,
-  `judgment_target_percent`, `judgment_target_ratio`,
-  `judgment_promise_direction`, `judgment_promise`). Those live there
-  rather than in either parser so v1 and v2 cannot disagree about one
-  shared model; they are package-internal but cross-module, so they are
-  not re-exported. Only the three maxima complement; `outcomes` and
+  `converts_to_sli_floor`, `judgment_target_percent`,
+  `judgment_target_ratio`, `judgment_promise_direction`,
+  `judgment_promise`) **and** the domain guards `require_number` and
+  `check_finite`, which apply to the CLASSICAL writers as well as the
+  judgment ones. Those live there rather than in any one parser so v1
+  and v2 cannot disagree about one shared model; they are
+  package-internal but cross-module, so they are not re-exported.
+  OpenSLO `targetPercent` is accepted alongside `target` —
+  `target` is a ratio and scaled by 100, `targetPercent` is already
+  0-100 — exactly one of the two per OpenSLO. Only the three maxima complement; `outcomes` and
   `audit_sampling` scale only; error magnitudes are left unconverted
   pending decision 3c. See
   `nthlayer/docs/superpowers/specs/2026-05-06-slo-target-convention-decision.md`

@@ -29,15 +29,28 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
        divides by 100.0; `v1_compat._v1_slo_to_openslo` likewise for
        classical SLOs, and `_v1_slo_to_judgment` via
        `judgment_target_ratio()` for judgment ones.
-     - INBOUND — `manifest/target_validation.py` owns the judgment
-       polarity convention and both parsers use it (opensrm-ocvu):
-       `JUDGMENT_TARGET_FIELDS` (type → target field),
-       `TARGET_FIELD_IS_CEILING` (complement / scale / leave alone),
-       `judgment_target_percent()`, `judgment_target_ratio()`,
-       `judgment_promise_direction()` and `judgment_promise()`.
-       It lives there rather than in either parser so v1 and v2 cannot
-       hold different conventions for one shared model. Package-internal
-       but cross-module, so deliberately not re-exported (hard rule 3).
+     - INBOUND — `manifest/target_validation.py` owns the whole target
+       convention, and all four parsers/converters use it (opensrm-ocvu).
+       It lives there rather than in any one parser so v1 and v2 cannot
+       hold different conventions for one shared model. All
+       package-internal but cross-module, so deliberately not
+       re-exported (hard rule 3):
+       - judgment polarity — `JUDGMENT_TARGET_FIELDS` (type → target
+         field), `TARGET_FIELD_IS_CEILING` (complement / scale / leave
+         alone), `converts_to_sli_floor()` (membership, i.e. "is this
+         converted at all"), `judgment_target_percent()` [inbound],
+         `judgment_target_ratio()` [outbound],
+         `judgment_promise_direction()`, `judgment_promise()` [factory].
+       - domain guards, used on the CLASSICAL writers too, not just
+         judgment — `require_number()` (numeric or a string spelling
+         one; raises ValueError where a bare `float()` raised an
+         undeclared TypeError) and `check_finite()` (no target is ever
+         legitimately NaN or infinite, in any space — a NaN target made
+         `validate_contracts()` report a breach as clean).
+       - OpenSLO `targetPercent` is accepted as well as `target`
+         (`openslo/parser.py::_objective_target_percent`); `target` is a
+         ratio and multiplied by 100, `targetPercent` is already 0-100
+         and taken as-is. Exactly one of the two, per OpenSLO.
      - Only the three MAXIMA complement (`reversal_rate`,
        `high_confidence_failure`, `escalation`). `outcomes` and
        `audit_sampling` are already floors — scale only. Error
