@@ -4,6 +4,46 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [3.0.0](https://github.com/rsionnach/nthlayer-common/compare/v2.1.2...v3.0.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* iter_manifest_files() returns FEWER paths than before for a directory holding two manifests with the same stem, and raises a new ManifestCollisionWarning for each file it sets aside — which a host running `-W error` turns into an exception. `.yaml` wins, then the exactly-lowercase spelling over a case variant, then the name; stems are NFC-normalised. Grouping is by STEM, so a collision may be two DIFFERENT services rather than a duplicate. Callers that should surface a set-aside file to an operator want the new scan_manifest_files(), which returns ManifestScan(files, suffix_collisions). THE FULL LIST OF BREAKING CHANGES IN 3.0.0, for this bead and for opensrm-ocvu, is in docs/upgrading-3.0.md.
+* nthlayer-common now converts SLO targets at the INBOUND manifest boundary, so parsed values and accepted inputs both change. Five behaviour changes, all deliberate:
+
+### Features
+
+* iter_manifest_files returns one manifest per stem (opensrm-xvwt) ([99e45a9](https://github.com/rsionnach/nthlayer-common/commit/99e45a99d5271d9e5e7d90c3e6afa2a1afa6653e))
+* SLO targets are 0-100 at the inbound boundary too (opensrm-ocvu) ([45ad7bc](https://github.com/rsionnach/nthlayer-common/commit/45ad7bc255ef3a426f6dd10574d7f39f95bd8c23))
+
+
+### Bug Fixes
+
+* a same-stem .yaml/.yml pair loads a service once (opensrm-xvwt) ([33e6490](https://github.com/rsionnach/nthlayer-common/commit/33e6490e2956509851530c3da1576faaa532ebe9))
+* convert judgment targets outbound too, and un-skip the demo-spec test (opensrm-ocvu) ([2adbeaf](https://github.com/rsionnach/nthlayer-common/commit/2adbeaf0ea1528fb26e18a26a7db5fda13e486c7))
+* convert SLO targets at the inbound boundary (opensrm-ocvu sections 1-2) ([4d6c6e6](https://github.com/rsionnach/nthlayer-common/commit/4d6c6e6ec116d46c8ac00b6b8dc6b227f1ae495a))
+* derive judgment promise direction from the field, in one place (opensrm-ocvu) ([a1fca7b](https://github.com/rsionnach/nthlayer-common/commit/a1fca7b6fe6aed5170bb13990a596aab94452336))
+* guard the classical target boundary the same way (opensrm-ocvu) ([69a1a75](https://github.com/rsionnach/nthlayer-common/commit/69a1a75fb0f7cdb0ee18384e6b172339d52eea68))
+* guard the last unguarded writer of SLODefinition.target (opensrm-ocvu) ([28e0fc0](https://github.com/rsionnach/nthlayer-common/commit/28e0fc041ce142125abe2a17b21447d2785dc6ca))
+* log a dropped manifest instead of discarding it silently (opensrm-xvwt) ([aae27d2](https://github.com/rsionnach/nthlayer-common/commit/aae27d2a6a029e9b746205a745f1120d97f1b38b))
+* one stem per service, and stop a library writing to stdout (opensrm-xvwt) ([11b3791](https://github.com/rsionnach/nthlayer-common/commit/11b37914d6fc2a8b0680a163fc7d5f76202d9930))
+* validate the judgment target domain at the conversion boundary (opensrm-ocvu) ([2050ec1](https://github.com/rsionnach/nthlayer-common/commit/2050ec110d2a7c3fd264d0d56ed5787842c34666))
+
+
+### Code Refactoring
+
+* drop a redundant float() cast (opensrm-ocvu) ([30a5340](https://github.com/rsionnach/nthlayer-common/commit/30a5340a131bf1a34afbf584ae1f2454b54156d7))
+* one factory for judgment promises, one place for the rationale (opensrm-ocvu) ([5f9f2c1](https://github.com/rsionnach/nthlayer-common/commit/5f9f2c1be13d8b1b362afda86ef61333525a588a))
+* one home for each argument, and correct the scan catalogue (opensrm-xvwt) ([781cf11](https://github.com/rsionnach/nthlayer-common/commit/781cf11f17e265b633c930d98bdf440ed05bce91))
+
+
+### Documentation
+
+* correct an overclaim — test_load_demo_specs still skips in CI (opensrm-ocvu) ([0c15a25](https://github.com/rsionnach/nthlayer-common/commit/0c15a257bb603f00a83b9e72f643daf3ce7be612))
+* correct what the demo-spec test actually binds (opensrm-ocvu) ([7a87892](https://github.com/rsionnach/nthlayer-common/commit/7a87892441dd65185b6372eae9a0a124caf154f3))
+* note the dead inner sort and the class-patch residual (opensrm-xvwt) ([1a9c8f5](https://github.com/rsionnach/nthlayer-common/commit/1a9c8f566e68362ae7a8d388e92278ba95240fa9))
+
 ## [2.1.2](https://github.com/rsionnach/nthlayer-common/compare/v2.1.1...v2.1.2) (2026-08-28)
 
 
