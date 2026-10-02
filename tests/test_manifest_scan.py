@@ -28,6 +28,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from structlog.testing import capture_logs
 
 from nthlayer_common.manifest import (
     foreign_yaml_reason,
@@ -468,3 +469,51 @@ def test_iter_manifest_files_still_returns_empty_for_a_non_directory(tmp_path):
     """Unchanged contract, re-pinned because the body was rewritten."""
     assert iter_manifest_files(tmp_path / "missing") == []
     assert scan_manifest_files(tmp_path / "missing") == ([], [])
+
+
+def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
+    """The correctness pass's IMPORTANT, and it corrects the reasoning this
+    fix started from.
+
+    Grouping is by STEM, so two files declaring DIFFERENT services collide:
+    `payments.yaml` (service `payments`) beside `payments.yml` (service
+    `payments-api`). Before the fix both loaded. Resolving the collision drops
+    one, and iter_manifest_files returns only the files — so without this log
+    line a distinct service vanishes from measured SLOs with no trace, which is
+    the silent-subset failure this module exists to prevent, in the dangerous
+    direction.
+
+    "De-duplicating silently beats double-counting silently" is therefore only
+    true for a GENUINE duplicate. For two different services sharing a stem it
+    is worse.
+    """
+    _write(tmp_path, "payments.yaml", _V2_BODY)
+    _write(tmp_path, "payments.yml", _V1_BODY)
+
+    with capture_logs() as events:
+        found = iter_manifest_files(tmp_path)
+
+    assert [p.name for p in found] == ["payments.yaml"]
+
+    # STRUCTURED, not caplog.text. Two reasons: structlog bypasses the stdlib
+    # handlers caplog captures, so a text assertion silently matched nothing;
+    # and this repo's hard rule 6 says assert on structured values rather than
+    # captured text, which breaks under any formatting change.
+    collisions = [e for e in events if e["event"] == "manifest_suffix_collision"]
+    assert len(collisions) == 1
+    assert collisions[0]["log_level"] == "warning"
+    assert collisions[0]["stem"] == "payments"
+    assert collisions[0]["dropped"].endswith("payments.yml")
+    assert collisions[0]["kept"].endswith("payments.yaml")
+
+
+def test_nothing_is_logged_when_there_is_no_collision(tmp_path):
+    """The other half — otherwise the assertion above passes for any input."""
+    _write(tmp_path, "payments.yaml", _V2_BODY)
+    _write(tmp_path, "checkout.yml", _V1_BODY)
+
+    with capture_logs() as events:
+        found = iter_manifest_files(tmp_path)
+
+    assert len(found) == 2
+    assert [e for e in events if e["event"] == "manifest_suffix_collision"] == []

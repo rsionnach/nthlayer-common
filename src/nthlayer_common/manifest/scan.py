@@ -25,11 +25,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import NamedTuple
 
+import structlog
 import yaml
 
 from nthlayer_common.manifest.models import is_valid_service_type
 from nthlayer_common.manifest.parser.v1 import is_srm_v1_format
 from nthlayer_common.manifest.parser.v2 import is_opensrm_v2_format
+
+logger = structlog.get_logger()
 
 # Suffixes a manifest may carry. Both, always: `.yml` invisibility is the
 # same silent-subset failure as an uncounted parse error, reached by file
@@ -55,6 +58,11 @@ def _resolve_collision(group: list[Path]) -> tuple[Path, list[Path]]:
        the name tiebreak kept ``svc.YAML`` over ``svc.yaml``, because
        ``"svc.YAML" < "svc.yaml"`` in ASCII.
     3. Name, so the choice is never filesystem-order dependent.
+
+    PRECONDITION: every path's case-folded suffix is in MANIFEST_SUFFIXES.
+    scan_manifest_files() guarantees it by filtering on the same key; a direct
+    caller that does not will get ValueError from .index(), which is the right
+    outcome for a programming error but is not a guard.
     """
     kept, *dropped = sorted(
         group,
@@ -168,14 +176,45 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     so a caller that wants its own error message for that case keeps the
     decision.
 
-    SAME-STEM COLLISIONS ARE RESOLVED HERE and the report is dropped
-    [opensrm-xvwt]. That is deliberate: every existing caller gets the fix
-    without changing, and de-duplicating silently is strictly better than
-    double-counting silently. But a caller that should SURFACE the set-aside
-    file — observe and measure both should — wants scan_manifest_files()
-    instead, which returns the collisions alongside the files.
+    SAME-STEM COLLISIONS ARE RESOLVED HERE, and each one is LOGGED rather
+    than discarded [opensrm-xvwt].
+
+    The logging is not belt-and-braces. Grouping is by stem, so
+    ``payments.yaml`` declaring service `payments` collides with
+    ``payments.yml`` declaring service `payments-api` — two DIFFERENT
+    services. Before the fix both loaded; resolving the collision drops one,
+    and this function returns only the files, so without a log line a
+    distinct service would vanish from measured SLOs with no trace. That is
+    the silent-subset failure this whole module exists to prevent
+    (opensrm-oh27, opensrm-3470), in the dangerous direction, and it is a
+    real cost of de-duplicating on a filename heuristic.
+
+    So "de-duplicating silently beats double-counting silently" — the
+    reasoning this started from — is only true for a genuine duplicate. For
+    two different services sharing a stem it is worse, which is why nothing
+    here is silent.
+
+    A caller that should SURFACE the set-aside file to an operator, rather
+    than only log it, wants scan_manifest_files(): it returns the collisions
+    alongside the files. All three production consumers — learn/retrospective,
+    observe/slo/spec_loader and measure/adapters/prometheus — currently call
+    this function, so migrating them is the consumer half of opensrm-xvwt and
+    waits for this release.
     """
-    return scan_manifest_files(specs_dir).files
+    scan = scan_manifest_files(specs_dir)
+    for collision in scan.suffix_collisions:
+        logger.warning(
+            "manifest_suffix_collision",
+            stem=collision.stem,
+            kept=str(collision.kept),
+            dropped=str(collision.dropped),
+            hint=(
+                "two manifest files share a stem; only one was loaded. If they "
+                "declare DIFFERENT services, rename one — the dropped file is "
+                "not being measured."
+            ),
+        )
+    return scan.files
 
 
 def foreign_yaml_reason(spec_file: str | Path) -> str | None:
