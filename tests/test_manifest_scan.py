@@ -485,6 +485,11 @@ def test_distinct_stems_are_untouched_by_the_dedupe(tmp_path):
         # name is what decides. Deleting `p.name` from the key was GREEN
         # without this, despite rank 3 existing precisely so the choice is
         # never filesystem-order dependent.
+        # Only the FIRST of these two can fail under the rank-3 mutation: the
+        # reverse keeps svc.YAML under the mutant too, because the sort is
+        # stable. It is the symmetry row, not a second kill — said here because
+        # one-row-carries-the-coverage is the shape that hid two earlier
+        # defects in this file.
         (["svc.Yaml", "svc.YAML"], "svc.YAML"),
         (["svc.YAML", "svc.Yaml"], "svc.YAML"),
     ],
@@ -806,3 +811,46 @@ def test_stems_differing_only_by_case_are_two_services(tmp_path, names):
 
     assert len(scan.files) == 2, "a stem is a NAME; two names are two services"
     assert scan.suffix_collisions == []
+
+
+def test_a_three_way_group_reports_every_drop(tmp_path, monkeypatch):
+    """C5, the eighth defect: `collisions.extend(… for d in dropped)` reduced to
+    `dropped[:1]` was GREEN across 1194 tests, recording and warning about only
+    the FIRST drop per stem while the rest vanished silently.
+
+    This is pattern #3 one level up, and it is this bead's own
+    platform-portability fix doubling back. A stem group can only exceed TWO
+    members on a CASE-SENSITIVE filesystem — the case-insensitive suffix set is
+    just {.yaml, .yml}, so APFS caps every real group at 2. The three-way row is
+    therefore driven through _resolve_collision directly (that was defect #1's
+    fix), so the plural RETURN is covered while its CONSUMPTION never saw
+    len(dropped) > 1.
+
+    .github/workflows/ci.yml runs ubuntu-latest, so the gap is reachable
+    precisely in the environment that gates the release.
+
+    iterdir is monkeypatched rather than building the files, for the same reason
+    _resolve_collision was extracted: it makes the case reachable on every
+    platform instead of skipping on the one that cannot create it. The paths
+    need not exist — the scan only reads is_dir(), suffix and stem.
+    """
+    names = ("svc.yaml", "svc.YAML", "svc.yml")
+    entries = [tmp_path / name for name in names]
+    monkeypatch.setattr(Path, "iterdir", lambda self: iter(entries))
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always", ManifestCollisionWarning)
+        found = iter_manifest_files(tmp_path)
+
+    scan = scan_manifest_files(tmp_path)
+
+    assert [p.name for p in found] == ["svc.yaml"]
+    assert len(scan.suffix_collisions) == 2, "both drops must be reported"
+    assert {c.dropped.name for c in scan.suffix_collisions} == {
+        "svc.YAML",
+        "svc.yml",
+    }
+
+    notices = [w for w in record
+               if issubclass(w.category, ManifestCollisionWarning)]
+    assert len(notices) == 2, "one notice per dropped file, not one per stem"
