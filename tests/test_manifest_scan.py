@@ -480,6 +480,13 @@ def test_distinct_stems_are_untouched_by_the_dedupe(tmp_path):
         (["svc.YAML", "svc.yaml"], "svc.yaml"),
         (["svc.YAML", "svc.yml"], "svc.YAML"),
         (["svc.yaml", "svc.YAML", "svc.yml"], "svc.yaml"),
+        # RANK 3's only discriminating row. Ranks 1 and 2 tie here: both
+        # suffixes case-fold to `.yaml` and NEITHER is exactly lowercase, so the
+        # name is what decides. Deleting `p.name` from the key was GREEN
+        # without this, despite rank 3 existing precisely so the choice is
+        # never filesystem-order dependent.
+        (["svc.Yaml", "svc.YAML"], "svc.YAML"),
+        (["svc.YAML", "svc.Yaml"], "svc.YAML"),
     ],
 )
 def test_collision_precedence_is_deterministic(group, expected_kept):
@@ -685,7 +692,9 @@ def test_every_dropped_file_is_warned_about_not_just_the_first():
                if issubclass(w.category, ManifestCollisionWarning)]
     assert len(notices) == 2, "one notice per dropped file, not one per scan"
     assert {c.stem for c in scan.suffix_collisions} == {"a", "a.b"}
-    # Sorted by stem, so the report order does not vary with dict insertion.
+    # Stem order. This fixture cannot discriminate the SORT — `a.YML` sorts
+    # before `a.b.YML`, so insertion order already matches — which is what
+    # test_collisions_are_reported_in_stem_order exists for.
     assert [c.stem for c in scan.suffix_collisions] == ["a", "a.b"]
 
 
@@ -762,3 +771,38 @@ def test_collisions_are_reported_in_stem_order():
         "a.yml",
         "a.b.yml",
     ]
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ("SVC.yaml", "svc.yml"),
+        ("CAFÉ.yaml", "café.yml"),
+    ],
+)
+def test_stems_differing_only_by_case_are_two_services(tmp_path, names):
+    """C3, the seventh defect: scan.py argues at LENGTH that the stem is not
+    case-folded while the suffix is, and nothing tested it.
+
+    Swapping the grouping key to `.lower()` was GREEN across 1190 tests, and it
+    is the OVER-REACH direction — measured, `{SVC.yaml, svc.yml}` goes from 2
+    files / 0 collisions to 1 file / 1 collision, silently losing a declared
+    service. That is the failure this module exists to prevent, caused by a
+    one-token change to a line whose own comment defends that token.
+
+    test_distinct_stems_are_untouched_by_the_dedupe guards the same direction
+    only for wholly different names, which no plausible mutation collapses.
+    Case-differing stems are the edge where the decision actually lives.
+
+    Creatable on APFS and on Linux — the two names differ in more than case
+    once the suffix is included, so no case-insensitive filesystem collapses
+    them.
+    """
+    first, second = names
+    _write(tmp_path, first, _v2_named("one"))
+    _write(tmp_path, second, _v2_named("two"))
+
+    scan = scan_manifest_files(tmp_path)
+
+    assert len(scan.files) == 2, "a stem is a NAME; two names are two services"
+    assert scan.suffix_collisions == []
