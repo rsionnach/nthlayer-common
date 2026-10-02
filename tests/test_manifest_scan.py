@@ -25,9 +25,16 @@ demonstrated rather than asserted.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from nthlayer_common.manifest import foreign_yaml_reason, iter_manifest_files
+from nthlayer_common.manifest import (
+    foreign_yaml_reason,
+    iter_manifest_files,
+    scan_manifest_files,
+)
+from nthlayer_common.manifest.scan import _resolve_collision
 
 
 def _write(tmp_path, name: str, body: str):
@@ -299,3 +306,165 @@ def test_backstage_component_is_not_a_manifest(tmp_path):
     )
 
     assert foreign_yaml_reason(path) is not None
+
+
+# =============================================================================
+# Same-stem collisions — one service, two suffixes [opensrm-xvwt]
+# =============================================================================
+#
+# FIXTURE PROVENANCE, per the bead: both bodies are REAL manifests the parser
+# accepts, verified below by load_manifest, not shapes picked to trip the
+# collision check. A fixture chosen to trip it would agree with the detector
+# including its bugs — and the detector's whole job is to notice files that
+# parse perfectly well.
+#
+# Taken from _AIMING above, which is itself derived from the canonical v1/v2
+# format predicates rather than from what the parser happens to tolerate.
+
+_V2_BODY = (
+    "apiVersion: opensrm.nthlayer.io/v2\nkind: ServiceManifest\n"
+    "metadata: {name: checkout, labels: {tier: critical}}\n"
+    "spec:\n"
+    "  owner: {group: 'group:default/payments'}\n"
+    "  service: {name: checkout, type: api}\n"
+)
+_V1_BODY = (
+    "apiVersion: srm/v1\nkind: ServiceReliabilityManifest\n"
+    "metadata: {name: checkout, team: payments, tier: critical}\n"
+    "spec: {type: api, slos: {availability: {target: 99.9}}}\n"
+)
+
+
+def test_both_collision_fixtures_are_real_loadable_manifests(tmp_path):
+    """Asserted FIRST, because every test below is about files that PARSE.
+
+    If either body stopped being a valid manifest the collision tests would
+    still pass — the scan never parses — while no longer describing the
+    situation the bead is about: two files that both load, so nothing errors
+    and nothing warns.
+    """
+    from nthlayer_common.manifest import load_manifest
+
+    for name, body in (("a.yaml", _V2_BODY), ("b.yml", _V1_BODY)):
+        path = _write(tmp_path, name, body)
+        manifest = load_manifest(path)
+        assert manifest.name == "checkout"
+
+
+def test_same_stem_pair_yields_one_file(tmp_path):
+    """The bug: both were returned, so measure appended the SLOs twice and
+    counted two verdicts per window for one service — reaching a 3-window
+    hysteresis threshold in 2 real windows."""
+    _write(tmp_path, "checkout.yaml", _V2_BODY)
+    _write(tmp_path, "checkout.yml", _V1_BODY)
+
+    found = iter_manifest_files(tmp_path)
+
+    assert [p.name for p in found] == ["checkout.yaml"]
+
+
+def test_yaml_wins_regardless_of_which_was_written_first(tmp_path):
+    """Deterministic, and not a function of filesystem order.
+
+    Written in both orders because `sorted()` over `iterdir()` would make
+    either pass on its own on a filesystem that happened to agree.
+    """
+    first = tmp_path / "one"
+    first.mkdir()
+    _write(first, "svc.yml", _V1_BODY)
+    _write(first, "svc.yaml", _V2_BODY)
+
+    second = tmp_path / "two"
+    second.mkdir()
+    _write(second, "svc.yaml", _V2_BODY)
+    _write(second, "svc.yml", _V1_BODY)
+
+    assert [p.name for p in iter_manifest_files(first)] == ["svc.yaml"]
+    assert [p.name for p in iter_manifest_files(second)] == ["svc.yaml"]
+
+
+def test_the_collision_is_reported_not_merely_resolved(tmp_path):
+    """Returning it is the point, per opensrm-3470's precedent.
+
+    De-duplicating silently is strictly better than double-counting
+    silently, but it is still a partial view of the directory, and the
+    operator reading SLO output is who needs to know a manifest was set
+    aside.
+    """
+    _write(tmp_path, "checkout.yaml", _V2_BODY)
+    _write(tmp_path, "checkout.yml", _V1_BODY)
+
+    scan = scan_manifest_files(tmp_path)
+
+    assert [p.name for p in scan.files] == ["checkout.yaml"]
+    assert len(scan.suffix_collisions) == 1
+    collision = scan.suffix_collisions[0]
+    assert collision.stem == "checkout"
+    assert collision.kept.name == "checkout.yaml"
+    assert collision.dropped.name == "checkout.yml"
+
+
+def test_no_collision_reported_when_there_is_none(tmp_path):
+    """The other half — otherwise the assertion above passes for any input."""
+    _write(tmp_path, "checkout.yaml", _V2_BODY)
+    _write(tmp_path, "payments.yml", _V1_BODY)
+
+    scan = scan_manifest_files(tmp_path)
+
+    assert len(scan.files) == 2
+    assert scan.suffix_collisions == []
+
+
+def test_distinct_stems_are_untouched_by_the_dedupe(tmp_path):
+    """Guards the OVER-reach direction: `.yml` visibility is itself a fix
+    this repo already made, and collapsing distinct services would
+    reintroduce the silent-subset failure MANIFEST_SUFFIXES exists to
+    prevent — one stem comparison away instead of one case-fold away."""
+    for name in ("a.yaml", "b.yml", "c.yaml", "d.yml"):
+        _write(tmp_path, name, _V2_BODY)
+
+    found = {p.name for p in iter_manifest_files(tmp_path)}
+
+    assert found == {"a.yaml", "b.yml", "c.yaml", "d.yml"}
+
+
+@pytest.mark.parametrize(
+    ("group", "expected_kept"),
+    [
+        (["svc.yaml", "svc.yml"], "svc.yaml"),
+        (["svc.yml", "svc.yaml"], "svc.yaml"),
+        # The case variant. `.YAML` is a manifest suffix — MANIFEST_SUFFIXES is
+        # compared case-folded precisely so a `.YAML` file is not silently
+        # invisible — so it collides, and the EXACTLY-lowercase spelling must
+        # win. Without that rank the name tiebreak kept `svc.YAML`, because
+        # "svc.YAML" < "svc.yaml" in ASCII.
+        (["svc.yaml", "svc.YAML"], "svc.yaml"),
+        (["svc.YAML", "svc.yaml"], "svc.yaml"),
+        (["svc.YAML", "svc.yml"], "svc.YAML"),
+        (["svc.yaml", "svc.YAML", "svc.yml"], "svc.yaml"),
+    ],
+)
+def test_collision_precedence_is_deterministic(group, expected_kept):
+    """Exercised through the resolver directly, NOT through a temp directory.
+
+    The three-way case cannot be built on a case-insensitive filesystem —
+    macOS collapses `svc.yaml` and `svc.YAML` — so a filesystem fixture
+    skipped here and would have RUN in Linux CI. The first version of this
+    test did exactly that, and the skip hid an assertion that was wrong:
+    it expected `svc.yaml` to be kept while the sort then kept `svc.YAML`.
+    A platform-conditional skip on the one platform that cannot reach the
+    case is indistinguishable from coverage until CI disagrees.
+
+    Driving the resolver with constructed paths removes the filesystem from
+    the question entirely, so every row runs everywhere.
+    """
+    kept, dropped = _resolve_collision([Path(n) for n in group])
+
+    assert kept.name == expected_kept
+    assert {p.name for p in dropped} == {n for n in group if n != expected_kept}
+
+
+def test_iter_manifest_files_still_returns_empty_for_a_non_directory(tmp_path):
+    """Unchanged contract, re-pinned because the body was rewritten."""
+    assert iter_manifest_files(tmp_path / "missing") == []
+    assert scan_manifest_files(tmp_path / "missing") == ([], [])
