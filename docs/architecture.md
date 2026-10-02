@@ -228,8 +228,12 @@ every mixed-directory run until nobody reads it.
   always, and `.YAML` too: an unlisted file is a silent subset reached by
   file extension. Dangling symlinks are listed deliberately, so a stale
   overlay link is counted as a failure rather than vanishing.
-- `iter_manifest_files(dir) -> list[Path]` — the same files, with
-  collisions LOGGED at warning instead of returned (opensrm-xvwt). A
+- `iter_manifest_files(dir) -> list[Path]` — the same files, with each
+  collision raised as a `ManifestCollisionWarning` instead of returned
+  (opensrm-xvwt). A warning, not a log: this is a library, and
+  nthlayer-common never calls `structlog.configure`, so a structlog event
+  went to STDOUT and would interleave with a consumer CLI's
+  machine-readable output. A
   directory holding both `svc.yaml` and `svc.yml` previously yielded both,
   so measure double-counted verdicts per window and observe inflated SLO
   counts, silently, because both files are valid manifests. `.yaml` wins,
@@ -238,7 +242,9 @@ every mixed-directory run until nobody reads it.
   it; a caller that should SURFACE a set-aside file to an operator wants
   `scan_manifest_files`. Grouping is by STEM, so a collision may be two
   DIFFERENT services rather than a duplicate — which is why nothing drops
-  without a log line.
+  without a notice. Stems are NFC-normalised, since APFS preserves rather
+  than enforces normalisation, so `café.yaml` (NFC) and `café.yml` (NFD)
+  would otherwise be two services.
 - `foreign_yaml_reason(path) -> str | None` — `None` when the file was
   aiming to be a manifest (so the caller counts it), a short reason when
   it plainly was not (so the caller can log rather than drop it silently).

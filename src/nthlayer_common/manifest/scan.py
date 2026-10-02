@@ -78,7 +78,9 @@ def _resolve_collision(group: list[Path]) -> tuple[Path, list[Path]]:
     Three ranks, in order:
 
     1. MANIFEST_SUFFIXES order IS the precedence, so the rule and the tuple
-       cannot drift apart. ``.yaml`` is what the ecosystem writes.
+       cannot drift apart. ``.yaml`` is what the ecosystem writes, and that is
+       counted rather than asserted: across nthlayer/demo and opensrm/spec,
+       46 manifests are ``.yaml`` and 0 are ``.yml`` or a case variant.
     2. The EXACTLY-lowercase spelling beats a case variant. Without this rank
        the name tiebreak kept ``svc.YAML`` over ``svc.yaml``, because
        ``"svc.YAML" < "svc.yaml"`` in ASCII.

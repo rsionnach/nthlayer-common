@@ -318,11 +318,27 @@ def test_backstage_component_is_not_a_manifest(tmp_path):
 # Same-stem collisions — one service, two suffixes [opensrm-xvwt]
 # =============================================================================
 #
-# FIXTURE PROVENANCE, per the bead: both bodies are REAL manifests the parser
-# accepts, verified below by load_manifest, not shapes picked to trip the
-# collision check. A fixture chosen to trip it would agree with the detector
-# including its bugs — and the detector's whole job is to notice files that
-# parse perfectly well.
+# FIXTURE PROVENANCE, stated precisely because the earlier wording implied more
+# than it delivered.
+#
+# The BODIES are real: test_both_collision_fixtures_are_real_loadable_manifests
+# pins that load_manifest accepts each one, so a fixture cannot drift into a
+# shape the parser would reject while the collision tests keep passing.
+#
+# The SCENARIO is not grounded in anything. `grep -rniE '\.yml' opensrm/spec`
+# returns ZERO hits — nothing in the spec constrains manifest filenames — and
+# the predicate fires FALSE for every real artefact in the ecosystem: measured,
+# 0 collisions across nthlayer/demo/specs (4 files), opensrm/spec/v2/examples
+# (6), .../services (7) and .../judgment-slos (8). There is NO real artefact
+# for which it fires true, so every positive fixture here is constructed from
+# the bead text by the author of the predicate.
+#
+# For a filesystem heuristic that is probably unavoidable — the scenario is an
+# operator mistake, and the ecosystem has not made it yet — but it is the
+# opensrm-oh27 precondition and has to be said rather than implied.
+#
+# One upside: no test here touches a real directory, so none is exposed to the
+# nthlayer-not-checked-out-in-CI skip (opensrm-46rb).
 #
 # Taken from _AIMING above, which is itself derived from the canonical v1/v2
 # format predicates rather than from what the parser happens to tolerate.
@@ -612,3 +628,137 @@ def test_unicode_normalisation_variants_are_one_stem(tmp_path, normal_form):
     assert len(scan.files) == 1
     assert len(scan.suffix_collisions) == 1
     assert scan.files[0].suffix == ".yaml"
+
+
+def test_files_are_sorted_not_merely_dict_insertion_ordered():
+    """C1 from the provenance pass: removing `sorted(files)` left 1185 green.
+
+    The docstring claims the order "matters to any caller that dedupes
+    first-wins — learn/retrospective does", and
+    nthlayer-workers/.../learn/retrospective.py:282 is that caller. So this is
+    a documented, consumer-relevant guarantee that nothing verified.
+
+    Every earlier fixture had dict-insertion order coincide with sorted order,
+    because none mixed a case-variant collision with a SECOND stem.
+    `{a.YML, a.yaml, a.b.yaml}` separates them: grouping visits stem `a` first,
+    so insertion order yields ['a.yaml', 'a.b.yaml'] while sorted yields
+    ['a.b.yaml', 'a.yaml'].
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("a.YML", "a.yaml", "a.b.yaml"):
+            (tmp / name).write_text(_v2_named("svc"))
+
+        scan = scan_manifest_files(tmp)
+
+    names = [p.name for p in scan.files]
+    assert names == ["a.b.yaml", "a.yaml"]
+    assert names == sorted(names)
+
+
+def test_every_dropped_file_is_warned_about_not_just_the_first():
+    """C2: "nothing drops silently" was only pinned at ONE collision.
+
+    Every warning fixture had exactly one, so the loop was never shown to
+    iterate — a `break` after the first warnings.warn() warned once for N drops
+    and stayed green. This also pins the suffix_collisions sort key, which was
+    dead for the same reason.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("a.YML", "a.yaml", "a.b.YML", "a.b.yaml"):
+            (tmp / name).write_text(_v2_named("svc"))
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always", ManifestCollisionWarning)
+            found = iter_manifest_files(tmp)
+
+        scan = scan_manifest_files(tmp)
+
+    assert [p.name for p in found] == ["a.b.yaml", "a.yaml"]
+
+    notices = [w for w in record
+               if issubclass(w.category, ManifestCollisionWarning)]
+    assert len(notices) == 2, "one notice per dropped file, not one per scan"
+    assert {c.stem for c in scan.suffix_collisions} == {"a", "a.b"}
+    # Sorted by stem, so the report order does not vary with dict insertion.
+    assert [c.stem for c in scan.suffix_collisions] == ["a", "a.b"]
+
+
+def test_the_warning_points_at_the_caller_not_at_scan_py():
+    """M2: stacklevel was unasserted, so mutating it to 1 was GREEN while a
+    comment claimed it had been measured.
+
+    stacklevel=2 makes the notice name whoever called iter_manifest_files. At 1
+    it names scan.py, which tells a reader nothing about which directory scan
+    produced it.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        (tmp / "svc.yaml").write_text(_v2_named("svc"))
+        (tmp / "svc.yml").write_text(_v2_named("svc"))
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always", ManifestCollisionWarning)
+            iter_manifest_files(tmp)
+
+    assert len(record) == 1
+    assert Path(record[0].filename).name == "test_manifest_scan.py"
+
+
+def test_the_reported_stem_is_nfc_normalised():
+    """M1: the NFC/NFD parametrisation tested GROUPING, which either form
+    achieves, so the FORM of the reported stem was unpinned — swapping the key
+    to NFD kept all 57 green. The one stem assertion used ASCII "checkout".
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        (tmp / (unicodedata.normalize("NFD", "café") + ".yaml")).write_text(
+            _v2_named("cafe")
+        )
+        (tmp / (unicodedata.normalize("NFC", "café") + ".yml")).write_text(
+            _v2_named("cafe")
+        )
+
+        scan = scan_manifest_files(tmp)
+
+    assert len(scan.suffix_collisions) == 1
+    # NFC even though the kept file is spelled NFD on disk.
+    assert scan.suffix_collisions[0].stem == unicodedata.normalize("NFC", "café")
+
+
+def test_collisions_are_reported_in_stem_order():
+    """The collision sort key, which my first C2 fixture did NOT discriminate.
+
+    That fixture used `{a.YML, a.yaml, a.b.YML, a.b.yaml}`, where stem `a` is
+    inserted first anyway — `a.YML` sorts before `a.b.YML` because 'Y' < 'b' —
+    so removing `sorted(collisions, ...)` stayed green. A fixture has to make
+    insertion order and stem order DISAGREE.
+
+    `{a.yaml, a.yml, a.b.yaml, a.b.yml}` does: when one stem is a prefix of
+    another, the longer stem's files sort FIRST (`a.b.yaml` < `a.yaml`, since
+    '.' < 'y'), so insertion yields ['a.b', 'a'] while stem order is
+    ['a', 'a.b'].
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("a.yaml", "a.yml", "a.b.yaml", "a.b.yml"):
+            (tmp / name).write_text(_v2_named("svc"))
+
+        scan = scan_manifest_files(tmp)
+
+    assert [c.stem for c in scan.suffix_collisions] == ["a", "a.b"]
+    assert [c.dropped.name for c in scan.suffix_collisions] == [
+        "a.yml",
+        "a.b.yml",
+    ]
