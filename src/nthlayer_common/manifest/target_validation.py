@@ -174,8 +174,12 @@ def _check_declared_ratio(field_name: str, value: float) -> None:
     """A declared judgment RATE must be within [0, 1]. Finiteness is checked
     separately, for every field, by check_finite.
 
-    Authority is opensrm/spec/v2's schema.json, which ``$ref``s every one of
-    these fields to ``Ratio = {minimum: 0, maximum: 1}``. Validating here rather
+    Authority is opensrm/spec/v2's schema.json, which bounds every field this
+    function governs to [0, 1] — the six in TARGET_FIELD_IS_CEILING are
+    ``$ref: Ratio = {minimum: 0, maximum: 1}``. (``maximum_brier_score`` is
+    bounded inline instead, with the schema's own comment "not a Ratio
+    semantically"; it is absent from TARGET_FIELD_IS_CEILING, so this function
+    never sees it.) Validating here rather
     than trusting the input is load-bearing because COMPLEMENTING an
     out-of-range value launders it into something that looks plausible and
     defeats both existing safety nets:

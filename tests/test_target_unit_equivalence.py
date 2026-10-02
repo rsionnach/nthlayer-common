@@ -791,3 +791,49 @@ def test_v1_classical_target_stays_unranged(good):
     manifest = parse_srm_v1(_v1_classical_doc(good))
 
     assert manifest.slos[0].target == pytest.approx(float(good))
+
+
+def test_migration_rejects_a_v1_target_above_one_hundred():
+    """judgment_target_ratio's OUTBOUND 0-100 guard [provenance IMPORTANT 2].
+
+    The guard was live and reachable but invisible to the suite: disabling
+    `if not 0.0 <= percent <= 100.0` left all 1150 tests green, and no test
+    referenced judgment_target_ratio by name or its message. The (0, 1) case is
+    covered via the warning path above; the out-of-range RAISE was not.
+
+    150 is not ambiguous the way 0.985 is — there is no reading of hard rule 1
+    under which it is a legal percentage — so this raises rather than warns.
+    """
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {"type": "ai-gate", "slos": {"reversal_rate": {"target": 150}}},
+    }
+
+    with pytest.raises(ValueError, match="0-100 percentage"):
+        convert_v1_to_v2(doc)
+
+
+@pytest.mark.parametrize("good", [0, 50, 98.5, 100])
+def test_migration_accepts_the_full_percentage_range(good):
+    """The over-rejection half, so the guard above cannot be over-tightened.
+
+    0 and 100 are the boundaries and both are legal: a 0.0 floor and a 100.0
+    floor are degenerate but declarable.
+    """
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {"type": "ai-gate", "slos": {"reversal_rate": {"target": good}}},
+    }
+
+    with warnings.catch_warnings():
+        # 0 < good < 1 would warn, but no value here is in that range; the
+        # filter keeps this test from depending on the warning's behaviour.
+        warnings.simplefilter("ignore", TargetConventionWarning)
+        v2 = convert_v1_to_v2(doc)
+
+    emitted = v2["spec"]["judgment_slo"][0]["spec"]["target"]
+    assert emitted["maximum_reversal_rate"] == pytest.approx(1.0 - good / 100.0)
