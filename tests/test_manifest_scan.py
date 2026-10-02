@@ -25,12 +25,16 @@ demonstrated rather than asserted.
 """
 from __future__ import annotations
 
+import contextlib
+import io
+import unicodedata
+import warnings
 from pathlib import Path
 
 import pytest
-from structlog.testing import capture_logs
 
 from nthlayer_common.manifest import (
+    ManifestCollisionWarning,
     foreign_yaml_reason,
     iter_manifest_files,
     load_manifest,
@@ -373,7 +377,10 @@ def test_same_stem_pair_yields_one_file(tmp_path):
     _write(tmp_path, "checkout.yaml", _V2_BODY)
     _write(tmp_path, "checkout.yml", _V1_BODY)
 
-    found = iter_manifest_files(tmp_path)
+    # scan_manifest_files, not iter_manifest_files: this test is about WHICH
+    # file is kept. The notice has its own tests, and routing selection through
+    # the non-warning API keeps each test to one concern.
+    found = scan_manifest_files(tmp_path).files
 
     assert [p.name for p in found] == ["checkout.yaml"]
 
@@ -394,8 +401,8 @@ def test_yaml_wins_regardless_of_which_was_written_first(tmp_path):
     _write(second, "svc.yaml", _V2_BODY)
     _write(second, "svc.yml", _V1_BODY)
 
-    assert [p.name for p in iter_manifest_files(first)] == ["svc.yaml"]
-    assert [p.name for p in iter_manifest_files(second)] == ["svc.yaml"]
+    assert [p.name for p in scan_manifest_files(first).files] == ["svc.yaml"]
+    assert [p.name for p in scan_manifest_files(second).files] == ["svc.yaml"]
 
 
 def test_the_collision_is_reported_not_merely_resolved(tmp_path):
@@ -477,10 +484,11 @@ def test_iter_manifest_files_still_returns_empty_for_a_non_directory(tmp_path):
     assert empty.suffix_collisions == []
 
 
-def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
-    """Pins that a dropped manifest is LOGGED, using two genuinely different
-    services — the case that makes the drop dangerous rather than merely
-    redundant. See iter_manifest_files() for why nothing here is silent."""
+def test_a_dropped_manifest_is_warned_about_not_silently_discarded(tmp_path):
+    """Pins that a dropped manifest is WARNED about, using two genuinely
+    different services — the case that makes the drop dangerous rather than
+    merely redundant. See iter_manifest_files() for why nothing here is
+    silent."""
     kept_path = _write(tmp_path, "payments.yaml", _v2_named("payments"))
     dropped_path = _write(tmp_path, "payments.yml", _v2_named("payments-api"))
 
@@ -488,38 +496,62 @@ def test_a_dropped_manifest_is_logged_not_silently_discarded(tmp_path):
     assert load_manifest(kept_path).name == "payments"
     assert load_manifest(dropped_path).name == "payments-api"
 
-    with capture_logs() as events:
+    with pytest.warns(ManifestCollisionWarning) as record:
         found = iter_manifest_files(tmp_path)
 
     assert [p.name for p in found] == ["payments.yaml"]
-    # The second service is simply gone — this is the cost being logged.
+    # The second service is simply gone — this is the cost being warned about.
     assert [load_manifest(p).name for p in found] == ["payments"]
 
-    # STRUCTURED, not caplog.text. Two reasons: structlog bypasses the stdlib
-    # handlers caplog captures, so a text assertion silently matched nothing;
-    # and this repo's hard rule 6 says assert on structured values rather than
-    # captured text, which breaks under any formatting change.
-    collisions = [e for e in events if e["event"] == "manifest_suffix_collision"]
-    assert len(collisions) == 1
-    assert collisions[0]["log_level"] == "warning"
-    assert collisions[0]["stem"] == "payments"
-    assert collisions[0]["dropped"].endswith("payments.yml")
-    assert collisions[0]["kept"].endswith("payments.yaml")
-    # The hint is the actionable half for whoever reads the log, and dropping
-    # it from the event was a GREEN mutation until this line existed.
-    assert "not being measured" in collisions[0]["hint"]
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert "payments.yml" in message
+    assert "payments.yaml" in message
+    # The actionable half. Dropping the hint was a GREEN mutation until the
+    # equivalent assertion existed on the previous structlog-based version.
+    assert "not being measured" in message
 
 
-def test_nothing_is_logged_when_there_is_no_collision(tmp_path):
+def test_the_warning_goes_to_stderr_not_stdout(tmp_path):
+    """A LIBRARY must not write to stdout.
+
+    nthlayer-common never calls structlog.configure, so the first version of
+    this used structlog's default PrintLogger and put the collision line on
+    STDOUT — measured, 1 line on stdout and 0 on stderr. A consumer CLI
+    emitting machine-readable output on stdout would have a human-formatted
+    log line interleaved into it.
+    """
+    _write(tmp_path, "svc.yaml", _v2_named("svc"))
+    _write(tmp_path, "svc.yml", _v2_named("svc"))
+
+    out, err = io.StringIO(), io.StringIO()
+    with (
+        contextlib.redirect_stdout(out),
+        contextlib.redirect_stderr(err),
+        warnings.catch_warnings(),
+    ):
+        # "ignore", not "always": this test asserts WHERE the notice does not
+        # go, and recording it keeps pytest from counting it as an unraised
+        # suite warning. test_a_dropped_manifest_is_warned_about... asserts
+        # that it IS raised.
+        warnings.simplefilter("ignore", ManifestCollisionWarning)
+        iter_manifest_files(tmp_path)
+
+    assert out.getvalue() == ""
+
+
+def test_nothing_is_warned_when_there_is_no_collision(tmp_path):
     """The other half — otherwise the assertion above passes for any input."""
-    _write(tmp_path, "payments.yaml", _V2_BODY)
-    _write(tmp_path, "checkout.yml", _V1_BODY)
+    _write(tmp_path, "payments.yaml", _v2_named("payments"))
+    _write(tmp_path, "checkout.yml", _v2_named("checkout"))
 
-    with capture_logs() as events:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ManifestCollisionWarning)
         found = iter_manifest_files(tmp_path)
 
     assert len(found) == 2
-    assert [e for e in events if e["event"] == "manifest_suffix_collision"] == []
+    assert [w for w in caught
+            if issubclass(w.category, ManifestCollisionWarning)] == []
 
 
 def test_scan_actually_applies_the_rule_not_raw_sort_order():
@@ -547,3 +579,30 @@ def test_scan_actually_applies_the_rule_not_raw_sort_order():
 
     assert [p.name for p in scan.files] == ["svc.yaml"]
     assert [c.dropped.name for c in scan.suffix_collisions] == ["svc.YML"]
+
+
+@pytest.mark.parametrize("normal_form", ["NFC", "NFD"])
+def test_unicode_normalisation_variants_are_one_stem(tmp_path, normal_form):
+    """`café.yaml` written NFC and `café.yml` written NFD are ONE service.
+
+    APFS PRESERVES normalisation rather than enforcing it, so the two are
+    separate directory entries with different byte stems while looking
+    identical. Measured before the fix: both were returned and no collision
+    reported, so the double-count this function exists to stop survived for
+    any non-ASCII filename — the editor-default shape the bead describes,
+    reached through Unicode instead of through a suffix.
+
+    Parametrised over which form holds the `.yaml`, so the result cannot
+    depend on which spelling happens to sort or arrive first.
+    """
+    other = "NFD" if normal_form == "NFC" else "NFC"
+    _write(tmp_path, unicodedata.normalize(normal_form, "café") + ".yaml",
+           _v2_named("cafe"))
+    _write(tmp_path, unicodedata.normalize(other, "café") + ".yml",
+           _v2_named("cafe"))
+
+    scan = scan_manifest_files(tmp_path)
+
+    assert len(scan.files) == 1
+    assert len(scan.suffix_collisions) == 1
+    assert scan.files[0].suffix == ".yaml"

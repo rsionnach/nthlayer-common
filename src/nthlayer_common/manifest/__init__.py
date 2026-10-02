@@ -75,6 +75,7 @@ from nthlayer_common.manifest.parser.v1 import OpenSRMParseError
 from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
 from nthlayer_common.manifest.scan import (
     MANIFEST_SUFFIXES,
+    ManifestCollisionWarning,
     ManifestScan,
     SuffixCollision,
     foreign_yaml_reason,
@@ -105,6 +106,7 @@ __all__ = [
     "valid_service_types_phrase",
     # Directory scanning
     "MANIFEST_SUFFIXES",
+    "ManifestCollisionWarning",
     "ManifestScan",
     "SuffixCollision",
     "foreign_yaml_reason",

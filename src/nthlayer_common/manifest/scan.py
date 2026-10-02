@@ -22,17 +22,34 @@ consumer appeared, so the call sites stop reaching into one another
 
 from __future__ import annotations
 
+import unicodedata
+import warnings
 from pathlib import Path
 from typing import NamedTuple
 
-import structlog
 import yaml
 
 from nthlayer_common.manifest.models import is_valid_service_type
 from nthlayer_common.manifest.parser.v1 import is_srm_v1_format
 from nthlayer_common.manifest.parser.v2 import is_opensrm_v2_format
 
-logger = structlog.get_logger()
+
+class ManifestCollisionWarning(UserWarning):
+    """Two manifest files shared a stem, so one was not loaded [opensrm-xvwt].
+
+    A warning rather than a structlog event, because this is a LIBRARY.
+    nthlayer-common never calls structlog.configure, so the default
+    PrintLogger writes to STDOUT — measured — and a consumer CLI emitting
+    machine-readable output on stdout would have a human-formatted log line
+    interleaved into it. warnings go to stderr, are filterable by category,
+    and are the pattern this package already uses for an authoring mistake it
+    should flag loudly without rejecting: see TargetConventionWarning in
+    target_validation.py.
+
+    The STRUCTURED form of the same information is scan_manifest_files()'
+    return value, which is what a caller that wants to act on it should use.
+    """
+
 
 # One home for the wording, and it names the actual risk rather than the
 # mechanism: an operator does not care that two stems matched, they care that a
@@ -159,7 +176,16 @@ def scan_manifest_files(specs_dir: str | Path) -> ManifestScan:
 
     by_stem: dict[str, list[Path]] = {}
     for candidate in candidates:
-        by_stem.setdefault(candidate.stem, []).append(candidate)
+        # NFC-normalised, for the same reason the suffix is case-folded: two
+        # spellings of one name must not become two services. APFS PRESERVES
+        # normalisation rather than enforcing it, so `café.yaml` written NFC
+        # and `café.yml` written NFD are two directory entries with different
+        # byte stems — visually one stem. Measured before this: both were
+        # returned and no collision reported, so the double-count this function
+        # exists to stop survived for any non-ASCII filename.
+        by_stem.setdefault(
+            unicodedata.normalize("NFC", candidate.stem), []
+        ).append(candidate)
 
     files: list[Path] = []
     collisions: list[SuffixCollision] = []
@@ -203,12 +229,15 @@ def iter_manifest_files(specs_dir: str | Path) -> list[Path]:
     """
     scan = scan_manifest_files(specs_dir)
     for collision in scan.suffix_collisions:
-        logger.warning(
-            "manifest_suffix_collision",
-            stem=collision.stem,
-            kept=str(collision.kept),
-            dropped=str(collision.dropped),
-            hint=_COLLISION_HINT,
+        warnings.warn(
+            f"{collision.dropped} was not loaded: it shares the stem "
+            f"'{collision.stem}' with {collision.kept.name}. "
+            f"{_COLLISION_HINT}",
+            ManifestCollisionWarning,
+            # 2 = this function's caller. Measured, not copied: a deeper value
+            # names scan.py itself, which tells the reader nothing about which
+            # directory scan produced it.
+            stacklevel=2,
         )
     return scan.files
 
