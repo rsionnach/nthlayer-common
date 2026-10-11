@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 import yaml
 
@@ -164,11 +165,66 @@ def test_an_slo_type_points_back_to_judgment_slo():
         ({"type": "calibration", "measurement": {"bins": 1, "window": "30d"},
           "bounds": {"maximum_brier_score": 0.05}}, "bins"),                       # n12
         ({**STABILITY, "bounds": None}, "mapping"),
+        # schema.json: `type` is an enum of strings; an unhashable or null
+        # value is an unknown type, not a TypeError.
+        ({"type": ["x"], "bounds": {}}, r"'type' must be one of"),
+        ({"type": {"a": 1}, "bounds": {}}, r"'type' must be one of"),
+        ({"type": None, "bounds": {}}, r"'type' must be one of"),
     ],
 )
 def test_invalid_entries_raise_the_parser_error(entry, match):
     with pytest.raises(OpenSRMV2ParseError, match=match):
         parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+
+
+# JudgmentThresholdSpec is open: `measurement`, `probe`, `sampling` and the
+# segment_* keys are constrained only inside the allOf branch of the type that
+# uses them, so on any other type the schema accepts every value for them.
+_STRAY_KEYS = ("measurement", "probe", "sampling", "segment_values")
+_STRAY_VALUES = (None, "x", [1])
+
+
+def _assert_empty_measurement(threshold: Any) -> None:
+    m = threshold.measurement
+    assert (m.source, m.confidence_threshold, m.bins, m.method, m.window, m.frequency) == (
+        None, None, None, None, None, None,
+    )
+    assert m.probe is None
+    assert m.sampling is None
+    assert m.segment_dimension is None
+    assert m.segment_values == []
+
+
+@pytest.mark.parametrize("value", _STRAY_VALUES, ids=repr)
+@pytest.mark.parametrize("key", _STRAY_KEYS)
+def test_keys_irrelevant_to_the_type_are_ignored(key, value):
+    entry = {**AUDIT_BACKLOG, key: value}
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+    _assert_empty_measurement(threshold)
+
+
+def test_keys_irrelevant_to_feedback_latency_are_ignored():
+    entry = {**FEEDBACK_LATENCY, "probe": "x", "measurement": [1], "segment_values": "abc"}
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+    _assert_empty_measurement(threshold)
+
+
+def test_the_schema_accepts_stray_keys_on_a_type_that_does_not_use_them():
+    """Pins the premise of the two tests above: if the schema ever closes
+    JudgmentThresholdSpec, the parser must start rejecting these too."""
+    entry = {**AUDIT_BACKLOG, "measurement": "x", "probe": [1], "sampling": None,
+             "segment_values": "abc"}
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    jsonschema.validate(_manifest(judgment_threshold=[entry]), schema)
+    parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+
+
+def test_stability_carries_only_its_probe():
+    entry = {**STABILITY, "measurement": "x", "sampling": "x", "segment_values": "abc"}
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+    assert threshold.measurement.probe is not None
+    assert threshold.measurement.sampling is None
+    assert threshold.measurement.segment_values == []
 
 
 def test_forbidden_keys_were_derived():
@@ -316,7 +372,7 @@ def test_other_lists_still_replace(tmp_path):
 @pytest.mark.parametrize(
     ("directive", "match"),
     [
-        ([{"append": [AUDIT_BACKLOG]}], "must be a mapping"),
+        ([{"append": [AUDIT_BACKLOG]}], r"must be a mapping.*\{append: \[\.\.\.\]\}.*CORE §9"),
         ({"prepend": [AUDIT_BACKLOG]}, "only 'append'"),
         ({}, "'append' must be a list"),
     ],

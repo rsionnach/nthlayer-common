@@ -517,6 +517,14 @@ def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThres
     """Parse one flat ``spec.judgment_threshold`` entry (§5.5, opensrm-l33e)."""
     where = f"spec.judgment_threshold[{index}]"
     threshold_type = data.get("type")
+    # The schema's `type` is an enum of strings. Checked first: a list or
+    # mapping here would otherwise raise TypeError (unhashable) at the set
+    # membership tests below, escaping the loader's error handling.
+    if not isinstance(threshold_type, str):
+        raise OpenSRMV2ParseError(
+            f"{where}: 'type' must be one of "
+            f"{', '.join(sorted(V2_JUDGMENT_THRESHOLD_TYPES))}, got {threshold_type!r}."
+        )
     if threshold_type in V2_JUDGMENT_SLO_TYPES:
         raise OpenSRMV2ParseError(
             f"{where}: '{threshold_type}' is a judgment SLO, not a threshold. "
@@ -532,16 +540,46 @@ def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThres
         bounds = parse_bounds(threshold_type, data.get("bounds"))
     except ValueError as exc:
         raise OpenSRMV2ParseError(f"{where} ({threshold_type}): {exc}") from exc
-    measurement = _parse_judgment_measurement(threshold_type, data)
-    if threshold_type == "calibration":
-        # check_type_fields accepted bins (integral float allowed) but never
-        # rewrites it; the model carries an int.
-        measurement.bins = normalise_bins(data["measurement"]["bins"])
     return JudgmentThreshold(
         type=threshold_type,
         bounds=bounds,
-        measurement=measurement,
+        measurement=_threshold_measurement(threshold_type, data),
     )
+
+
+def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> JudgmentMeasurement:
+    """Build a threshold's measurement from the keys its type uses, only.
+
+    JudgmentThresholdSpec is open: ``measurement``, ``probe``, ``sampling`` and
+    the ``segment_*`` keys are constrained only inside the branch of the type
+    that uses them, so on any other type the schema accepts any value for them.
+    Those keys are ignored here. The keys read are exactly the ones
+    ``check_type_fields`` has already validated for this type, which is why
+    this does not reuse ``_parse_judgment_measurement`` (the judgment_slo path).
+    """
+    if threshold_type == "calibration":
+        m_data = data["measurement"]
+        # check_type_fields accepted bins (integral float allowed) but never
+        # rewrites it; the model carries an int.
+        return JudgmentMeasurement(
+            bins=normalise_bins(m_data["bins"]),
+            window=m_data["window"],
+        )
+    if threshold_type == "stability":
+        probe = data["probe"]
+        return JudgmentMeasurement(
+            probe=ProbeConfig(
+                frozen_input_set=probe["frozen_input_set"],
+                frequency=probe["frequency"],
+            ),
+        )
+    if threshold_type == "segments":
+        return JudgmentMeasurement(
+            segment_dimension=data["segment_dimension"],
+            segment_values=list(data["segment_values"]),
+        )
+    # audit_backlog, feedback_latency: bounds only.
+    return JudgmentMeasurement()
 
 
 def _parse_breach_actions(actions_data: list[dict[str, Any]]) -> list[BreachAction]:
@@ -1016,6 +1054,9 @@ def resolve_v2_template(
     return result
 
 
+_THRESHOLD_KEY = "judgment_threshold"
+
+
 def _merge_template_spec(
     template_spec: dict[str, Any],
     manifest_spec: dict[str, Any],
@@ -1072,9 +1113,6 @@ def _merge_template_spec(
     return result
 
 
-_THRESHOLD_KEY = "judgment_threshold"
-
-
 def _concatenate_thresholds(template_value: Any, manifest_value: Any) -> list[Any]:
     """Template entries followed by manifest entries (CORE §5.5).
 
@@ -1099,9 +1137,15 @@ def _check_threshold_override(directive: Any) -> None:
     merger would not apply is an error instead.
     """
     if not isinstance(directive, dict):
+        hint = (
+            " Write `judgment_threshold: {append: [...]}`; the list form shown "
+            "in CORE §9 is not supported (tracked separately)."
+            if isinstance(directive, list)
+            else ""
+        )
         raise OpenSRMV2ParseError(
             f"spec.template.overrides.judgment_threshold must be a mapping "
-            f"with an 'append' list, got {type(directive).__name__}."
+            f"with an 'append' list, got {type(directive).__name__}.{hint}"
         )
     if "replace" in directive:
         raise OpenSRMV2ParseError(
