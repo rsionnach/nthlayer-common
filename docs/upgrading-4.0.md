@@ -74,7 +74,7 @@ opensrm-r78t). The ai-gate requirement applies to the resolved manifest.
 |---|---|
 | `type` | One of `V2_JUDGMENT_THRESHOLD_TYPES`. |
 | `bounds` | Dict of bound name to value, stored as declared: a float for Ratio bounds, a duration string such as `"24h"` for Duration bounds. |
-| `measurement` | A `JudgmentMeasurement`. calibration: `bins` (int) and `window`. stability: `probe` (`frozen_input_set`, `frequency`). segments: `segment_dimension` and `segment_values`. Other types: empty (all fields unset). |
+| `measurement` | A `JudgmentMeasurement`. calibration: `bins` (int) and `window`. stability: `probe` (`frozen_input_set`, `frequency`). segments: `segment_dimension` and `segment_values`. Other types: empty (all fields at their defaults). |
 
 Worked example. An srm/v1 `calibration: {target: 0.05, window: 30d}` becomes
 `JudgmentThreshold(type="calibration", bounds={"maximum_expected_calibration_error": 0.05}, measurement=JudgmentMeasurement(window="30d", bins=10))`.
