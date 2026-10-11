@@ -292,7 +292,8 @@ def _parse_slos(
             try:
                 thresholds.append(srm_v1_threshold(name, config))
             except ValueError as exc:
-                raise OpenSRMParseError(f"SLO '{name}': {exc}") from exc
+                # srm_v1_threshold's messages already name the entry.
+                raise OpenSRMParseError(str(exc)) from exc
             continue
 
         target = config.get("target")

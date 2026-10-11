@@ -43,7 +43,7 @@ are now rejected and must be declared in a v2 manifest.
 ## Threshold entries
 
 - Entries are flat (`type`, `bounds`, ...), not wrapped in `metadata`/`spec`.
-- Keys that do not belong to a threshold's type are ignored.
+- Other keys that do not belong to a threshold's type are ignored.
 - `breach_actions`, `target`, `judgment_type` and `service` on a threshold raise
   `OpenSRMV2ParseError`, as does `measurement.method` on a `calibration` threshold.
 - `segment_dimension` and every `segment_values` entry must be non-empty strings.
@@ -58,3 +58,20 @@ not replace the template's, so a manifest cannot remove a template's threshold.
 `replace`, the list form and any other shape raise `OpenSRMV2ParseError`
 (OPENSRM-CORE-v2.md section 5.5; the section 9 list form is tracked in
 opensrm-r78t). The ai-gate requirement applies to the resolved manifest.
+
+## API
+
+- `JudgmentThreshold`
+- `ReliabilityManifest.judgment_thresholds`
+- `get_judgment_thresholds()`
+- `V2_JUDGMENT_SLO_TYPES`
+- `V2_JUDGMENT_THRESHOLD_TYPES`
+- `SRM_V1_JUDGMENT_THRESHOLD_TYPES`
+
+## What consumers must change
+
+- Replace `JUDGMENT_SLO_TYPES` imports with `V2_JUDGMENT_SLO_TYPES` (SLOs) or
+  `V2_JUDGMENT_THRESHOLD_TYPES` (thresholds).
+- Read thresholds from `judgment_thresholds`, not `slos`.
+- Widen the nthlayer-common requirement to `>=4.0.0,<5.0.0`.
+- Evaluators implement OPENSRM-CORE-v2 §5.5.6 E1-E4.

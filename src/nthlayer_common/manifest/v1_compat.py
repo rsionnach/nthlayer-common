@@ -56,9 +56,6 @@ _JUDGMENT_METHOD: dict[str, str] = {
     "audit_sampling": "hypothesis_test",
     "outcomes": "hypothesis_test",
     "escalation": "hypothesis_test",
-    "segments": "hypothesis_test",
-    "stability": "hypothesis_test",
-    "calibration": "brier_score",
 }
 
 
@@ -67,8 +64,9 @@ def default_statistical_requirements(judgment_type: str) -> StatisticalRequireme
 
     Assumptions:
       - 95% confidence intervals (standard for SRE metrics)
-      - Method inferred from judgment_type: calibration → brier_score,
-        all others → hypothesis_test (appropriate for rate comparisons)
+      - Method is hypothesis_test for every judgment SLO type (appropriate
+        for rate comparisons). Calibration is a threshold, not an SLO; its
+        defaults live in thresholds.srm_v1_threshold.
       - No minimum_sample_size default — sample size requirements vary
         too much by use case to pick a safe default
     """
@@ -88,7 +86,6 @@ _JUDGMENT_SOURCE: dict[str, str] = {
     "reversal_rate": "lineage",
     "high_confidence_failure": "lineage",
     "outcomes": "downstream_signal",
-    "calibration": "calibration_sample",
 }
 
 
@@ -100,10 +97,10 @@ def default_measurement(judgment_type: str, window: str) -> JudgmentMeasurement:
         (verdict chain tracks reversals naturally)
       - outcomes: source is downstream_signal (outcomes are resolved
         by downstream feedback)
-      - calibration: source is calibration_sample, method is brier_score,
-        10 bins (standard calibration curve resolution)
-      - audit_sampling, escalation, segments, stability: no source default
-        (these require service-specific configuration)
+      - audit_sampling, escalation: no source default (these require
+        service-specific configuration)
+      - Calibration is a threshold, not an SLO; its srm/v1 defaults (10 bins)
+        live in thresholds.srm_v1_threshold.
       - window: carried from the SLO definition's window field
     """
     source = _JUDGMENT_SOURCE.get(judgment_type)
@@ -112,11 +109,6 @@ def default_measurement(judgment_type: str, window: str) -> JudgmentMeasurement:
         source=source,
         window=window,
     )
-
-    # Calibration gets additional defaults
-    if judgment_type == "calibration":
-        measurement.method = "brier_score"
-        measurement.bins = 10
 
     # High-confidence failure gets default threshold
     if judgment_type == "high_confidence_failure":
@@ -279,9 +271,10 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         # inside migrate_manifest_command, and handed direct callers an
         # invalid manifest with no error at all.
         # Names come from the entries actually routed, not from
-        # intersecting V2_JUDGMENT_SLO_TYPES with the raw slos keys:
-        # _convert_v1_slos skips entries whose value is not a dict, so
-        # the intersection would name SLOs that were never routed.
+        # intersecting the judgment type sets with the raw slos keys: a
+        # non-dict judgment SLO entry is skipped by _convert_v1_slos, so the
+        # intersection would name SLOs that were never routed. (Thresholds are
+        # normalised, not skipped.)
         slo_names = ", ".join(
             sorted(
                 [js["spec"]["judgment_type"] for js in judgment_slos]
@@ -290,9 +283,9 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         )
         raise ValueError(
             f"v1 manifest '{name}' declares spec.type '{service_type}' but "
-            f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
-            f"only on an 'ai-gate' service. Either declare the service as "
-            f"an ai-gate, or remove the judgment SLOs before upconverting."
+            f"defines judgment SLOs or thresholds ({slo_names}). v2 permits "
+            f"them only on an 'ai-gate' service. Either declare the service "
+            f"as an ai-gate, or remove them before upconverting."
         )
     if judgment_slos:
         v2_spec["judgment_slo"] = judgment_slos

@@ -207,7 +207,7 @@ def judgment_target_percent(field_name: str, value: object) -> float:
     if is_ceiling is None:
         raise ValueError(
             f"'{field_name}' is not a judgment SLO target field; judgment error "
-            f"magnitudes are thresholds since opensrm-l33e and are never "
+            f"magnitudes are thresholds in OpenSRM v2 (OPENSRM-CORE-v2 §5.5) and are never "
             f"converted"
         )
     _check_declared_ratio(field_name, numeric)
@@ -231,16 +231,16 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     The classical path has had its counterpart all along (_v1_slo_to_openslo
     divides by 100); only the judgment path lacked one.
 
-    Composes with judgment_target_percent() to the identity. Not bit-exact — float round trips
-    differ by up to ~7e-15 for some values — but exact for every realistic SLI
-    floor, and nothing compares a target with ``==``.
+    Composes with judgment_target_percent() to the identity. Not bit-exact: float
+    round trips differ by up to ~7e-15 for some values, but it is exact for every
+    realistic SLI floor, and nothing compares a target with ``==``.
     """
     check_finite(field_name, percent, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
     if is_ceiling is None:
         raise ValueError(
             f"'{field_name}' is not a judgment SLO target field; judgment error "
-            f"magnitudes are thresholds since opensrm-l33e and are never "
+            f"magnitudes are thresholds in OpenSRM v2 (OPENSRM-CORE-v2 §5.5) and are never "
             f"converted"
         )
     # Symmetric with the inbound check, and it catches the v1 manifest that
@@ -294,7 +294,7 @@ def judgment_promise(judgment_type: str, declared: object) -> JudgmentPromise:
     if judgment_type in V2_JUDGMENT_THRESHOLD_TYPES:
         raise ValueError(
             f"'{judgment_type}' is a judgment threshold, not an SLO; OpenSRM "
-            f"defines no contract promise for it (opensrm-l33e)"
+            f"defines no contract promise for it (OPENSRM-CORE-v2 §5.5)"
         )
     field = JUDGMENT_TARGET_FIELDS.get(judgment_type)
     if field is None:

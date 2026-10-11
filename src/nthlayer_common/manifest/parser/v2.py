@@ -60,6 +60,7 @@ from nthlayer_common.manifest.target_validation import (
     judgment_target_percent,
 )
 from nthlayer_common.manifest.thresholds import (
+    THRESHOLD_REQUIRED_FIELDS,
     check_type_fields,
     normalise_bins,
     parse_bounds,
@@ -384,11 +385,10 @@ def _resolve_backstage_ref(ref: str, expected_kind: str) -> str:
 # =============================================================================
 
 
-# Fields a departing type carries besides target (schema JudgmentThresholdSpec).
+# Fields a departing type carries besides target (schema JudgmentThresholdSpec),
+# derived from the thresholds table so there is one source.
 _THRESHOLD_OWN_FIELDS: dict[str, tuple[str, ...]] = {
-    "segments": ("segment_dimension", "segment_values"),
-    "stability": ("probe",),
-    "calibration": ("measurement",),
+    t: fields for t, fields in THRESHOLD_REQUIRED_FIELDS.items() if fields
 }
 
 
@@ -448,7 +448,7 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
             )
         raise OpenSRMV2ParseError(
             f"{where}: '{judgment_type}' is not a judgment SLO in OpenSRM v2 "
-            f"(decision 3c, opensrm-l33e) - it bounds an error magnitude and has "
+            f"(OPENSRM-CORE-v2 §5.5) - it bounds an error magnitude and has "
             f"no error budget. Move it to spec.judgment_threshold, renaming "
             f"'target' to 'bounds':\n\n"
             + _render_threshold_block(entry)
@@ -457,7 +457,7 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
     if judgment_type == "audit_sampling" and "audit_backlog_maximum_age" in target:
         raise OpenSRMV2ParseError(
             f"{where}: audit_backlog_maximum_age left audit_sampling's target in "
-            f"OpenSRM v2 (decision 3c, opensrm-l33e). Only the backlog bound moves; "
+            f"OpenSRM v2 (OPENSRM-CORE-v2 §5.5). Only the backlog bound moves; "
             f"audit_completion_rate stays in the audit_sampling target. "
             f"Declare the backlog as:\n\n"
             f"  judgment_threshold:\n"
@@ -573,14 +573,6 @@ def _parse_judgment_measurement(
         frequency=m_data.get("frequency"),
     )
 
-    # Probe config (stability type)
-    probe_data = spec.get("probe")
-    if probe_data:
-        measurement.probe = ProbeConfig(
-            frozen_input_set=probe_data.get("frozen_input_set", ""),
-            frequency=probe_data.get("frequency", "daily"),
-        )
-
     # Sampling config (audit_sampling type)
     sampling_data = spec.get("sampling")
     if sampling_data:
@@ -595,12 +587,8 @@ def _parse_judgment_measurement(
             stratified=stratified,
         )
 
-    # Segment config (segments type)
-    measurement.segment_dimension = spec.get("segment_dimension")
-    segment_values = spec.get("segment_values", [])
-    if segment_values:
-        measurement.segment_values = segment_values
-
+    # No probe/segment_* parsing: only the stability and segments thresholds
+    # use those keys, and they are parsed by _threshold_measurement.
     return measurement
 
 
@@ -1230,7 +1218,7 @@ def _check_threshold_override(directive: Any) -> None:
     if not isinstance(directive, dict):
         hint = (
             " Write `judgment_threshold: {append: [...]}`; the list form shown "
-            "in CORE §9 is not supported (tracked separately)."
+            "in CORE §9 is not yet supported."
             if isinstance(directive, list)
             else ""
         )

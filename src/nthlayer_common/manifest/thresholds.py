@@ -5,6 +5,9 @@ error budget; a breach is the measured value exceeding a declared bound. So
 nothing here converts a value: bounds are stored exactly as declared, which is
 the opposite of target_validation.py's job for judgment SLO targets.
 
+This module also holds the srm/v1 lift (srm_v1_threshold) and the v2 emit
+(threshold_to_v2_entry).
+
 The tables restate opensrm/spec/v2/schema.json's JudgmentThresholdSpec so the
 parsers can enforce it without a JSON-Schema dependency. They are pinned against
 the live schema in BOTH directions by
@@ -151,7 +154,7 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
         if key in entry:
             raise ValueError(
                 f"'{key}' is not allowed on a '{threshold_type}' threshold; "
-                f"thresholds do not carry it (opensrm-l33e)"
+                f"thresholds do not carry it (OPENSRM-CORE-v2 §5.5)"
             )
     for name in THRESHOLD_REQUIRED_FIELDS.get(threshold_type, ()):
         if entry.get(name) in (None, "", [], {}):
@@ -179,7 +182,7 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             raise ValueError("'measurement' must be a mapping")
         if "method" in measurement:
             raise ValueError(
-                "'measurement.method' was removed in opensrm-l33e; the declared "
+                "'measurement.method' is not part of a calibration threshold in OpenSRM v2 (OPENSRM-CORE-v2 §5.5); the declared "
                 "bounds decide what is evaluated"
             )
         bins = measurement.get("bins")
@@ -196,7 +199,7 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             )
 
 
-# srm/v1 defaulted calibration to 10 bins (v1_compat.default_measurement);
+# srm/v1 defaulted calibration to 10 bins (before 3c, v1_compat.default_measurement);
 # v2's calibration threshold requires bins, so the lift keeps that default.
 _SRM_V1_CALIBRATION_BINS = 10
 

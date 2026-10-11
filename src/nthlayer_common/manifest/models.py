@@ -171,6 +171,9 @@ V2_JUDGMENT_THRESHOLD_TYPES: frozenset[str] = frozenset({
 # segments and stability are absent deliberately: their v2 forms need fields
 # (segment_dimension, probe) the flat format cannot express, so srm/v1 rejects
 # them (parser/v1.py).
+# Published for consumers that need the srm/v1 lift set. parser/v1.py routes on
+# V2_JUDGMENT_THRESHOLD_TYPES deliberately, so segments/stability/audit_backlog
+# hit their rejection instead of falling through.
 SRM_V1_JUDGMENT_THRESHOLD_TYPES: frozenset[str] = frozenset({
     "calibration",
     "feedback_latency",
