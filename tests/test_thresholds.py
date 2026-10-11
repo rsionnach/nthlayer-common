@@ -88,6 +88,8 @@ def test_parse_bounds_rejects_an_unknown_type():
         ("calibration", {}, "measurement"),
         ("calibration", {"measurement": {"bins": 1, "window": "30d"}}, "bins"),
         ("calibration", {"measurement": {"bins": True, "window": "30d"}}, "bins"),
+        # schema `type: integer` accepts 10.0 but not 2.5
+        ("calibration", {"measurement": {"bins": 2.5, "window": "30d"}}, "bins"),
         ("calibration", {"measurement": {"bins": 10, "window": "30"}}, "window"),
         ("calibration", {"measurement": {"bins": 10, "window": "30d", "method": "brier_score"}}, "method"),
         ("segments", {"segment_dimension": "", "segment_values": ["a"]}, "segment_dimension"),
@@ -105,6 +107,8 @@ def test_check_type_fields_rejects_what_the_schema_rejects(threshold_type, entry
         ("segments", {"segment_dimension": "tier", "segment_values": ["a", "b"]}),
         ("stability", {"probe": {"frozen_input_set": "s3://x", "frequency": "daily"}}),
         ("calibration", {"measurement": {"bins": 10, "window": "30d"}}),
+        # schema.json bins `type: integer`: draft-07 accepts an integral float
+        ("calibration", {"measurement": {"bins": 10.0, "window": "30d"}}),
         ("audit_backlog", {}),
         ("feedback_latency", {}),
     ],
@@ -132,3 +136,10 @@ def test_check_type_fields_rejects_forbidden_keys_for_every_type(threshold_type,
 def test_forbidden_keys_are_rejected_before_required_fields():
     with pytest.raises(ValueError, match="breach_actions"):
         check_type_fields("stability", {"breach_actions": []})
+
+
+def test_integral_float_bins_is_normalised_to_int():
+    entry = {"measurement": {"bins": 10.0, "window": "30d"}}
+    check_type_fields("calibration", entry)
+    assert entry["measurement"]["bins"] == 10
+    assert isinstance(entry["measurement"]["bins"], int)

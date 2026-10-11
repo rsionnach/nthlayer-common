@@ -144,7 +144,7 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             raise ValueError(f"'{threshold_type}' requires '{name}'")
 
     if threshold_type == "segments":
-        if not isinstance(entry["segment_dimension"], str) or not entry["segment_dimension"]:
+        if not isinstance(entry["segment_dimension"], str):
             raise ValueError("'segment_dimension' must be a non-empty string")
         values = entry["segment_values"]
         if not isinstance(values, list) or not all(isinstance(v, str) and v for v in values):
@@ -168,8 +168,13 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
                 "bounds decide what is evaluated"
             )
         bins = measurement.get("bins")
+        # schema.json: bins is `type: integer`, which draft-07 satisfies with an
+        # integral float such as 10.0, so the parser accepts it too.
+        if isinstance(bins, float) and bins.is_integer():
+            bins = int(bins)
         if isinstance(bins, bool) or not isinstance(bins, int) or bins < 2:
             raise ValueError(f"'measurement.bins' must be an integer >= 2, got {bins!r}")
+        measurement["bins"] = bins
         if not is_duration(measurement.get("window")):
             raise ValueError(
                 f"'measurement.window' must be a duration such as '30d', got "
