@@ -128,6 +128,16 @@ def parse_bounds(threshold_type: str, raw: object) -> dict[str, float | str]:
     return bounds
 
 
+def normalise_bins(value: int | float) -> int:
+    """Return a validated ``measurement.bins`` as an int.
+
+    ``check_type_fields`` accepts an integral float (10.0) because the schema's
+    ``type: integer`` does, but it never rewrites its input. Callers building a
+    JudgmentMeasurement from a validated entry must pass bins through this.
+    """
+    return int(value)
+
+
 def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
     """Enforce the non-``bounds`` fields schema.json requires per type.
 
@@ -144,6 +154,7 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             raise ValueError(f"'{threshold_type}' requires '{name}'")
 
     if threshold_type == "segments":
+        # Emptiness is enforced by the required-field guard above.
         if not isinstance(entry["segment_dimension"], str):
             raise ValueError("'segment_dimension' must be a non-empty string")
         values = entry["segment_values"]
@@ -169,12 +180,11 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             )
         bins = measurement.get("bins")
         # schema.json: bins is `type: integer`, which draft-07 satisfies with an
-        # integral float such as 10.0, so the parser accepts it too.
-        if isinstance(bins, float) and bins.is_integer():
-            bins = int(bins)
-        if isinstance(bins, bool) or not isinstance(bins, int) or bins < 2:
+        # integral float such as 10.0, so the parser accepts it too. This is a
+        # pure check; callers convert with normalise_bins().
+        valid_float = isinstance(bins, float) and bins.is_integer()
+        if isinstance(bins, bool) or not (isinstance(bins, int) or valid_float) or bins < 2:
             raise ValueError(f"'measurement.bins' must be an integer >= 2, got {bins!r}")
-        measurement["bins"] = bins
         if not is_duration(measurement.get("window")):
             raise ValueError(
                 f"'measurement.window' must be a duration such as '30d', got "

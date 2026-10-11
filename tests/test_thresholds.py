@@ -8,6 +8,7 @@ isinstance(x, (int, float)) would not.
 """
 from __future__ import annotations
 
+import copy
 import math
 
 import pytest
@@ -16,6 +17,7 @@ from nthlayer_common.manifest.thresholds import (
     FORBIDDEN_THRESHOLD_KEYS,
     check_type_fields,
     is_duration,
+    normalise_bins,
     parse_bounds,
 )
 
@@ -138,8 +140,21 @@ def test_forbidden_keys_are_rejected_before_required_fields():
         check_type_fields("stability", {"breach_actions": []})
 
 
-def test_integral_float_bins_is_normalised_to_int():
+def test_check_type_fields_does_not_mutate_its_input():
     entry = {"measurement": {"bins": 10.0, "window": "30d"}}
+    before = copy.deepcopy(entry)
     check_type_fields("calibration", entry)
-    assert entry["measurement"]["bins"] == 10
-    assert isinstance(entry["measurement"]["bins"], int)
+    assert entry == before
+    assert isinstance(entry["measurement"]["bins"], float)
+
+
+def test_normalise_bins_converts_integral_float_to_int():
+    result = normalise_bins(10.0)
+    assert result == 10
+    assert isinstance(result, int)
+
+
+def test_normalise_bins_leaves_int_unchanged():
+    result = normalise_bins(10)
+    assert result == 10
+    assert isinstance(result, int)
