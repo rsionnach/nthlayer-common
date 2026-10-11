@@ -22,6 +22,10 @@ import jsonschema
 import pytest
 import yaml
 
+from nthlayer_common.manifest import (
+    V2_JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
+)
 from nthlayer_common.manifest.thresholds import (
     DURATION,
     FORBIDDEN_THRESHOLD_KEYS,
@@ -152,3 +156,17 @@ def test_segment_strings_must_be_non_empty_per_schema():
     props = _branches()["segments"]["properties"]
     assert props["segment_dimension"]["minLength"] == 1
     assert props["segment_values"]["items"]["minLength"] == 1
+
+
+def test_v2_judgment_vocabularies_match_the_schema_both_ways():
+    """vrpa's acceptance test, on the half that has a schema the parser
+    implements. Read from schema.json, never restated: a hard-coded copy
+    would be a third list to drift."""
+    defs = _schema()["definitions"]
+    assert set(
+        defs["JudgmentSLOSpec"]["properties"]["judgment_type"]["enum"]
+    ) == V2_JUDGMENT_SLO_TYPES
+    assert set(
+        defs["JudgmentThresholdSpec"]["properties"]["type"]["enum"]
+    ) == V2_JUDGMENT_THRESHOLD_TYPES
+    assert not V2_JUDGMENT_SLO_TYPES & V2_JUDGMENT_THRESHOLD_TYPES

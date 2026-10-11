@@ -4,6 +4,8 @@ import pytest
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
+    SRM_V1_JUDGMENT_THRESHOLD_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     BreachAction,
     ContractPromise,
     Dependency,
@@ -11,6 +13,7 @@ from nthlayer_common.manifest.models import (
     FallbackDeclaration,
     JudgmentMeasurement,
     JudgmentPromise,
+    JudgmentThreshold,
     Ownership,
     ReliabilityContract,
     ReliabilityManifest,
@@ -249,3 +252,25 @@ class TestOwnership:
         )
         assert o.group_ref is not None
         assert o.team == "payments-ml"
+
+
+def test_srm_v1_threshold_types_are_v2_threshold_types():
+    """srm/v1 lifts into v2's concept, so it may only name types v2 has."""
+    assert SRM_V1_JUDGMENT_THRESHOLD_TYPES <= V2_JUDGMENT_THRESHOLD_TYPES
+    assert frozenset({"calibration", "feedback_latency"}) == SRM_V1_JUDGMENT_THRESHOLD_TYPES
+
+
+def test_manifest_carries_thresholds_separately_from_slos():
+    threshold = JudgmentThreshold(type="stability", bounds={"maximum_drift": 0.02})
+    manifest = ReliabilityManifest(
+        name="svc", team="t", tier="critical", type="ai-gate",
+        judgment_thresholds=[threshold],
+    )
+    assert manifest.get_judgment_thresholds() == [threshold]
+    assert manifest.get_judgment_slos() == []
+    assert manifest.slos == []
+
+
+def test_threshold_defaults_to_an_empty_measurement():
+    threshold = JudgmentThreshold(type="audit_backlog", bounds={"maximum_age": "24h"})
+    assert threshold.measurement == JudgmentMeasurement()

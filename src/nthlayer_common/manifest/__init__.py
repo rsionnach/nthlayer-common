@@ -9,7 +9,10 @@ Public API:
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
     SERVICE_TYPE_ALIASES,
+    SRM_V1_JUDGMENT_THRESHOLD_TYPES,
     STANDARD_SLO_TYPES,
+    V2_JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     VALID_EXHAUSTION_BEHAVIORS,
     VALID_SERVICE_TYPES,
     VALID_TIERS,
@@ -32,6 +35,7 @@ from nthlayer_common.manifest.models import (
     Instrumentation,
     JudgmentMeasurement,
     JudgmentPromise,
+    JudgmentThreshold,
     ManifestEscalationStep,
     Observability,
     OnCallConfig,
@@ -95,6 +99,9 @@ __all__ = [
     "OpenSRMV2ParseError",
     # Constants
     "JUDGMENT_SLO_TYPES",
+    "V2_JUDGMENT_SLO_TYPES",
+    "V2_JUDGMENT_THRESHOLD_TYPES",
+    "SRM_V1_JUDGMENT_THRESHOLD_TYPES",
     "STANDARD_SLO_TYPES",
     "SERVICE_TYPE_ALIASES",
     "VALID_EXHAUSTION_BEHAVIORS",
@@ -120,6 +127,7 @@ __all__ = [
     # SLO
     "SLODefinition",
     "JudgmentMeasurement",
+    "JudgmentThreshold",
     "BreachAction",
     "StatisticalRequirements",
     "ProbeConfig",
