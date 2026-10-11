@@ -206,6 +206,15 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
 _SRM_V1_CALIBRATION_BINS = 10
 
 
+# Bound-like keys an srm/v1 entry may carry that the lift has no home for. Checked
+# before anything else so they cannot be dropped, nor hidden behind a
+# "target must be..." message when target is absent.
+_SRM_V1_UNCARRIABLE_KEYS: dict[str, tuple[str, ...]] = {
+    "feedback_latency": ("p50", "p90"),
+    "calibration": ("bins", "method"),
+}
+
+
 def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
     """Lift an srm/v1 ``spec.slos.<name>`` entry into a JudgmentThreshold.
 
@@ -225,6 +234,22 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
             f"srm/v1 format cannot express. Declare it in an "
             f"opensrm.nthlayer.io/v2 manifest under spec.judgment_threshold."
         )
+    if name in _SRM_V1_UNCARRIABLE_KEYS:
+        lost = sorted(
+            (
+                k for k in config
+                if k in _SRM_V1_UNCARRIABLE_KEYS[name]
+                or (isinstance(k, str) and k.startswith("maximum_"))
+            ),
+            key=repr,
+        )
+        if lost:
+            raise ValueError(
+                f"srm/v1 '{name}' cannot express {', '.join(map(str, lost))}: the "
+                f"lift would drop it silently. Declare the threshold in an "
+                f"opensrm.nthlayer.io/v2 manifest under spec.judgment_threshold "
+                f"(OPENSRM-CORE-v2 §5.5)."
+            )
     target = config.get("target")
     if name == "calibration":
         if target is None:
@@ -239,12 +264,14 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
             measurement=JudgmentMeasurement(window=window, bins=_SRM_V1_CALIBRATION_BINS),
         )
     if name == "feedback_latency":
-        if isinstance(target, bool) or not isinstance(target, int) or target < 0:
+        # An integral float (3600.0) is a whole number of seconds, as for bins.
+        whole = isinstance(target, int) or (isinstance(target, float) and target.is_integer())
+        if isinstance(target, bool) or not whole or target < 0:
             raise ValueError(
                 f"srm/v1 'feedback_latency' target must be a non-negative whole "
                 f"number of seconds, got {target!r}"
             )
-        return JudgmentThreshold(type="feedback_latency", bounds={"maximum_p50": f"{target}s"})
+        return JudgmentThreshold(type="feedback_latency", bounds={"maximum_p50": f"{int(target)}s"})
     raise ValueError(f"'{name}' is not an srm/v1 judgment threshold")
 
 

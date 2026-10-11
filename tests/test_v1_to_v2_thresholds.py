@@ -72,6 +72,12 @@ def test_types_srm_v1_cannot_express_raise_value_error(name):
         convert_v1_to_v2(doc)
 
 
+def test_bound_like_key_raises_value_error_rather_than_being_dropped():
+    doc = {**SRM_V1, "spec": {"type": "ai-gate", "slos": {"feedback_latency": {"target": 3600, "p90": "24h"}}}}
+    with pytest.raises(ValueError, match="p90"):
+        convert_v1_to_v2(doc)
+
+
 def test_scalar_shorthand_threshold_is_converted_not_dropped():
     doc = {**SRM_V1, "spec": {"type": "ai-gate", "slos": {"feedback_latency": 60}}}
     direct = parse_srm_v1(doc).judgment_thresholds

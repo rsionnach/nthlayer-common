@@ -441,8 +441,13 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
             entry[field] = value
         entry["bounds"] = target
         dropped = ""
-        if "breach_actions" in body or "service" in body:
+        if judgment_type == "calibration" and "measurement" not in entry:
             dropped = (
+                "\n\nA calibration threshold requires `measurement` with `bins` "
+                "and `window`; add one."
+            )
+        if "breach_actions" in body or "service" in body:
+            dropped += (
                 "\n\n`breach_actions` and `service` do not carry over: "
                 "thresholds do not declare them."
             )
@@ -455,15 +460,15 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
             + dropped
         )
     if judgment_type == "audit_sampling" and "audit_backlog_maximum_age" in target:
+        suggested = {
+            "type": "audit_backlog",
+            "bounds": {"maximum_age": target["audit_backlog_maximum_age"]},
+        }
         raise OpenSRMV2ParseError(
             f"{where}: audit_backlog_maximum_age left audit_sampling's target in "
             f"OpenSRM v2 (OPENSRM-CORE-v2 §5.5). Only the backlog bound moves; "
             f"audit_completion_rate stays in the audit_sampling target. "
-            f"Declare the backlog as:\n\n"
-            f"  judgment_threshold:\n"
-            f"    - type: audit_backlog\n"
-            f"      bounds:\n"
-            f"        maximum_age: {target['audit_backlog_maximum_age']}\n"
+            f"Declare the backlog as:\n\n" + _render_threshold_block(suggested)
         )
 
 

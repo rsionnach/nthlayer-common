@@ -12,7 +12,8 @@ are no longer SLOs. The release notes link here for detail.
 | feedback latency | srm/v1 only, parsed as a latency `SLODefinition` with `judgment_type=None` | `JudgmentThreshold(type="feedback_latency", bounds={"maximum_p50": "<n>s"})` |
 | calibration bounds | only `maximum_brier_score` read; `maximum_expected_calibration_error` was dropped | each declared bound kept |
 | `JUDGMENT_SLO_TYPES` | 8 names | **removed, no alias**; use `V2_JUDGMENT_SLO_TYPES` (5) and `V2_JUDGMENT_THRESHOLD_TYPES` (5) |
-| contract promise on a threshold or unknown type | silently matched nothing | parse error |
+| contract promise on a threshold or unknown type | silently matched nothing | parse error. The published opensrm/v1 schema's `ContractJudgment` keys (`max_reversal_rate`, `max_hcf_rate`, `max_escalation_rate`, ...) are not supported by the srm/v1 parser and now raise (tracked in opensrm-pnmv) |
+| srm/v1 threshold config with bound-like keys | `p50`, `p90`, `bins`, `method`, `maximum_*` silently ignored | `ValueError` (`OpenSRMParseError` from the parser) naming the key: srm/v1 cannot express them; declare the threshold in an `opensrm.nthlayer.io/v2` manifest under `spec.judgment_threshold` (OPENSRM-CORE-v2 §5.5) |
 | `TargetConventionWarning` on magnitudes | fired (e.g. "write '5.0'" for `maximum_drift: 0.05`) | never |
 
 The five judgment SLO types are `reversal_rate`, `high_confidence_failure`,

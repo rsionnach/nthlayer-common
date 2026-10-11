@@ -68,7 +68,7 @@ def test_calibration_target_is_a_ratio(config, match):
         parse_srm_v1(_srm_v1({"calibration": config}))
 
 
-@pytest.mark.parametrize("target", [-1, 1.5, "1h", True, None])
+@pytest.mark.parametrize("target", [-1, 1.5, -2.0, "1h", True, None])
 def test_feedback_latency_target_is_whole_seconds(target):
     with pytest.raises(OpenSRMParseError, match="seconds"):
         parse_srm_v1(_srm_v1({"feedback_latency": {"target": target}}))
@@ -78,4 +78,34 @@ def test_scalar_shorthand_is_accepted_like_other_srm_v1_slos():
     """srm/v1 lets `name: value` stand for `name: {target: value}`
     (parser/v1.py _parse_slos); thresholds keep that."""
     manifest = parse_srm_v1(_srm_v1({"feedback_latency": 60}))
+    assert manifest.judgment_thresholds[0].bounds == {"maximum_p50": "60s"}
+
+
+def test_feedback_latency_accepts_an_integral_float_target():
+    manifest = parse_srm_v1(_srm_v1({"feedback_latency": {"target": 3600.0}}))
+    assert manifest.judgment_thresholds[0].bounds == {"maximum_p50": "3600s"}
+
+
+@pytest.mark.parametrize(
+    ("name", "config", "key"),
+    [
+        ("feedback_latency", {"target": 3600, "p90": "24h"}, "p90"),
+        ("feedback_latency", {"p50": "1h", "p90": "24h"}, "p50"),  # no target: bound-like keys win
+        ("feedback_latency", {"p50": "1h", "p90": "24h"}, "p90"),
+        ("feedback_latency", {"target": 3600, "maximum_p90": "24h"}, "maximum_p90"),
+        ("calibration", {"target": 0.05, "bins": 20}, "bins"),
+        ("calibration", {"target": 0.05, "method": "ece"}, "method"),
+        ("calibration", {"target": 0.05, "maximum_brier_score": 0.1}, "maximum_brier_score"),
+    ],
+)
+def test_bound_like_keys_srm_v1_cannot_carry_are_rejected_not_dropped(name, config, key):
+    with pytest.raises(OpenSRMParseError, match=key) as exc_info:
+        parse_srm_v1(_srm_v1({name: config}))
+    assert "judgment_threshold" in str(exc_info.value)
+
+
+def test_keys_the_lift_ignores_harmlessly_stay_accepted():
+    manifest = parse_srm_v1(_srm_v1({
+        "feedback_latency": {"target": 60, "window": "30d", "description": "d", "labels": {"a": "b"}},
+    }))
     assert manifest.judgment_thresholds[0].bounds == {"maximum_p50": "60s"}

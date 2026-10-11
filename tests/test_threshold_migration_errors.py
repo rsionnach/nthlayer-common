@@ -82,6 +82,26 @@ def test_audit_backlog_in_audit_sampling_target_shows_the_threshold_form(shape):
     assert "maximum_age: 24h" in str(exc_info.value)
 
 
+def test_audit_backlog_suggestion_is_safe_dumped_not_interpolated():
+    item = {
+        "judgment_type": "audit_sampling",
+        "target": {"audit_backlog_maximum_age": "24h\nx"},
+    }
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
+    entry = _suggested_entry(str(exc_info.value))
+    assert entry == {"type": "audit_backlog", "bounds": {"maximum_age": "24h\nx"}}
+
+
+def test_calibration_without_measurement_says_one_is_required():
+    item = {"judgment_type": "calibration", "target": {"maximum_brier_score": 0.1}}
+    with pytest.raises(
+        OpenSRMV2ParseError,
+        match=r"calibration threshold requires `measurement` with `bins` and `window`",
+    ):
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
+
+
 def _suggested_entry(message: str) -> dict[str, Any]:
     """The YAML block the error message offers, parsed back."""
     block = message.split(":\n\n", 1)[1].split("\n\n", 1)[0]
