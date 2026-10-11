@@ -104,7 +104,10 @@ def duration_seconds(value: str) -> float:
         )
     for unit, seconds in _DURATION_SECONDS.items():
         if value.endswith(unit):
-            return int(value[: -len(unit)]) * seconds
+            try:
+                return int(value[: -len(unit)]) * seconds
+            except OverflowError as exc:  # a pattern-valid but absurdly long integer
+                raise ValueError(f"duration too large to represent: {value!r}") from exc
     raise AssertionError(f"unreachable: is_duration accepted {value!r}")  # pragma: no cover
 
 

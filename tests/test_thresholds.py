@@ -236,3 +236,10 @@ def test_threshold_to_v2_entry_round_trips_all_five_types():
     reparsed = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
     assert reparsed == originals
 
+
+
+def test_duration_seconds_reports_an_unrepresentable_duration_as_value_error():
+    """'1' + 400 zeros + 'd' passes is_duration but overflows a float; it must
+    surface as ValueError like every other rejected duration."""
+    with pytest.raises(ValueError, match="too large"):
+        duration_seconds("1" + "0" * 400 + "d")
