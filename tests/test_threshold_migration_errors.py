@@ -93,8 +93,15 @@ def test_audit_backlog_suggestion_is_safe_dumped_not_interpolated():
     assert entry == {"type": "audit_backlog", "bounds": {"maximum_age": "24h\nx"}}
 
 
-def test_calibration_without_measurement_says_one_is_required():
+@pytest.mark.parametrize(
+    "measurement",
+    [None, {"method": "expected_calibration_error"}, {"window": "30d"}, {"bins": 10}],
+    ids=["absent", "method-only", "no-bins", "no-window"],
+)
+def test_calibration_without_measurement_says_one_is_required(measurement):
     item = {"judgment_type": "calibration", "target": {"maximum_brier_score": 0.1}}
+    if measurement is not None:
+        item["measurement"] = measurement
     with pytest.raises(
         OpenSRMV2ParseError,
         match=r"calibration threshold requires `measurement` with `bins` and `window`",

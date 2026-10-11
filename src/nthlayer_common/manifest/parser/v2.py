@@ -441,7 +441,10 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
             entry[field] = value
         entry["bounds"] = target
         dropped = ""
-        if judgment_type == "calibration" and "measurement" not in entry:
+        measurement = entry.get("measurement")
+        if judgment_type == "calibration" and not (
+            isinstance(measurement, dict) and "bins" in measurement and "window" in measurement
+        ):
             dropped = (
                 "\n\nA calibration threshold requires `measurement` with `bins` "
                 "and `window`; add one."
