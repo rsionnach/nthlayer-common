@@ -26,12 +26,14 @@ there: read `ReliabilityManifest.judgment_thresholds` instead.
 
 ## Evaluating a threshold
 
-A breach is the measured value exceeding ANY declared bound. Evaluate every entry,
-including several of the same type (CORE §5.5.6 E1): each entry is evaluated
-independently, and a breach of any bound of any entry is a breach. Bounds are stored as
+A breach is the measured value exceeding ANY declared bound. Bounds are stored as
 declared: Ratio bounds are floats in [0, 1], Duration bounds are strings such as
 "24h" (`<integer><ms|s|m|h|d|w>`); `duration_seconds("24h")` returns `86400.0`.
 There is no complement and no 0-100 conversion.
+
+Evaluate every entry, including several of the same type (CORE §5.5.6 E1): each
+entry is evaluated independently.
+
 This parser does not evaluate anything. The evaluation rules (strictly-exceeds,
 units, not-evaluable, precedence) are OPENSRM-CORE-v2.md section 5.5.6 E1-E4, for
 evaluators such as nthlayer-workers.
@@ -96,6 +98,10 @@ JudgmentThreshold(type='calibration', bounds={'maximum_expected_calibration_erro
 - Replace `JUDGMENT_SLO_TYPES` imports with `V2_JUDGMENT_SLO_TYPES` (SLOs) or
   `V2_JUDGMENT_THRESHOLD_TYPES` (thresholds).
 - Read thresholds from `judgment_thresholds`, not `slos`.
+- `JudgmentThreshold.measurement` is a `ThresholdMeasurement`, not a
+  `JudgmentMeasurement`: read a stability probe's frequency from
+  `measurement.probe.frequency` (there is no `measurement.frequency`), and there is no
+  `measurement.method`.
 - Widen the nthlayer-common requirement to `>=4.0.0,<5.0.0`.
 - Evaluators implement OPENSRM-CORE-v2 §5.5.6 E1-E4.
 - Reconcile local copies of the old vocabulary. For example nthlayer-generate

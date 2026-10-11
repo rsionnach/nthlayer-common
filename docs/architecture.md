@@ -52,7 +52,7 @@ src/nthlayer_common/
                          #     threshold_to_v2_entry, check_type_fields,
                          #     parse_bounds, is_duration, normalise_bins,
                          #     duration_seconds (package-internal except
-                         #     duration_seconds, re-exported)
+                         #     duration_seconds, which is re-exported)
 ```
 
 ## Subsystem references
