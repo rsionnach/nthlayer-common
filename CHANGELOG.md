@@ -22,24 +22,14 @@ Apache-2.0.
 * **manifest:** remove JUDGMENT_SLO_TYPES for the 3c vocabularies ([678ce6d](https://github.com/rsionnach/nthlayer-common/commit/678ce6df3d14dc4ce4f4380ec0a64bb6d44e5241))
 
 
-### Bug Fixes
+### Notes
 
-* **manifest:** accept integral bins and drop an unreachable check ([4899c2c](https://github.com/rsionnach/nthlayer-common/commit/4899c2c440f67e4f3a23f03ff14d695ad503e266))
-* **manifest:** convert millisecond durations with exact rounding ([ae59249](https://github.com/rsionnach/nthlayer-common/commit/ae5924971cde9892f9d24106dd5d40e4f54abe9e))
-* **manifest:** flag an incomplete calibration measurement in the fix-it hint ([2f0a20a](https://github.com/rsionnach/nthlayer-common/commit/2f0a20accc7f04796c2d3ef5f475f61b3b9962be))
-* **manifest:** keep the threshold field check free of side effects ([c67b7e1](https://github.com/rsionnach/nthlayer-common/commit/c67b7e1cd41bdde4e6ffaf518c0326d12a9b6e9c))
-* **manifest:** make the pre-3c fix-it hint a loadable threshold entry ([6cace62](https://github.com/rsionnach/nthlayer-common/commit/6cace622e49aeb61b258a3c10778affe26734658))
-* **manifest:** never crash on stray or mistyped threshold fields ([06fd6cc](https://github.com/rsionnach/nthlayer-common/commit/06fd6cc2530ec8058c9d474912061d47637efaa4))
-* **manifest:** reject pre-3c judgment placements with the threshold form ([f22e54a](https://github.com/rsionnach/nthlayer-common/commit/f22e54a2ae0669b3fd7ea52544e7d4d7a31840c8))
-* **manifest:** reject srm/v1 threshold keys the lift cannot carry ([3815fa2](https://github.com/rsionnach/nthlayer-common/commit/3815fa24a0316ddb67bf376fbc9a30c1a5b7c3b6))
-* **manifest:** report a huge integer bound as out of range ([42b1910](https://github.com/rsionnach/nthlayer-common/commit/42b19101ef5fbc9be0866202e565c1e97602c845))
-* **manifest:** report an unrepresentable duration as a value error ([619aa72](https://github.com/rsionnach/nthlayer-common/commit/619aa729a4d0504008d018b15ac02dffbbbba151))
-* **manifest:** report malformed threshold keys as parse errors ([b1de51e](https://github.com/rsionnach/nthlayer-common/commit/b1de51e6399facf72e9c7fe15c94ea59b695fedc))
-
-
-### Code Refactoring
-
-* **manifest:** remove pre-3c leftovers and unify threshold messages ([48e6fd0](https://github.com/rsionnach/nthlayer-common/commit/48e6fd02a10297af16377f741f177bdb02943b2d))
+* **manifest:** the judgment-threshold code above was hardened during review before
+  release: schema/parser agreement on malformed input, parse errors in place of raw
+  Python exceptions, a loadable fix-it entry for pre-3c manifests, exact millisecond
+  durations, and srm/v1 keys the lift cannot carry rejected rather than dropped. These
+  fix code that is new in 4.0.0; **no 3.x behaviour is affected.** See
+  [docs/upgrading-4.0.md](docs/upgrading-4.0.md).
 
 
 ### Documentation
