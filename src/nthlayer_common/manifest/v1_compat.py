@@ -26,7 +26,7 @@ import warnings
 from typing import Any
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
     ContractPromise,
     JudgmentMeasurement,
@@ -38,7 +38,6 @@ from nthlayer_common.manifest.models import (
 from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
     TargetConventionWarning,
-    converts_to_sli_floor,
     judgment_promise,
     judgment_target_ratio,
     require_number,
@@ -184,7 +183,7 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
       through :data:`SERVICE_TYPE_ALIASES`, and an absent value raises)
     - ``spec.slos.<name>`` (dict-of-dicts):
 
-      - judgment SLO names (one of :data:`JUDGMENT_SLO_TYPES`) →
+      - judgment SLO names (one of :data:`V2_JUDGMENT_SLO_TYPES`) →
         ``spec.judgment_slo`` entries with the type-specific target field.
       - threshold names (:data:`V2_JUDGMENT_THRESHOLD_TYPES`) →
         ``spec.judgment_threshold`` entries via ``thresholds.srm_v1_threshold``.
@@ -280,7 +279,7 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         # inside migrate_manifest_command, and handed direct callers an
         # invalid manifest with no error at all.
         # Names come from the entries actually routed, not from
-        # intersecting JUDGMENT_SLO_TYPES with the raw slos keys:
+        # intersecting V2_JUDGMENT_SLO_TYPES with the raw slos keys:
         # _convert_v1_slos skips entries whose value is not a dict, so
         # the intersection would name SLOs that were never routed.
         slo_names = ", ".join(
@@ -333,7 +332,7 @@ def _convert_v1_slos(
         if not isinstance(slo_def, dict):
             continue
 
-        if slo_name in JUDGMENT_SLO_TYPES:
+        if slo_name in V2_JUDGMENT_SLO_TYPES:
             judgment.append(_v1_slo_to_judgment(service_name, slo_name, slo_def))
         else:
             classical.append(_v1_slo_to_openslo(service_name, slo_name, slo_def))
@@ -425,13 +424,9 @@ def _v1_slo_to_judgment(
     # "loud enough to catch contributor mistakes; it never rejects". 0.985% is
     # a legal floor, just an implausible one, so rejecting it would be this
     # module deciding something the convention deliberately leaves open.
-    # ONLY for fields this converts. The error MAGNITUDES (segments, stability,
-    # calibration) legitimately live in (0, 1) — a Brier score of 0.2 is a
-    # perfectly ordinary value — and they pass through unconverted, so a
-    # sub-1 target is correct for them. The first version of this warning fired
-    # on `calibration: {target: 0.2}` in the repo's own suite, which is the same
-    # converted-vs-unconverted distinction this whole bead turns on.
-    if converts_to_sli_floor(target_field) and 0.0 < percent < 1.0:
+    # Only rate fields reach here (thresholds are routed away before this
+    # point), so every target in this function is converted.
+    if 0.0 < percent < 1.0:
         warnings.warn(
             f"v1 SLO '{slo_name}' on service '{service_name}' has "
             f"target={percent}, which looks like a ratio (0.0-1.0). v1 targets "

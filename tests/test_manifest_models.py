@@ -3,7 +3,6 @@
 import pytest
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
     SRM_V1_JUDGMENT_THRESHOLD_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
     BreachAction,
@@ -94,14 +93,14 @@ class TestSLODefinition:
         assert slo.good_query is not None
 
 
-class TestJudgmentSLOTypes:
-    def test_eight_standard_types(self):
-        assert len(JUDGMENT_SLO_TYPES) == 8
-        expected = {
-            "reversal_rate", "high_confidence_failure", "audit_sampling",
-            "outcomes", "escalation", "segments", "stability", "calibration",
-        }
-        assert JUDGMENT_SLO_TYPES == expected  # noqa: SIM300 — pytest convention: subject-under-test on left
+def test_the_pre_3c_vocabulary_is_gone():
+    """Removed without an alias in 4.0.0 (opensrm-l33e): a stale import must
+    fail at import time, not classify against the wrong list."""
+    import nthlayer_common.manifest as manifest_pkg
+    import nthlayer_common.manifest.models as models_mod
+
+    assert not hasattr(models_mod, "JUDGMENT_SLO_TYPES")
+    assert "JUDGMENT_SLO_TYPES" not in manifest_pkg.__all__
 
 
 # =============================================================================

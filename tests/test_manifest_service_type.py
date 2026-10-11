@@ -311,7 +311,7 @@ def test_v1_upconversion_rejects_judgment_slos_on_non_ai_gate():
     """v1 never enforced its own §11, so v1 manifests carrying this shape
     genuinely exist — they are exactly what migration encounters.
 
-    ``convert_v1_to_v2`` routes any SLO named in JUDGMENT_SLO_TYPES into
+    ``convert_v1_to_v2`` routes any SLO named in V2_JUDGMENT_SLO_TYPES into
     ``spec.judgment_slo`` regardless of the service's type, so a v1
     ``type: api`` service with a ``reversal_rate`` SLO produced a v2
     document that ServiceManifest.allOf rejects — and which failed its own

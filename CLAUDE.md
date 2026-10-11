@@ -36,11 +36,14 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
        package-internal but cross-module, so deliberately not
        re-exported (hard rule 3):
        - judgment polarity — `JUDGMENT_TARGET_FIELDS` (type → target
-         field), `TARGET_FIELD_IS_CEILING` (complement / scale / leave
-         alone), `converts_to_sli_floor()` (membership, i.e. "is this
+         field), `TARGET_FIELD_IS_CEILING` (complement / scale),
+         `converts_to_sli_floor()` (membership, i.e. "is this
          converted at all"), `judgment_target_percent()` [inbound],
          `judgment_target_ratio()` [outbound],
          `judgment_promise_direction()`, `judgment_promise()` [factory].
+       - thresholds — `manifest/thresholds.py` (bound tables,
+         `FORBIDDEN_THRESHOLD_KEYS`, `parse_bounds()`, `normalise_bins()`,
+         `srm_v1_threshold()`), also package-internal and not re-exported.
        - domain guards, used on the CLASSICAL writers too, not just
          judgment — `require_number()` (numeric or a string spelling
          one; raises ValueError where a bare `float()` raised an
@@ -53,9 +56,11 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          and taken as-is. Exactly one of the two, per OpenSLO.
      - Only the three MAXIMA complement (`reversal_rate`,
        `high_confidence_failure`, `escalation`). `outcomes` and
-       `audit_sampling` are already floors — scale only. Error
-       magnitudes (`segments`, `stability`, `calibration`) are left
-       unconverted pending decision 3c.
+       `audit_sampling` are already floors — scale only. Error magnitudes
+       are not SLO targets. They are `JudgmentThreshold` bounds
+       (`manifest/thresholds.py`, decision 3c, opensrm-l33e), stored as
+       declared and never converted, and they are not in
+       `SLODefinition.target` at all.
    - Load-time validator in `manifest/target_validation.py` flags
      targets in `(0, 1)` as likely ratio author errors via
      `TargetConventionWarning(UserWarning)`. Tests in

@@ -146,18 +146,6 @@ def is_valid_service_type(value: object) -> bool:
     )
 
 
-# 8 standard judgment SLO types (v2 spec §5.2)
-JUDGMENT_SLO_TYPES = {
-    "reversal_rate",
-    "high_confidence_failure",
-    "audit_sampling",
-    "outcomes",
-    "escalation",
-    "segments",
-    "stability",
-    "calibration",
-}
-
 # Decision 3c (opensrm-l33e) splits the judgment vocabulary in two. Both sets
 # are pinned against opensrm/spec/v2/schema.json in BOTH directions by
 # tests/test_judgment_thresholds_against_spec.py.
@@ -449,7 +437,7 @@ class SLODefinition:
     source_ref: str | None = None  # Original $ref path (OpenSLO)
 
     # Judgment SLO fields (None for classical SLOs)
-    judgment_type: str | None = None  # one of 8 JUDGMENT_SLO_TYPES
+    judgment_type: str | None = None  # one of V2_JUDGMENT_SLO_TYPES
     measurement: JudgmentMeasurement | None = None
     breach_actions: list[BreachAction] = field(default_factory=list)
     statistical_requirements: StatisticalRequirements | None = None
@@ -488,7 +476,7 @@ class JudgmentThreshold:
 class JudgmentPromise:
     """A single judgment-type promise within a reliability contract."""
 
-    judgment_type: str  # one of JUDGMENT_SLO_TYPES
+    judgment_type: str  # one of V2_JUDGMENT_SLO_TYPES
     threshold: float
     direction: Literal["above", "below"]  # "above" = value must stay above threshold
 

@@ -262,10 +262,9 @@ def judgment_promise_direction(field_name: str) -> str:
 
     MUST be derived from the same lookup as judgment_target_percent(), because
     the two answers have to describe the same space. Hardcoding either one is
-    how this bead produced a defect in each direction:
-
-    - hardcoded "below" put a 0-100 floor against a raw ratio, so any converted
-      target exceeded any threshold and every judgment SLO read as looser.
+    how this bead produced a defect: hardcoded "below" put a 0-100 floor
+    against a raw ratio, so any converted target exceeded any threshold and every
+    judgment SLO read as looser.
 
     Before decision 3c, unconverted error magnitudes compared 'below'; they are
     thresholds now and never reach this function.

@@ -15,7 +15,7 @@ import structlog
 import yaml
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
     AuditConfig,
     BudgetPolicy,
@@ -221,7 +221,7 @@ def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str
         return explicit
 
     # Check if this is a judgment SLO
-    if name in JUDGMENT_SLO_TYPES:
+    if name in V2_JUDGMENT_SLO_TYPES:
         return "availability"  # judgment SLOs track a rate metric; slo_type describes the indicator shape
 
     # Exact name match
@@ -305,7 +305,7 @@ def _parse_slos(
         measurement = None
         statistical_requirements = None
 
-        if name in JUDGMENT_SLO_TYPES:
+        if name in V2_JUDGMENT_SLO_TYPES:
             judgment_type = name
             window = config.get("window", "30d")
             measurement = default_measurement(judgment_type, window)

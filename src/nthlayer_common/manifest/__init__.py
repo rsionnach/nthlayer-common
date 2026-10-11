@@ -7,7 +7,6 @@ Public API:
 """
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
     SERVICE_TYPE_ALIASES,
     SRM_V1_JUDGMENT_THRESHOLD_TYPES,
     STANDARD_SLO_TYPES,
@@ -98,7 +97,6 @@ __all__ = [
     "OpenSRMParseError",
     "OpenSRMV2ParseError",
     # Constants
-    "JUDGMENT_SLO_TYPES",
     "V2_JUDGMENT_SLO_TYPES",
     "V2_JUDGMENT_THRESHOLD_TYPES",
     "SRM_V1_JUDGMENT_THRESHOLD_TYPES",
