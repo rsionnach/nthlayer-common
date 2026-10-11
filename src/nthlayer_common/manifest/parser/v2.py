@@ -384,6 +384,30 @@ def _resolve_backstage_ref(ref: str, expected_kind: str) -> str:
 # =============================================================================
 
 
+# Fields a departing type carries besides target (schema JudgmentThresholdSpec).
+_THRESHOLD_OWN_FIELDS: dict[str, tuple[str, ...]] = {
+    "segments": ("segment_dimension", "segment_values"),
+    "stability": ("probe",),
+    "calibration": ("measurement",),
+}
+
+
+def _render_threshold_block(entry: dict[str, Any]) -> str:
+    """Render a judgment_threshold block, indented as a message example.
+
+    yaml.safe_dump raises RepresenterError for values the dict API admits but
+    YAML does not (a Decimal); fall back to repr so only OpenSRMV2ParseError
+    ever leaves the caller.
+    """
+    try:
+        text = yaml.safe_dump(
+            {"judgment_threshold": [entry]}, default_flow_style=False, sort_keys=False
+        )
+    except yaml.YAMLError:
+        text = f"judgment_threshold:\n- {entry!r}\n"
+    return "".join(f"  {line}\n" for line in text.splitlines())
+
+
 def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
     """Fail a judgment_slo item that uses a placement decision 3c removed.
 
@@ -404,20 +428,38 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
     where = f"spec.judgment_slo[{index}]"
 
     if judgment_type in V2_JUDGMENT_THRESHOLD_TYPES:
-        bounds = yaml.safe_dump({"bounds": target}, default_flow_style=False, sort_keys=False)
+        # A loadable judgment_threshold entry: the type's own fields carry
+        # over (schema JudgmentThresholdSpec requires them), `target` becomes
+        # `bounds`, and measurement.method is dropped (the schema forbids it).
+        entry: dict[str, Any] = {"type": judgment_type}
+        for field in _THRESHOLD_OWN_FIELDS.get(judgment_type, ()):
+            if field not in body:
+                continue
+            value = body[field]
+            if field == "measurement" and isinstance(value, dict):
+                value = {k: v for k, v in value.items() if k != "method"}
+            entry[field] = value
+        entry["bounds"] = target
+        dropped = ""
+        if "breach_actions" in body or "service" in body:
+            dropped = (
+                "\n\n`breach_actions` and `service` do not carry over: "
+                "thresholds do not declare them."
+            )
         raise OpenSRMV2ParseError(
             f"{where}: '{judgment_type}' is not a judgment SLO in OpenSRM v2 "
             f"(decision 3c, opensrm-l33e) - it bounds an error magnitude and has "
             f"no error budget. Move it to spec.judgment_threshold, renaming "
             f"'target' to 'bounds':\n\n"
-            f"  judgment_threshold:\n"
-            f"    - type: {judgment_type}\n"
-            + "".join(f"      {line}\n" for line in bounds.splitlines())
+            + _render_threshold_block(entry)
+            + dropped
         )
     if judgment_type == "audit_sampling" and "audit_backlog_maximum_age" in target:
         raise OpenSRMV2ParseError(
             f"{where}: audit_backlog_maximum_age left audit_sampling's target in "
-            f"OpenSRM v2 (decision 3c, opensrm-l33e). Declare it as:\n\n"
+            f"OpenSRM v2 (decision 3c, opensrm-l33e). Only the backlog bound moves; "
+            f"audit_completion_rate stays in the audit_sampling target. "
+            f"Declare the backlog as:\n\n"
             f"  judgment_threshold:\n"
             f"    - type: audit_backlog\n"
             f"      bounds:\n"

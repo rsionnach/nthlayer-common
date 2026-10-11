@@ -9,6 +9,7 @@ so these tests are what keeps the rejection from depending on that bead.
 from __future__ import annotations
 
 import warnings
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -73,9 +74,72 @@ def test_audit_backlog_in_audit_sampling_target_shows_the_threshold_form(shape):
     )
     item = {"metadata": doc["metadata"], "spec": doc["spec"]} if shape == "wrapped" else doc["spec"]
 
-    with pytest.raises(OpenSRMV2ParseError, match="type: audit_backlog") as exc_info:
+    with pytest.raises(
+        OpenSRMV2ParseError,
+        match=r"audit_completion_rate stays in the audit_sampling target(?s:.*)type: audit_backlog",
+    ) as exc_info:
         parse_opensrm_v2(_manifest(judgment_slo=[item]))
     assert "maximum_age: 24h" in str(exc_info.value)
+
+
+def _suggested_entry(message: str) -> dict[str, Any]:
+    """The YAML block the error message offers, parsed back."""
+    block = message.split(":\n\n", 1)[1].split("\n\n", 1)[0]
+    return yaml.safe_load(block)["judgment_threshold"][0]
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "n20-segments-as-judgment-slo.yaml",
+        "n21-stability-as-judgment-slo.yaml",
+        "n22-calibration-as-judgment-slo.yaml",
+    ],
+)
+@pytest.mark.parametrize("shape", ["wrapped", "flat"])
+def test_suggested_threshold_entry_loads_unchanged(fixture, shape):
+    """Round trip: copying the fix-it block into judgment_threshold must load."""
+    doc = yaml.safe_load((INVALID_DIR / fixture).read_text(encoding="utf-8"))
+    item = {"metadata": doc["metadata"], "spec": doc["spec"]} if shape == "wrapped" else doc["spec"]
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
+
+    entry = _suggested_entry(str(exc_info.value))
+    manifest = parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+
+    assert [t.type for t in manifest.judgment_thresholds] == [doc["spec"]["judgment_type"]]
+    assert manifest.judgment_thresholds[0].bounds == doc["spec"]["target"]
+
+
+def test_suggested_calibration_entry_drops_measurement_method():
+    doc = yaml.safe_load(
+        (INVALID_DIR / "n22-calibration-as-judgment-slo.yaml").read_text(encoding="utf-8")
+    )
+    assert "method" in doc["spec"]["measurement"]
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2(_manifest(judgment_slo=[doc["spec"]]))
+    entry = _suggested_entry(str(exc_info.value))
+    assert "method" not in entry["measurement"]
+    assert entry["measurement"] == {"bins": 10, "window": "30d"}
+
+
+def test_message_says_breach_actions_and_service_do_not_carry_over():
+    doc = yaml.safe_load(
+        (INVALID_DIR / "n21-stability-as-judgment-slo.yaml").read_text(encoding="utf-8")
+    )
+    assert "service" in doc["spec"]
+    with pytest.raises(
+        OpenSRMV2ParseError,
+        match="`breach_actions` and `service` do not carry over: thresholds do not declare them",
+    ):
+        parse_opensrm_v2(_manifest(judgment_slo=[doc["spec"]]))
+
+
+def test_non_yaml_native_target_still_raises_only_the_parse_error():
+    """The dict API can pass values safe_dump refuses (RepresenterError)."""
+    item = {"judgment_type": "stability", "target": {"maximum_drift": Decimal("0.02")}}
+    with pytest.raises(OpenSRMV2ParseError, match="judgment_threshold"):
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
 
 
 @pytest.mark.parametrize(
