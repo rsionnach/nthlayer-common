@@ -4,6 +4,41 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [4.0.0](https://github.com/rsionnach/nthlayer-common/compare/v3.0.0...v4.0.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **manifest:** JUDGMENT_SLO_TYPES is removed. Use V2_JUDGMENT_SLO_TYPES for the five judgment SLO types and V2_JUDGMENT_THRESHOLD_TYPES for the five threshold types. segments, stability and calibration are no longer SLODefinitions; read ReliabilityManifest.judgment_thresholds. Contract promises on threshold or unknown judgment types are parse errors. See docs/upgrading-4.0.md.
+
+### Features
+
+* **manifest:** add judgment threshold bound validation ([45b31e9](https://github.com/rsionnach/nthlayer-common/commit/45b31e919666d4cb6c71da9b658dfcf3a9ee15d5))
+* **manifest:** give judgment thresholds their own measurement type ([d58a462](https://github.com/rsionnach/nthlayer-common/commit/d58a462c27dcb58619dcdc24f2b1c6957fc51863))
+* **manifest:** migrate srm/v1 thresholds to v2 judgment_threshold ([d1ac419](https://github.com/rsionnach/nthlayer-common/commit/d1ac419d3794d39ea7eeb6c7c56b9fdd4de93463))
+* **manifest:** model judgment thresholds apart from SLOs ([4e1dc3b](https://github.com/rsionnach/nthlayer-common/commit/4e1dc3b96a8c84fa40a8f2f7a913d17d6e23032b))
+* **manifest:** parse v2 judgment_threshold blocks ([19d1c5a](https://github.com/rsionnach/nthlayer-common/commit/19d1c5a03823d26d267e71db38dbfbace2a3e46f))
+* **manifest:** read srm/v1 calibration and feedback_latency as thresholds ([66761ed](https://github.com/rsionnach/nthlayer-common/commit/66761edafe464d5c8885ce34590dea99e8558418))
+* **manifest:** remove JUDGMENT_SLO_TYPES for the 3c vocabularies ([678ce6d](https://github.com/rsionnach/nthlayer-common/commit/678ce6df3d14dc4ce4f4380ec0a64bb6d44e5241))
+
+
+### Notes
+
+* **manifest:** the judgment-threshold code above was hardened during review before
+  release: schema/parser agreement on malformed input, parse errors in place of raw
+  Python exceptions, a loadable fix-it entry for pre-3c manifests, exact millisecond
+  durations, and srm/v1 keys the lift cannot carry rejected rather than dropped. These
+  fix code that is new in 4.0.0; **no 3.x behaviour is affected.** See
+  [docs/upgrading-4.0.md](docs/upgrading-4.0.md).
+
+
+### Documentation
+
+* **manifest:** say unset threshold measurement fields keep their defaults ([172ac23](https://github.com/rsionnach/nthlayer-common/commit/172ac232a63411d352a696b0719ae388f6bb6ce4))
+* **manifest:** separate evaluation guidance and flag the measurement type change ([f0cc2a4](https://github.com/rsionnach/nthlayer-common/commit/f0cc2a4dc61176b3a42923e07c29c5f1fd9149df))
+* **manifest:** show what JudgmentThreshold holds and what consumers change ([1fcdc11](https://github.com/rsionnach/nthlayer-common/commit/1fcdc11f6b4ec3263d59e5197887bacbf5348b67))
+* **manifest:** state the JudgmentThreshold type contract and invariant owner ([e8b3940](https://github.com/rsionnach/nthlayer-common/commit/e8b39409d6a74503b69f635a002397e5acdec365))
+
 ## [3.0.0](https://github.com/rsionnach/nthlayer-common/compare/v2.1.2...v3.0.0) (2026-10-02)
 
 
