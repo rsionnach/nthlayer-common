@@ -15,6 +15,7 @@ import jsonschema
 import pytest
 import yaml
 
+from nthlayer_common.manifest.models import ThresholdMeasurement
 from nthlayer_common.manifest.parser.v2 import (
     OpenSRMV2ParseError,
     parse_opensrm_v2,
@@ -223,13 +224,10 @@ _STRAY_VALUES = (None, "x", [1])
 
 def _assert_empty_measurement(threshold: Any) -> None:
     m = threshold.measurement
-    assert (m.source, m.confidence_threshold, m.bins, m.method, m.window, m.frequency) == (
-        None, None, None, None, None, None,
-    )
-    assert m.probe is None
-    assert m.sampling is None
-    assert m.segment_dimension is None
+    assert type(m) is ThresholdMeasurement
+    assert (m.bins, m.window, m.probe, m.segment_dimension) == (None, None, None, None)
     assert m.segment_values == []
+    assert m == ThresholdMeasurement()
 
 
 @pytest.mark.parametrize("value", _STRAY_VALUES, ids=repr)
@@ -259,9 +257,13 @@ def test_the_schema_accepts_stray_keys_on_a_type_that_does_not_use_them():
 def test_stability_carries_only_its_probe():
     entry = {**STABILITY, "measurement": "x", "sampling": "x", "segment_values": "abc"}
     [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
-    assert threshold.measurement.probe is not None
-    assert threshold.measurement.sampling is None
-    assert threshold.measurement.segment_values == []
+    m = threshold.measurement
+    assert type(m) is ThresholdMeasurement
+    assert m.probe is not None
+    # A stray `sampling` has nowhere to land: the type has no such field.
+    assert not hasattr(m, "sampling")
+    assert (m.bins, m.window, m.segment_dimension) == (None, None, None)
+    assert m.segment_values == []
 
 
 def test_forbidden_keys_were_derived():
@@ -436,3 +438,19 @@ def test_mixed_type_override_keys_raise_the_parser_error(tmp_path):
     )
     with pytest.raises(OpenSRMV2ParseError, match="only 'append'"):
         parse_opensrm_v2_file(path)
+
+
+ALL_FIVE_TYPES = SCHEMA_PATH.parent / "examples" / "judgment-thresholds" / "all-five-types.yaml"
+
+
+def test_every_parsed_threshold_carries_a_threshold_measurement():
+    """Read live from the spec: every type, not only those whose builder
+    branch a hand-written fixture happens to hit."""
+    declared = yaml.safe_load(ALL_FIVE_TYPES.read_text(encoding="utf-8"))
+    manifest = parse_opensrm_v2_file(ALL_FIVE_TYPES)
+
+    types = [t.type for t in manifest.judgment_thresholds]
+    assert types == [e["type"] for e in declared["spec"]["judgment_threshold"]]
+    assert len(set(types)) == 5, f"expected all five types, got {types}"
+    for threshold in manifest.judgment_thresholds:
+        assert type(threshold.measurement) is ThresholdMeasurement, threshold.type

@@ -19,6 +19,7 @@ from nthlayer_common.manifest.models import (
     SLODefinition,
     SourceFormat,
     StatisticalRequirements,
+    ThresholdMeasurement,
 )
 
 # =============================================================================
@@ -272,4 +273,25 @@ def test_manifest_carries_thresholds_separately_from_slos():
 
 def test_threshold_defaults_to_an_empty_measurement():
     threshold = JudgmentThreshold(type="audit_backlog", bounds={"maximum_age": "24h"})
-    assert threshold.measurement == JudgmentMeasurement()
+    assert threshold.measurement == ThresholdMeasurement()
+    assert type(threshold.measurement) is ThresholdMeasurement
+
+
+@pytest.mark.parametrize(
+    "slo_only_field", ["method", "frequency", "source", "sampling", "confidence_threshold"]
+)
+def test_threshold_measurement_has_no_slo_only_fields(slo_only_field):
+    """The trap ThresholdMeasurement exists to remove: on JudgmentMeasurement
+    these were always None for a threshold, so an evaluator reading
+    ``.frequency`` instead of ``.probe.frequency`` got None, not an error."""
+    assert not hasattr(ThresholdMeasurement(), slo_only_field)
+    assert slo_only_field not in ThresholdMeasurement.__dataclass_fields__
+    # Pins the premise: the judgment-SLO type still carries it.
+    assert slo_only_field in JudgmentMeasurement.__dataclass_fields__
+
+
+def test_threshold_measurement_is_exported_from_the_package():
+    from nthlayer_common import manifest
+
+    assert manifest.ThresholdMeasurement is ThresholdMeasurement
+    assert "ThresholdMeasurement" in manifest.__all__

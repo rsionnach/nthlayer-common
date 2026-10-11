@@ -355,6 +355,31 @@ class JudgmentMeasurement:
 
 
 @dataclass
+class ThresholdMeasurement:
+    """Type-specific measurement fields of a JudgmentThreshold (opensrm-l33e).
+
+    Which fields each threshold type sets (schema.json JudgmentThresholdSpec):
+
+    - calibration: ``bins`` and ``window``
+    - stability: ``probe`` (``frozen_input_set``, ``frequency``)
+    - segments: ``segment_dimension`` and ``segment_values``
+    - audit_backlog, feedback_latency: none; every field stays at its default
+
+    Deliberately omits JudgmentMeasurement's SLO-only fields (``source``,
+    ``confidence_threshold``, ``method``, ``frequency``, ``sampling``). On a
+    threshold they were always None, so an evaluator reading ``.frequency``
+    instead of ``.probe.frequency`` got a silent None. Here it is an
+    AttributeError.
+    """
+
+    bins: int | None = None
+    window: str | None = None
+    probe: ProbeConfig | None = None
+    segment_dimension: str | None = None
+    segment_values: list[str] = field(default_factory=list)
+
+
+@dataclass
 class BreachAction:
     """Structured breach action declaration (v2 spec §5.4).
 
@@ -459,14 +484,14 @@ class JudgmentThreshold:
     exactly as declared: floats for Ratio bounds, duration strings such as
     ``"24h"`` for Duration bounds. Validated by manifest/thresholds.py.
 
-    ``measurement`` reuses JudgmentMeasurement for the type-specific fields
-    (calibration bins/window, stability probe, segments dimension/values) so
-    consumers read them from the same place they did when these were SLOs.
+    ``measurement`` is a ThresholdMeasurement holding the type-specific
+    fields (calibration bins/window, stability probe, segments
+    dimension/values), not the judgment-SLO JudgmentMeasurement.
     """
 
     type: str  # one of V2_JUDGMENT_THRESHOLD_TYPES
     bounds: dict[str, float | str]
-    measurement: JudgmentMeasurement = field(default_factory=JudgmentMeasurement)
+    measurement: ThresholdMeasurement = field(default_factory=ThresholdMeasurement)
 
 
 # =============================================================================

@@ -18,6 +18,7 @@ from nthlayer_common.manifest.thresholds import (
     FORBIDDEN_THRESHOLD_KEYS,
     THRESHOLD_BOUNDS,
     check_type_fields,
+    duration_seconds,
     is_duration,
     normalise_bins,
     parse_bounds,
@@ -37,6 +38,38 @@ def test_is_duration_accepts_the_schema_pattern(value):
 def test_is_duration_rejects_what_the_schema_pattern_rejects(value):
     # schema: Duration = {type: string, pattern: ^[0-9]+(ms|s|m|h|d|w)$}
     assert not is_duration(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "seconds"),
+    [
+        ("1ms", 0.001),
+        ("30s", 30),
+        ("5m", 300),
+        ("24h", 86400),
+        ("30d", 2592000),
+        ("2w", 1209600),
+        ("0s", 0),
+    ],
+)
+def test_duration_seconds_converts_each_suffix(value, seconds):
+    result = duration_seconds(value)
+    assert isinstance(result, float)
+    assert result == pytest.approx(seconds)
+
+
+@pytest.mark.parametrize("value", ["24", "1.5h", 24, True, "24H", "", None, "²h"], ids=repr)
+def test_duration_seconds_rejects_what_is_duration_rejects(value):
+    assert not is_duration(value)
+    with pytest.raises(ValueError):
+        duration_seconds(value)
+
+
+def test_duration_seconds_is_exported_from_the_package():
+    from nthlayer_common import manifest
+
+    assert manifest.duration_seconds is duration_seconds
+    assert "duration_seconds" in manifest.__all__
 
 
 def test_parse_bounds_returns_declared_values_untouched():

@@ -45,6 +45,7 @@ from nthlayer_common.manifest.models import (
     SourceFormat,
     StatisticalRequirements,
     StratifiedSample,
+    ThresholdMeasurement,
     VolumeEstimate,
     resolve_service_type,
     valid_service_types_phrase,
@@ -634,7 +635,7 @@ def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThres
     )
 
 
-def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> JudgmentMeasurement:
+def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> ThresholdMeasurement:
     """Build a threshold's measurement from the keys its type uses, only.
 
     JudgmentThresholdSpec is open: ``measurement``, ``probe``, ``sampling`` and
@@ -648,25 +649,25 @@ def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> Judgmen
         m_data = data["measurement"]
         # check_type_fields accepted bins (integral float allowed) but never
         # rewrites it; the model carries an int.
-        return JudgmentMeasurement(
+        return ThresholdMeasurement(
             bins=normalise_bins(m_data["bins"]),
             window=m_data["window"],
         )
     if threshold_type == "stability":
         probe = data["probe"]
-        return JudgmentMeasurement(
+        return ThresholdMeasurement(
             probe=ProbeConfig(
                 frozen_input_set=probe["frozen_input_set"],
                 frequency=probe["frequency"],
             ),
         )
     if threshold_type == "segments":
-        return JudgmentMeasurement(
+        return ThresholdMeasurement(
             segment_dimension=data["segment_dimension"],
             segment_values=list(data["segment_values"]),
         )
     # audit_backlog, feedback_latency: bounds only.
-    return JudgmentMeasurement()
+    return ThresholdMeasurement()
 
 
 def _parse_breach_actions(actions_data: list[dict[str, Any]]) -> list[BreachAction]:

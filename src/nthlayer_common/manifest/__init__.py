@@ -61,6 +61,7 @@ from nthlayer_common.manifest.models import (
     StatisticalRequirements,
     StratifiedSample,
     TelemetryEvent,
+    ThresholdMeasurement,
     VolumeEstimate,
     is_valid_service_type,
     resolve_service_type,
@@ -85,6 +86,7 @@ from nthlayer_common.manifest.scan import (
     iter_manifest_files,
     scan_manifest_files,
 )
+from nthlayer_common.manifest.thresholds import duration_seconds
 
 __all__ = [
     # Loader
@@ -126,6 +128,8 @@ __all__ = [
     "SLODefinition",
     "JudgmentMeasurement",
     "JudgmentThreshold",
+    "ThresholdMeasurement",
+    "duration_seconds",
     "BreachAction",
     "StatisticalRequirements",
     "ProbeConfig",

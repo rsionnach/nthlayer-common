@@ -26,9 +26,12 @@ there: read `ReliabilityManifest.judgment_thresholds` instead.
 
 ## Evaluating a threshold
 
-A breach is the measured value exceeding ANY declared bound. Bounds are stored as
+A breach is the measured value exceeding ANY declared bound. Evaluate every entry,
+including several of the same type (CORE §5.5.6 E1): each entry is evaluated
+independently, and a breach of any bound of any entry is a breach. Bounds are stored as
 declared: Ratio bounds are floats in [0, 1], Duration bounds are strings such as
-"24h" (`<integer><ms|s|m|h|d|w>`). There is no complement and no 0-100 conversion.
+"24h" (`<integer><ms|s|m|h|d|w>`); `duration_seconds("24h")` returns `86400.0`.
+There is no complement and no 0-100 conversion.
 This parser does not evaluate anything. The evaluation rules (strictly-exceeds,
 units, not-evaluable, precedence) are OPENSRM-CORE-v2.md section 5.5.6 E1-E4, for
 evaluators such as nthlayer-workers.
@@ -63,6 +66,9 @@ opensrm-r78t). The ai-gate requirement applies to the resolved manifest.
 ## API
 
 - `JudgmentThreshold`
+- `ThresholdMeasurement`
+- `duration_seconds(value: str) -> float` (Duration string to seconds; raises
+  `ValueError` for anything that is not `<integer><ms|s|m|h|d|w>`)
 - `ReliabilityManifest.judgment_thresholds`
 - `get_judgment_thresholds()`
 - `V2_JUDGMENT_SLO_TYPES`
@@ -75,14 +81,14 @@ opensrm-r78t). The ai-gate requirement applies to the resolved manifest.
 |---|---|
 | `type` | One of `V2_JUDGMENT_THRESHOLD_TYPES`. |
 | `bounds` | Dict of bound name to value, stored as declared: a float for Ratio bounds, a duration string such as `"24h"` for Duration bounds. |
-| `measurement` | A `JudgmentMeasurement`. calibration: `bins` (int) and `window`. stability: `probe` (`frozen_input_set`, `frequency`). segments: `segment_dimension` and `segment_values`. Other types: empty (all fields at their defaults). |
+| `measurement` | A `ThresholdMeasurement`. calibration: `bins` (int) and `window`. stability: `probe` (`frozen_input_set`, `frequency`). segments: `segment_dimension` and `segment_values`. Other types: empty (all fields at their defaults). It is not a `JudgmentMeasurement`: it has no `source`, `confidence_threshold`, `method`, `frequency` or `sampling` (those are judgment-SLO fields), so a probe's frequency is `measurement.probe.frequency`. |
 
 Worked example. An srm/v1 `calibration: {target: 0.05, window: 30d}` becomes
-`JudgmentThreshold(type="calibration", bounds={"maximum_expected_calibration_error": 0.05}, measurement=JudgmentMeasurement(window="30d", bins=10))`.
+`JudgmentThreshold(type="calibration", bounds={"maximum_expected_calibration_error": 0.05}, measurement=ThresholdMeasurement(bins=10, window="30d"))`.
 The real repr from `parse_srm_v1` (unset fields shown as the parser leaves them):
 
 ```
-JudgmentThreshold(type='calibration', bounds={'maximum_expected_calibration_error': 0.05}, measurement=JudgmentMeasurement(source=None, confidence_threshold=None, bins=10, method=None, window='30d', frequency=None, probe=None, sampling=None, segment_dimension=None, segment_values=[]))
+JudgmentThreshold(type='calibration', bounds={'maximum_expected_calibration_error': 0.05}, measurement=ThresholdMeasurement(bins=10, window='30d', probe=None, segment_dimension=None, segment_values=[]))
 ```
 
 ## What consumers must change

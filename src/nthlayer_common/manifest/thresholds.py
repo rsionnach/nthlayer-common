@@ -2,12 +2,15 @@
 
 Not SLOs. A threshold has no population of good events, no complement and no
 error budget; a breach is the measured value exceeding a declared bound. So
-nothing here converts a bound: bounds are stored exactly as declared, which is
-the opposite of target_validation.py's job for judgment SLO targets. (The one
-coercion is normalise_bins(), which turns an integral float bins into an int.)
+the parsers never convert a v2 bound: bounds are stored exactly as declared,
+which is the opposite of target_validation.py's job for judgment SLO targets.
+The coercions are normalise_bins() (an integral float bins becomes an int) and
+srm_v1_threshold(), which builds a float ECE bound and a "<n>s" duration from
+srm/v1's bare numbers.
 
-This module also holds the srm/v1 lift (srm_v1_threshold) and the v2 emit
-(threshold_to_v2_entry).
+This module also holds the srm/v1 lift (srm_v1_threshold), the v2 emit
+(threshold_to_v2_entry), and duration_seconds(), which turns a Duration bound
+into seconds for evaluators.
 
 The tables restate opensrm/spec/v2/schema.json's JudgmentThresholdSpec so the
 parsers can enforce it without a JSON-Schema dependency. They are pinned against
@@ -17,7 +20,7 @@ these, or that test fails.
 
 Package-internal, cross-module (both parsers and v1_compat use it), and so not
 re-exported from manifest/__init__.py (hard rule 3), the same as
-target_validation.
+target_validation; except duration_seconds(), which is public and re-exported.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from nthlayer_common.manifest.models import JudgmentMeasurement, JudgmentThreshold
+from nthlayer_common.manifest.models import JudgmentThreshold, ThresholdMeasurement
 
 RATIO = "ratio"
 DURATION = "duration"
@@ -61,7 +64,16 @@ FORBIDDEN_THRESHOLD_KEYS: tuple[str, ...] = (
 _PROBE_FREQUENCIES = ("hourly", "daily", "weekly")
 
 # Longest suffix first: "5ms" must not be read as "5m" + a stray "s".
-_DURATION_UNITS = ("ms", "s", "m", "h", "d", "w")
+# Values are seconds per unit; dict order is the match order.
+_DURATION_SECONDS: dict[str, float] = {
+    "ms": 0.001,
+    "s": 1.0,
+    "m": 60.0,
+    "h": 3600.0,
+    "d": 86400.0,
+    "w": 604800.0,
+}
+_DURATION_UNITS = tuple(_DURATION_SECONDS)
 
 
 def is_duration(value: object) -> bool:
@@ -77,6 +89,23 @@ def is_duration(value: object) -> bool:
             digits = value[: -len(unit)]
             return digits.isascii() and digits.isdigit()
     return False
+
+
+def duration_seconds(value: str) -> float:
+    """Convert a Duration string such as ``"24h"`` to seconds, as a float.
+
+    Accepts exactly what is_duration accepts (``^[0-9]+(ms|s|m|h|d|w)$``) and
+    raises ValueError for anything else, including non-strings and bools. For
+    evaluators comparing a measured age or latency with a Duration bound.
+    """
+    if not is_duration(value):
+        raise ValueError(
+            f"not a duration such as '24h' (<integer><ms|s|m|h|d|w>): {value!r}"
+        )
+    for unit, seconds in _DURATION_SECONDS.items():
+        if value.endswith(unit):
+            return int(value[: -len(unit)]) * seconds
+    raise AssertionError(f"unreachable: is_duration accepted {value!r}")  # pragma: no cover
 
 
 def _ratio(name: str, value: object) -> float:
@@ -141,7 +170,7 @@ def normalise_bins(value: int | float) -> int:
 
     ``check_type_fields`` accepts an integral float (10.0) because the schema's
     ``type: integer`` does, but it never rewrites its input. Callers building a
-    JudgmentMeasurement from a validated entry must pass bins through this.
+    ThresholdMeasurement from a validated entry must pass bins through this.
     """
     return int(value)
 
@@ -261,7 +290,7 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
         return JudgmentThreshold(
             type="calibration",
             bounds={"maximum_expected_calibration_error": bound},
-            measurement=JudgmentMeasurement(window=window, bins=_SRM_V1_CALIBRATION_BINS),
+            measurement=ThresholdMeasurement(window=window, bins=_SRM_V1_CALIBRATION_BINS),
         )
     if name == "feedback_latency":
         # An integral float (3600.0) is a whole number of seconds, as for bins.

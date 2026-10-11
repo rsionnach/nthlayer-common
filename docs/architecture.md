@@ -47,9 +47,12 @@ src/nthlayer_common/
     manifest/            # Unified OpenSRM manifest parsing (v1, v2, OpenSLO, legacy)
                          #   + scan.py: walking a directory that holds
                          #     manifests alongside other YAML
-                         #   + thresholds.py: judgment-threshold bound tables and
-                         #     checks, normalise_bins, FORBIDDEN_THRESHOLD_KEYS
-                         #     (package-internal, not re-exported)
+                         #   + thresholds.py: judgment-threshold bound tables,
+                         #     FORBIDDEN_THRESHOLD_KEYS, srm_v1_threshold,
+                         #     threshold_to_v2_entry, check_type_fields,
+                         #     parse_bounds, is_duration, normalise_bins,
+                         #     duration_seconds (package-internal except
+                         #     duration_seconds, re-exported)
 ```
 
 ## Subsystem references
@@ -312,8 +315,9 @@ a fourth directory walk** — three existed before this was shared
   OpenSLO `$refs` resolved relative to manifest's directory.
 - Judgment thresholds (decision 3c, opensrm-l33e): segments, stability,
   calibration, audit_backlog and feedback_latency are error magnitudes, not
-  SLOs. They parse to `JudgmentThreshold` (`models.py`; reuses
-  `JudgmentMeasurement` for measurement/probe/segment fields) and land in
+  SLOs. They parse to `JudgmentThreshold` (`models.py`; its own
+  `ThresholdMeasurement` holds the measurement/probe/segment fields, not the
+  judgment-SLO `JudgmentMeasurement`) and land in
   `ReliabilityManifest.judgment_thresholds`, never in `slos`. Bounds are stored
   as declared, never converted. Vocabulary sets: `V2_JUDGMENT_SLO_TYPES` and
   `V2_JUDGMENT_THRESHOLD_TYPES`. See `docs/upgrading-4.0.md`.
