@@ -68,6 +68,22 @@ opensrm-r78t). The ai-gate requirement applies to the resolved manifest.
 - `V2_JUDGMENT_THRESHOLD_TYPES`
 - `SRM_V1_JUDGMENT_THRESHOLD_TYPES`
 
+### `JudgmentThreshold` fields
+
+| Field | Holds |
+|---|---|
+| `type` | One of `V2_JUDGMENT_THRESHOLD_TYPES`. |
+| `bounds` | Dict of bound name to value, stored as declared: a float for Ratio bounds, a duration string such as `"24h"` for Duration bounds. |
+| `measurement` | A `JudgmentMeasurement`. calibration: `bins` (int) and `window`. stability: `probe` (`frozen_input_set`, `frequency`). segments: `segment_dimension` and `segment_values`. Other types: empty (all fields unset). |
+
+Worked example. An srm/v1 `calibration: {target: 0.05, window: 30d}` becomes
+`JudgmentThreshold(type="calibration", bounds={"maximum_expected_calibration_error": 0.05}, measurement=JudgmentMeasurement(window="30d", bins=10))`.
+The real repr from `parse_srm_v1` (unset fields shown as the parser leaves them):
+
+```
+JudgmentThreshold(type='calibration', bounds={'maximum_expected_calibration_error': 0.05}, measurement=JudgmentMeasurement(source=None, confidence_threshold=None, bins=10, method=None, window='30d', frequency=None, probe=None, sampling=None, segment_dimension=None, segment_values=[]))
+```
+
 ## What consumers must change
 
 - Replace `JUDGMENT_SLO_TYPES` imports with `V2_JUDGMENT_SLO_TYPES` (SLOs) or
@@ -75,3 +91,9 @@ opensrm-r78t). The ai-gate requirement applies to the resolved manifest.
 - Read thresholds from `judgment_thresholds`, not `slos`.
 - Widen the nthlayer-common requirement to `>=4.0.0,<5.0.0`.
 - Evaluators implement OPENSRM-CORE-v2 §5.5.6 E1-E4.
+- Reconcile local copies of the old vocabulary. For example nthlayer-generate
+  `src/nthlayer_generate/specs/manifest.py` defines its own `JUDGMENT_SLO_TYPES`
+  (including calibration and feedback_latency), used at about line 267.
+- Grep consumers for `JUDGMENT_SLO_TYPES`, "eight judgment", and the departed type
+  names (`segments`, `stability`, `calibration`). For example nthlayer-workers
+  `measure/adapters/prometheus.py` carries comments about "the 8 JUDGMENT_SLO_TYPES".

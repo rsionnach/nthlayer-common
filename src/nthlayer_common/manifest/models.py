@@ -166,14 +166,13 @@ V2_JUDGMENT_THRESHOLD_TYPES: frozenset[str] = frozenset({
     "feedback_latency",
 })
 
-# The apiVersion srm/v1 names that become thresholds when parsed. srm/v1 writes
-# judgment types flat under spec.slos; its SLO names are V2_JUDGMENT_SLO_TYPES.
+# The judgment types srm/v1 can express as thresholds when parsed. srm/v1 writes
+# judgment types flat under spec.slos (its SLO names are V2_JUDGMENT_SLO_TYPES).
 # segments and stability are absent deliberately: their v2 forms need fields
 # (segment_dimension, probe) the flat format cannot express, so srm/v1 rejects
-# them (parser/v1.py).
-# Published for consumers that need the srm/v1 lift set. parser/v1.py routes on
-# V2_JUDGMENT_THRESHOLD_TYPES deliberately, so segments/stability/audit_backlog
-# hit their rejection instead of falling through.
+# them. Published for consumers that need the srm/v1 lift set; parser/v1.py
+# routes on V2_JUDGMENT_THRESHOLD_TYPES instead, so segments, stability and
+# audit_backlog reach their rejection rather than falling through.
 SRM_V1_JUDGMENT_THRESHOLD_TYPES: frozenset[str] = frozenset({
     "calibration",
     "feedback_latency",

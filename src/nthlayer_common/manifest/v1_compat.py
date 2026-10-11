@@ -10,7 +10,8 @@ values explicitly.
 
 Defaults:
   - Statistical requirements: 95% confidence intervals for all judgment types.
-    Method inferred from judgment_type.
+    Method inferred from judgment_type (currently hypothesis_test for every
+    judgment SLO type).
   - JudgmentMeasurement: source and method inferred from judgment_type.
   - Contract conversion: v1's flat Contract(availability, latency, judgment)
     becomes a single-element contracts list with name derived from service name.

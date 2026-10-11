@@ -2,8 +2,9 @@
 
 Not SLOs. A threshold has no population of good events, no complement and no
 error budget; a breach is the measured value exceeding a declared bound. So
-nothing here converts a value: bounds are stored exactly as declared, which is
-the opposite of target_validation.py's job for judgment SLO targets.
+nothing here converts a bound: bounds are stored exactly as declared, which is
+the opposite of target_validation.py's job for judgment SLO targets. (The one
+coercion is normalise_bins(), which turns an integral float bins into an int.)
 
 This module also holds the srm/v1 lift (srm_v1_threshold) and the v2 emit
 (threshold_to_v2_entry).
@@ -182,7 +183,8 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             raise ValueError("'measurement' must be a mapping")
         if "method" in measurement:
             raise ValueError(
-                "'measurement.method' is not part of a calibration threshold in OpenSRM v2 (OPENSRM-CORE-v2 §5.5); the declared "
+                "'measurement.method' is not part of a calibration threshold in "
+                "OpenSRM v2 (OPENSRM-CORE-v2 §5.5); the declared "
                 "bounds decide what is evaluated"
             )
         bins = measurement.get("bins")
