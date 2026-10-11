@@ -17,7 +17,12 @@ import yaml
 
 from nthlayer_common.manifest import load_manifest
 from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError, parse_opensrm_v2
-from nthlayer_common.manifest.target_validation import TargetConventionWarning
+from nthlayer_common.manifest.target_validation import (
+    TargetConventionWarning,
+    judgment_promise_direction,
+    judgment_target_percent,
+    judgment_target_ratio,
+)
 from nthlayer_common.manifest.v1_compat import convert_v1_contract
 
 INVALID_DIR = Path(__file__).resolve().parents[2] / "opensrm" / "spec" / "v2" / "tests" / "invalid"
@@ -132,6 +137,26 @@ def test_contract_promise_on_an_unknown_type_is_rejected():
     contract = {"name": "c", "promise": {"judgment": {"reversal_rat": 0.05}}}
     with pytest.raises(OpenSRMV2ParseError, match="reversal_rat"):
         parse_opensrm_v2(_manifest(contracts=[contract]))
+
+
+# The parser rejects magnitudes before these are reached, so only a direct call
+# exercises the removed passthrough. Field names are schema.json's
+# JudgmentThresholdSpec bound names, which were never SLO target fields.
+@pytest.mark.parametrize(
+    "field", ["maximum_drift", "maximum_variance_from_overall", "maximum_brier_score"]
+)
+@pytest.mark.parametrize(
+    "convert",
+    [
+        lambda f: judgment_target_percent(f, 0.05),
+        lambda f: judgment_target_ratio(f, 5.0),
+        judgment_promise_direction,
+    ],
+    ids=["percent", "ratio", "direction"],
+)
+def test_magnitude_fields_are_no_longer_passed_through(convert, field):
+    with pytest.raises(ValueError, match="not a judgment SLO target field"):
+        convert(field)
 
 
 def test_thresholds_never_trip_the_target_convention_warning(tmp_path):
