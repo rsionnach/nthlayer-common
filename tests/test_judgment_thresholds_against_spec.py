@@ -221,3 +221,19 @@ def test_threshold_examples_parse_to_the_declared_bounds(example: Path, tmp_path
     parsed = [(t.type, t.bounds) for t in manifest.judgment_thresholds]
     assert parsed == declared
     assert manifest.get_judgment_slos() == []
+
+    # The measurement fields too, against the file: bounds-only comparison let
+    # a hardcoded frequency/window survive, because every example uses the
+    # defaults.
+    for entry, threshold in zip(doc["spec"]["judgment_threshold"], manifest.judgment_thresholds):
+        m = threshold.measurement
+        if entry["type"] == "stability":
+            assert m.probe is not None
+            assert m.probe.frozen_input_set == entry["probe"]["frozen_input_set"]
+            assert m.probe.frequency == entry["probe"]["frequency"]
+        elif entry["type"] == "calibration":
+            assert m.bins == entry["measurement"]["bins"]
+            assert m.window == entry["measurement"]["window"]
+        elif entry["type"] == "segments":
+            assert m.segment_dimension == entry["segment_dimension"]
+            assert m.segment_values == entry["segment_values"]

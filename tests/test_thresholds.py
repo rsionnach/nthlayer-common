@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import math
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +20,7 @@ from nthlayer_common.manifest.thresholds import (
     is_duration,
     normalise_bins,
     parse_bounds,
+    threshold_to_v2_entry,
 )
 
 
@@ -102,6 +104,9 @@ def test_parse_bounds_rejects_an_unknown_type():
         ("calibration", {"measurement": {"bins": 10, "window": "30"}}, "window"),
         ("calibration", {"measurement": {"bins": 10, "window": "30d", "method": "brier_score"}}, "method"),
         ("segments", {"segment_dimension": "", "segment_values": ["a"]}, "segment_dimension"),
+        ("segments", {"segment_dimension": 5, "segment_values": ["a"]}, "segment_dimension"),
+        ("stability", {"probe": {"frequency": "daily"}}, "frozen_input_set"),
+        ("stability", {"probe": {"frozen_input_set": 5, "frequency": "daily"}}, "frozen_input_set"),
         ("segments", {"segment_dimension": "tier", "segment_values": ["a", ""]}, "segment_values"),
     ],
 )
@@ -172,3 +177,30 @@ def test_a_huge_integer_bound_is_a_range_error_not_an_overflow():
     an integer is always finite, so it must reach the [0, 1] check instead."""
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         parse_bounds("stability", {"maximum_drift": 10**400})
+
+
+# parents: [0]=tests/ [1]=nthlayer-common/ [2]=<ecosystem>/
+_ALL_FIVE = (
+    Path(__file__).resolve().parents[2]
+    / "opensrm" / "spec" / "v2" / "examples" / "judgment-thresholds" / "all-five-types.yaml"
+)
+
+
+def test_threshold_to_v2_entry_round_trips_all_five_types():
+    """The docstring claims it inverts the v2 parser for every type; callers
+    only reach calibration/feedback_latency, so check the rest directly."""
+    import yaml
+
+    from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
+
+    assert _ALL_FIVE.is_file(), f"spec example missing: {_ALL_FIVE}"
+    doc = yaml.safe_load(_ALL_FIVE.read_text(encoding="utf-8"))
+    originals = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
+    assert {t.type for t in originals} == set(THRESHOLD_BOUNDS_TYPES)
+
+    doc["spec"]["judgment_threshold"] = [threshold_to_v2_entry(t) for t in originals]
+    reparsed = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
+    assert reparsed == originals
+
+
+THRESHOLD_BOUNDS_TYPES = ("segments", "stability", "calibration", "audit_backlog", "feedback_latency")

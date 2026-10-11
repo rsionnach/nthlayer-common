@@ -77,6 +77,36 @@ def test_threshold_measurement_fields_are_carried():
     assert threshold.measurement.probe.frequency == "daily"
 
 
+def test_non_default_probe_frequency_and_calibration_window_are_carried():
+    """Every other fixture uses the defaults (daily / 30d), so a hardcoded
+    value would pass them. weekly and 7d are allowed by the schema's enum and
+    Duration pattern."""
+    stability = {**STABILITY, "probe": {"frozen_input_set": "s3://p.jsonl", "frequency": "weekly"}}
+    calibration = {
+        "type": "calibration",
+        "measurement": {"bins": 10, "window": "7d"},
+        "bounds": {"maximum_brier_score": 0.05},
+    }
+    parsed = parse_opensrm_v2(_manifest(judgment_threshold=[stability, calibration]))
+
+    by_type = {t.type: t for t in parsed.judgment_thresholds}
+    assert by_type["stability"].measurement.probe.frequency == "weekly"
+    assert by_type["calibration"].measurement.window == "7d"
+
+
+def test_scalar_judgment_slo_metadata_is_a_parse_error_not_an_attribute_error():
+    item = {
+        "metadata": "x",
+        "spec": {
+            "judgment_type": "reversal_rate",
+            "measurement": {"window": "7d"},
+            "target": {"maximum_reversal_rate": 0.05},
+        },
+    }
+    with pytest.raises(OpenSRMV2ParseError, match="metadata must be a mapping"):
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
+
+
 def test_segment_fields_are_carried():
     entry = {
         "type": "segments",
@@ -330,7 +360,7 @@ def test_override_replace_is_rejected(tmp_path):
         {"judgment_threshold": [STABILITY]},
         overrides={"judgment_threshold": {"replace": [AUDIT_BACKLOG]}},
     )
-    with pytest.raises(OpenSRMV2ParseError, match=r"judgment_threshold.*replace"):
+    with pytest.raises(OpenSRMV2ParseError, match=r"must not 'replace'.*MUST NOT remove or replace.*§5\.5"):
         parse_opensrm_v2_file(path)
 
 

@@ -109,3 +109,15 @@ def test_keys_the_lift_ignores_harmlessly_stay_accepted():
         "feedback_latency": {"target": 60, "window": "30d", "description": "d", "labels": {"a": "b"}},
     }))
     assert manifest.judgment_thresholds[0].bounds == {"maximum_p50": "60s"}
+
+
+def test_calibration_window_defaults_to_30d_when_absent():
+    manifest = parse_srm_v1(_srm_v1({"calibration": {"target": 0.05}}))
+    [threshold] = manifest.judgment_thresholds
+    assert threshold.measurement.window == "30d"
+
+
+@pytest.mark.parametrize("window", [30, "30 days"])
+def test_calibration_rejects_a_non_duration_window(window):
+    with pytest.raises(OpenSRMParseError, match="window"):
+        parse_srm_v1(_srm_v1({"calibration": {"target": 0.05, "window": window}}))
