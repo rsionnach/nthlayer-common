@@ -15,7 +15,6 @@ import structlog
 import yaml
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
     APIRef,
@@ -218,6 +217,7 @@ def parse_opensrm_v2(
                 f"spec.judgment_slo[{index}] must be a mapping, got "
                 f"{type(js_data).__name__}."
             )
+        _reject_pre_3c_placement(index, js_data)
         slos.append(_parse_judgment_slo(js_data))
 
     # Parse judgment thresholds (§5.5) - bounds on error magnitudes, decision
@@ -384,29 +384,78 @@ def _resolve_backstage_ref(ref: str, expected_kind: str) -> str:
 # =============================================================================
 
 
+def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
+    """Fail a judgment_slo item that uses a placement decision 3c removed.
+
+    Reads both item shapes - the wrapped JudgmentSLO document this parser
+    handles, and the schema's flat inline item (opensrm-a742) - so a manifest
+    written for nthlayer-common 3.x gets the fix-it error whichever shape it
+    used, instead of a KeyError or an unrelated 'missing metadata.name'.
+
+    Raises only OpenSRMV2ParseError; any other odd shape (a non-string
+    judgment_type, a scalar target or spec) falls through to
+    _parse_judgment_slo, which reports it.
+    """
+    body = js_data.get("spec") if isinstance(js_data.get("spec"), dict) else js_data
+    judgment_type = body.get("judgment_type")
+    if not isinstance(judgment_type, str):
+        return
+    target = body.get("target") if isinstance(body.get("target"), dict) else {}
+    where = f"spec.judgment_slo[{index}]"
+
+    if judgment_type in V2_JUDGMENT_THRESHOLD_TYPES:
+        bounds = yaml.safe_dump({"bounds": target}, default_flow_style=False, sort_keys=False)
+        raise OpenSRMV2ParseError(
+            f"{where}: '{judgment_type}' is not a judgment SLO in OpenSRM v2 "
+            f"(decision 3c, opensrm-l33e) - it bounds an error magnitude and has "
+            f"no error budget. Move it to spec.judgment_threshold, renaming "
+            f"'target' to 'bounds':\n\n"
+            f"  judgment_threshold:\n"
+            f"    - type: {judgment_type}\n"
+            + "".join(f"      {line}\n" for line in bounds.splitlines())
+        )
+    if judgment_type == "audit_sampling" and "audit_backlog_maximum_age" in target:
+        raise OpenSRMV2ParseError(
+            f"{where}: audit_backlog_maximum_age left audit_sampling's target in "
+            f"OpenSRM v2 (decision 3c, opensrm-l33e). Declare it as:\n\n"
+            f"  judgment_threshold:\n"
+            f"    - type: audit_backlog\n"
+            f"      bounds:\n"
+            f"        maximum_age: {target['audit_backlog_maximum_age']}\n"
+        )
+
+
 def _parse_judgment_slo(data: dict[str, Any]) -> SLODefinition:
     """Parse a v2 judgment SLO entry into SLODefinition.
 
-    Handles all 8 standard types from §5.2.
+    Handles the five standard types from §5.2.
     """
     js_spec = data.get("spec", {})
     js_metadata = data.get("metadata", {})
+    # Mapping guards: a scalar spec/metadata/target otherwise leaked
+    # AttributeError on `.get`, escaping every caller's except clause.
+    if not isinstance(js_metadata, dict):
+        raise OpenSRMV2ParseError("Judgment SLO metadata must be a mapping")
 
     name = js_metadata.get("name")
     if not name:
         raise OpenSRMV2ParseError("Judgment SLO missing metadata.name")
+    if not isinstance(js_spec, dict):
+        raise OpenSRMV2ParseError(f"Judgment SLO '{name}' spec must be a mapping")
 
     judgment_type = js_spec.get("judgment_type")
     if not judgment_type:
         raise OpenSRMV2ParseError(f"Judgment SLO '{name}' missing spec.judgment_type")
-    if judgment_type not in JUDGMENT_SLO_TYPES:
+    if not isinstance(judgment_type, str) or judgment_type not in V2_JUDGMENT_SLO_TYPES:
         raise OpenSRMV2ParseError(
             f"Unknown judgment_type '{judgment_type}' in '{name}'. "
-            f"Valid types: {', '.join(sorted(JUDGMENT_SLO_TYPES))}"
+            f"Valid types: {', '.join(sorted(V2_JUDGMENT_SLO_TYPES))}"
         )
 
     # Extract target value from type-specific target block
     target_data = js_spec.get("target", {})
+    if not isinstance(target_data, dict):
+        raise OpenSRMV2ParseError(f"Judgment SLO '{name}' target must be a mapping")
     target = _extract_judgment_target(judgment_type, target_data, name)
 
     # Measurement config

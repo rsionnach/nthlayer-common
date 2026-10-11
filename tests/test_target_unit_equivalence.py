@@ -227,31 +227,7 @@ def test_no_target_convention_warning_on_a_valid_v2_manifest(tmp_path):
             load_manifest(path, suppress_deprecation_warning=True)
 
 
-# --- out of scope: error magnitudes are untouched until 3c -----------------
-
-
-@pytest.mark.parametrize(
-    ("judgment_type", "target_block"),
-    [
-        ("segments", "maximum_variance_from_overall: 0.15"),
-        ("stability", "maximum_drift: 0.10"),
-        ("calibration", "maximum_brier_score: 0.20"),
-    ],
-)
-def test_error_magnitude_targets_are_left_alone(judgment_type, target_block, tmp_path):
-    """Deliberately unchanged by sections 1 and 2.
-
-    These leave the SLO concept under 3c and have no SLI-floor reading: there is
-    no complement of a drift or a Brier score. Converting them here would be
-    inventing semantics the spec does not define — the very thing that produced
-    this bead. They keep parsing as they do today, and keep warning, until 3c
-    is implemented.
-    """
-    manifest = parse_opensrm_v2(
-        _v2_judgment(judgment_type, target_block), base_dir=tmp_path
-    )
-    raw = float(target_block.split(":")[1])
-    assert _targets(manifest)[0] == pytest.approx(raw)
+# test_error_magnitude_targets_are_left_alone retired (opensrm-l33e): replaced by test_threshold_migration_errors.py::test_departing_type_under_judgment_slo_shows_the_threshold_form
 
 
 # --- contract validation must compare like with like -----------------------
@@ -292,23 +268,7 @@ spec:
         # backwards for floor types and never fired.
         ("outcomes", "desired_outcome_rate: 0.90", 0.95, True),
         ("outcomes", "desired_outcome_rate: 0.98", 0.95, False),
-        # ERROR MAGNITUDES — segments / stability / calibration. These are
-        # deliberately NOT converted (decision 3c takes them out of the SLO
-        # concept), so both sides stay in raw lower-is-better magnitude space
-        # and the promise is a CEILING, not a floor.
-        #
-        # This block is the regression test for a defect the FIX for the round-1
-        # CRITICAL introduced: making direction uniformly "above" read these
-        # unconverted magnitudes as floors and inverted them BOTH ways —
-        # measured, drift 0.02 against a 0.05 promise reported "looser" while
-        # 0.08 against 0.05 reported clean. The parametrise then covered only
-        # reversal_rate and outcomes, so nothing saw it.
-        ("stability", "maximum_drift: 0.02", 0.05, False),
-        ("stability", "maximum_drift: 0.08", 0.05, True),
-        ("segments", "maximum_variance_from_overall: 0.01", 0.03, False),
-        ("segments", "maximum_variance_from_overall: 0.04", 0.03, True),
-        ("calibration", "maximum_brier_score: 0.05", 0.10, False),
-        ("calibration", "maximum_brier_score: 0.15", 0.10, True),
+        # error-magnitude rows retired (opensrm-l33e): replaced by test_threshold_migration_errors.py::test_contract_promise_on_a_threshold_type_is_rejected
     ],
 )
 def test_contract_validation_compares_in_sli_floor_space(
@@ -589,54 +549,9 @@ def test_migration_does_not_warn_for_an_error_magnitude_in_zero_to_one():
     assert entry["bounds"] == {"maximum_expected_calibration_error": pytest.approx(0.2)}
 
 
-# Finiteness is checked for EVERY field; the [0, 1] range only for converted
-# ones. The first version of the guard combined them and ran both AFTER the
-# magnitude early-return, so the three error magnitudes kept laundering NaN:
-# measured, a stability target of .nan against a real promise gave
-# validate_contracts() -> [], a breach reporting CLEAN, on half the field set.
-@pytest.mark.parametrize(
-    ("judgment_type", "field"),
-    [
-        ("stability", "maximum_drift"),
-        ("segments", "maximum_variance_from_overall"),
-        ("calibration", "maximum_brier_score"),
-    ],
-)
-@pytest.mark.parametrize("bad", [".nan", ".inf", "-.inf"])
-def test_error_magnitudes_reject_non_finite_targets(judgment_type, field, bad, tmp_path):
-    doc = _v2_judgment(judgment_type, f"{field}: {bad}")
-
-    # match="finite", not a bare raises: _extract_judgment_target raises the
-    # SAME type for a MISSING target, so a typo in the field name above would
-    # otherwise go green while testing nothing.
-    with pytest.raises(OpenSRMV2ParseError, match="finite"):
-        parse_opensrm_v2(doc, base_dir=tmp_path)
-
-
-@pytest.mark.parametrize("bad", [".nan", ".inf", "-.inf"])
-def test_error_magnitude_promises_reject_non_finite(bad, tmp_path):
-    """The promise side too — a NaN THRESHOLD silenced the comparison just as
-    effectively as a NaN target."""
-    doc = _v2_with_contract("stability", "maximum_drift: 0.02", bad)
-
-    with pytest.raises(OpenSRMV2ParseError, match="finite"):
-        parse_opensrm_v2(doc, base_dir=tmp_path)
-
-
-@pytest.mark.parametrize("declared", ["0.2", "1.5", "12"])
-def test_error_magnitudes_stay_unranged(declared, tmp_path):
-    """The other half, and the reason finiteness had to be SEPARATED from range.
-
-    A Brier score or a drift bound is not a ratio, so magnitudes are
-    legitimately outside [0, 1]. Applying the range check to them would reject
-    valid manifests, and would also encode a taxonomy decision 3c is about to
-    change.
-    """
-    doc = _v2_judgment("stability", f"maximum_drift: {declared}")
-
-    manifest = parse_opensrm_v2(doc, base_dir=tmp_path)
-
-    assert manifest.slos[0].target == pytest.approx(float(declared))
+# test_error_magnitudes_reject_non_finite_targets retired (opensrm-l33e): replaced by test_thresholds.py::test_parse_bounds_rejects_what_the_schema_rejects (nan/inf rows)
+# test_error_magnitude_promises_reject_non_finite retired (opensrm-l33e): replaced by test_threshold_migration_errors.py::test_contract_promise_on_a_threshold_type_is_rejected
+# test_error_magnitudes_stay_unranged retired (opensrm-l33e): contradicted schema.json (maximum_drift is Ratio, maximum 1); replaced by test_thresholds.py::test_parse_bounds_rejects_what_the_schema_rejects
 
 
 # =============================================================================

@@ -384,8 +384,8 @@ class TestV2Parser:
             parse_opensrm_v2(data)
 
 
-# All 8 judgment SLO types declared in OPENSRM-CORE-v2 §5.2 (opensrm-b22.1
-# acceptance criterion: "All 8 judgment SLO types parseable"). Each type
+# All five judgment SLO types declared in OPENSRM-CORE-v2 §5.2 (opensrm-b22.1;
+# three of its original eight left the SLO concept in opensrm-l33e). Each type
 # has a distinct target field name; both parsers map them via
 # target_validation.JUDGMENT_TARGET_FIELDS. (Was _extract_judgment_target's
 # local target_fields dict, which opensrm-ocvu replaced with the shared map so
@@ -402,9 +402,6 @@ class TestV2Parser:
 # Three conversions, by polarity:
 #   MAXIMA  (1 - x) * 100   reversal_rate, high_confidence_failure, escalation
 #   FLOORS  x * 100         audit_sampling, outcomes
-#   PASS    unchanged       segments, stability, calibration — error
-#                           magnitudes, no SLI-floor reading; they leave the
-#                           SLO concept under decision 3c
 #
 # escalation 0.10 and outcomes 0.90 both land on 90.0 by DIFFERENT rules.
 # Applying the wrong one gives 10.0 for either, so the pair does not mask a
@@ -415,9 +412,8 @@ _JUDGMENT_TYPE_TARGETS = [
     ("audit_sampling", "audit_completion_rate", 0.95, 95.0),
     ("outcomes", "desired_outcome_rate", 0.90, 90.0),
     ("escalation", "maximum_escalation_rate", 0.10, 90.0),
-    ("segments", "maximum_variance_from_overall", 0.15, 0.15),
-    ("stability", "maximum_drift", 0.05, 0.05),
-    ("calibration", "maximum_brier_score", 0.20, 0.20),
+    # segments / stability / calibration rows retired (opensrm-l33e): replaced by
+    # test_threshold_migration_errors.py::test_departing_type_under_judgment_slo_shows_the_threshold_form
 ]
 
 
@@ -429,7 +425,7 @@ def test_v2_parser_handles_each_judgment_slo_type(
 ) -> None:
     """Every judgment_type in OPENSRM-CORE-v2 §5.2 parses via the v2 parser.
 
-    Pins opensrm-b22.1 acceptance: "All 8 judgment SLO types parseable".
+    All five judgment SLO types (opensrm-b22.1; three left the SLO concept in opensrm-l33e).
     Each type carries its own target field name; verifies the type survives the
     round-trip and that its target is converted to the canonical 0-100 SLI
     floor by the rule its polarity requires (opensrm-ocvu).
