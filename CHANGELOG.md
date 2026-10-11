@@ -4,6 +4,51 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [4.0.0](https://github.com/rsionnach/nthlayer-common/compare/v3.0.0...v4.0.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **manifest:** JUDGMENT_SLO_TYPES is removed. Use V2_JUDGMENT_SLO_TYPES for the five judgment SLO types and V2_JUDGMENT_THRESHOLD_TYPES for the five threshold types. segments, stability and calibration are no longer SLODefinitions; read ReliabilityManifest.judgment_thresholds. Contract promises on threshold or unknown judgment types are parse errors. See docs/upgrading-4.0.md.
+
+### Features
+
+* **manifest:** add judgment threshold bound validation ([45b31e9](https://github.com/rsionnach/nthlayer-common/commit/45b31e919666d4cb6c71da9b658dfcf3a9ee15d5))
+* **manifest:** give judgment thresholds their own measurement type ([d58a462](https://github.com/rsionnach/nthlayer-common/commit/d58a462c27dcb58619dcdc24f2b1c6957fc51863))
+* **manifest:** migrate srm/v1 thresholds to v2 judgment_threshold ([d1ac419](https://github.com/rsionnach/nthlayer-common/commit/d1ac419d3794d39ea7eeb6c7c56b9fdd4de93463))
+* **manifest:** model judgment thresholds apart from SLOs ([4e1dc3b](https://github.com/rsionnach/nthlayer-common/commit/4e1dc3b96a8c84fa40a8f2f7a913d17d6e23032b))
+* **manifest:** parse v2 judgment_threshold blocks ([19d1c5a](https://github.com/rsionnach/nthlayer-common/commit/19d1c5a03823d26d267e71db38dbfbace2a3e46f))
+* **manifest:** read srm/v1 calibration and feedback_latency as thresholds ([66761ed](https://github.com/rsionnach/nthlayer-common/commit/66761edafe464d5c8885ce34590dea99e8558418))
+* **manifest:** remove JUDGMENT_SLO_TYPES for the 3c vocabularies ([678ce6d](https://github.com/rsionnach/nthlayer-common/commit/678ce6df3d14dc4ce4f4380ec0a64bb6d44e5241))
+
+
+### Bug Fixes
+
+* **manifest:** accept integral bins and drop an unreachable check ([4899c2c](https://github.com/rsionnach/nthlayer-common/commit/4899c2c440f67e4f3a23f03ff14d695ad503e266))
+* **manifest:** convert millisecond durations with exact rounding ([ae59249](https://github.com/rsionnach/nthlayer-common/commit/ae5924971cde9892f9d24106dd5d40e4f54abe9e))
+* **manifest:** flag an incomplete calibration measurement in the fix-it hint ([2f0a20a](https://github.com/rsionnach/nthlayer-common/commit/2f0a20accc7f04796c2d3ef5f475f61b3b9962be))
+* **manifest:** keep the threshold field check free of side effects ([c67b7e1](https://github.com/rsionnach/nthlayer-common/commit/c67b7e1cd41bdde4e6ffaf518c0326d12a9b6e9c))
+* **manifest:** make the pre-3c fix-it hint a loadable threshold entry ([6cace62](https://github.com/rsionnach/nthlayer-common/commit/6cace622e49aeb61b258a3c10778affe26734658))
+* **manifest:** never crash on stray or mistyped threshold fields ([06fd6cc](https://github.com/rsionnach/nthlayer-common/commit/06fd6cc2530ec8058c9d474912061d47637efaa4))
+* **manifest:** reject pre-3c judgment placements with the threshold form ([f22e54a](https://github.com/rsionnach/nthlayer-common/commit/f22e54a2ae0669b3fd7ea52544e7d4d7a31840c8))
+* **manifest:** reject srm/v1 threshold keys the lift cannot carry ([3815fa2](https://github.com/rsionnach/nthlayer-common/commit/3815fa24a0316ddb67bf376fbc9a30c1a5b7c3b6))
+* **manifest:** report a huge integer bound as out of range ([42b1910](https://github.com/rsionnach/nthlayer-common/commit/42b19101ef5fbc9be0866202e565c1e97602c845))
+* **manifest:** report an unrepresentable duration as a value error ([619aa72](https://github.com/rsionnach/nthlayer-common/commit/619aa729a4d0504008d018b15ac02dffbbbba151))
+* **manifest:** report malformed threshold keys as parse errors ([b1de51e](https://github.com/rsionnach/nthlayer-common/commit/b1de51e6399facf72e9c7fe15c94ea59b695fedc))
+
+
+### Code Refactoring
+
+* **manifest:** remove pre-3c leftovers and unify threshold messages ([48e6fd0](https://github.com/rsionnach/nthlayer-common/commit/48e6fd02a10297af16377f741f177bdb02943b2d))
+
+
+### Documentation
+
+* **manifest:** say unset threshold measurement fields keep their defaults ([172ac23](https://github.com/rsionnach/nthlayer-common/commit/172ac232a63411d352a696b0719ae388f6bb6ce4))
+* **manifest:** separate evaluation guidance and flag the measurement type change ([f0cc2a4](https://github.com/rsionnach/nthlayer-common/commit/f0cc2a4dc61176b3a42923e07c29c5f1fd9149df))
+* **manifest:** show what JudgmentThreshold holds and what consumers change ([1fcdc11](https://github.com/rsionnach/nthlayer-common/commit/1fcdc11f6b4ec3263d59e5197887bacbf5348b67))
+* **manifest:** state the JudgmentThreshold type contract and invariant owner ([e8b3940](https://github.com/rsionnach/nthlayer-common/commit/e8b39409d6a74503b69f635a002397e5acdec365))
+
 ## [3.0.0](https://github.com/rsionnach/nthlayer-common/compare/v2.1.2...v3.0.0) (2026-10-02)
 
 
