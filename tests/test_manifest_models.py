@@ -3,7 +3,8 @@
 import pytest
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
+    SRM_V1_JUDGMENT_THRESHOLD_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     BreachAction,
     ContractPromise,
     Dependency,
@@ -11,12 +12,14 @@ from nthlayer_common.manifest.models import (
     FallbackDeclaration,
     JudgmentMeasurement,
     JudgmentPromise,
+    JudgmentThreshold,
     Ownership,
     ReliabilityContract,
     ReliabilityManifest,
     SLODefinition,
     SourceFormat,
     StatisticalRequirements,
+    ThresholdMeasurement,
 )
 
 # =============================================================================
@@ -91,14 +94,14 @@ class TestSLODefinition:
         assert slo.good_query is not None
 
 
-class TestJudgmentSLOTypes:
-    def test_eight_standard_types(self):
-        assert len(JUDGMENT_SLO_TYPES) == 8
-        expected = {
-            "reversal_rate", "high_confidence_failure", "audit_sampling",
-            "outcomes", "escalation", "segments", "stability", "calibration",
-        }
-        assert JUDGMENT_SLO_TYPES == expected  # noqa: SIM300 — pytest convention: subject-under-test on left
+def test_the_pre_3c_vocabulary_is_gone():
+    """Removed without an alias in 4.0.0 (opensrm-l33e): a stale import must
+    fail at import time, not classify against the wrong list."""
+    import nthlayer_common.manifest as manifest_pkg
+    import nthlayer_common.manifest.models as models_mod
+
+    assert not hasattr(models_mod, "JUDGMENT_SLO_TYPES")
+    assert "JUDGMENT_SLO_TYPES" not in manifest_pkg.__all__
 
 
 # =============================================================================
@@ -249,3 +252,54 @@ class TestOwnership:
         )
         assert o.group_ref is not None
         assert o.team == "payments-ml"
+
+
+def test_srm_v1_threshold_types_are_v2_threshold_types():
+    """srm/v1 lifts into v2's concept, so it may only name types v2 has."""
+    assert SRM_V1_JUDGMENT_THRESHOLD_TYPES <= V2_JUDGMENT_THRESHOLD_TYPES
+    assert frozenset({"calibration", "feedback_latency"}) == SRM_V1_JUDGMENT_THRESHOLD_TYPES
+
+
+def test_manifest_carries_thresholds_separately_from_slos():
+    threshold = JudgmentThreshold(type="stability", bounds={"maximum_drift": 0.02})
+    manifest = ReliabilityManifest(
+        name="svc", team="t", tier="critical", type="ai-gate",
+        judgment_thresholds=[threshold],
+    )
+    assert manifest.get_judgment_thresholds() == [threshold]
+    assert manifest.get_judgment_slos() == []
+    assert manifest.slos == []
+
+
+def test_threshold_defaults_to_an_empty_measurement():
+    threshold = JudgmentThreshold(type="audit_backlog", bounds={"maximum_age": "24h"})
+    assert threshold.measurement == ThresholdMeasurement()
+    assert type(threshold.measurement) is ThresholdMeasurement
+
+
+@pytest.mark.parametrize(
+    "slo_only_field", ["method", "frequency", "source", "sampling", "confidence_threshold"]
+)
+def test_threshold_measurement_has_no_slo_only_fields(slo_only_field):
+    """The trap ThresholdMeasurement exists to remove: on JudgmentMeasurement
+    these were always None for a threshold, so an evaluator reading
+    ``.frequency`` instead of ``.probe.frequency`` got None, not an error."""
+    assert not hasattr(ThresholdMeasurement(), slo_only_field)
+    assert slo_only_field not in ThresholdMeasurement.__dataclass_fields__
+    # Pins the premise: the judgment-SLO type still carries it.
+    assert slo_only_field in JudgmentMeasurement.__dataclass_fields__
+
+
+def test_threshold_measurement_is_exported_from_the_package():
+    from nthlayer_common import manifest
+
+    assert manifest.ThresholdMeasurement is ThresholdMeasurement
+    assert "ThresholdMeasurement" in manifest.__all__
+
+
+def test_threshold_measurement_defaults_are_not_shared():
+    a = JudgmentThreshold(type="segments", bounds={"maximum_variance_from_overall": 0.05})
+    b = JudgmentThreshold(type="segments", bounds={"maximum_variance_from_overall": 0.05})
+    a.measurement.segment_values.append("x")
+    assert b.measurement.segment_values == []
+    assert a.measurement is not b.measurement

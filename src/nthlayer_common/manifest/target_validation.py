@@ -37,6 +37,7 @@ import math
 import warnings
 
 from nthlayer_common.manifest.models import (
+    V2_JUDGMENT_THRESHOLD_TYPES,
     JudgmentPromise,
     ReliabilityManifest,
     SLODefinition,
@@ -59,19 +60,15 @@ from nthlayer_common.manifest.models import (
 # if/then blocks. Contract promises are keyed by judgment TYPE while polarity is
 # a property of the FIELD, so the contract parsers need this indirection.
 #
-# `calibration` requires TWO fields (maximum_brier_score and
-# maximum_expected_calibration_error) and only the first is named here —
-# pre-existing, and resolved by decision 3c, which removes calibration from the
-# SLO concept altogether.
+# Five entries, one per judgment SLO type. The error magnitudes left the SLO
+# concept in decision 3c (opensrm-l33e) and are bounds now, see thresholds.py;
+# nothing here converts them.
 JUDGMENT_TARGET_FIELDS: dict[str, str] = {
     "reversal_rate": "maximum_reversal_rate",
     "high_confidence_failure": "maximum_failure_rate",
     "audit_sampling": "audit_completion_rate",
     "outcomes": "desired_outcome_rate",
     "escalation": "maximum_escalation_rate",
-    "segments": "maximum_variance_from_overall",
-    "stability": "maximum_drift",
-    "calibration": "maximum_brier_score",
 }
 
 # TWO SPACES, and the whole convention turns on telling them apart:
@@ -93,7 +90,9 @@ JUDGMENT_TARGET_FIELDS: dict[str, str] = {
 #
 #   True   declared value is a CEILING (a maximum bad rate) -> complement
 #   False  declared value is already a FLOOR                -> scale only
-#   ABSENT an error MAGNITUDE, left in its own space         -> untouched
+#
+# Every field this module sees is in TARGET_FIELD_IS_CEILING; anything else is
+# an error.
 #
 # Per decision section 2, only the three maxima complement. `outcomes` and
 # `audit_sampling` are floors: complementing them would invert the constraint
@@ -118,8 +117,7 @@ TARGET_FIELD_IS_CEILING: dict[str, bool] = {
 def converts_to_sli_floor(field_name: str) -> bool:
     """Whether this module converts *field_name* into SLI-floor space at all.
 
-    Membership, not value: the three error magnitudes are absent from
-    TARGET_FIELD_IS_CEILING and stay in declared space.
+    Membership, not value.
     """
     return field_name in TARGET_FIELD_IS_CEILING
 
@@ -155,21 +153,9 @@ def require_number(field_name: str, value: object, *, what: str) -> float:
 def check_finite(field_name: str, value: float, *, what: str) -> None:
     """No judgment value is ever legitimately NaN or infinite, in any space.
 
-    SEPARATE from the range check, and applied BEFORE the magnitude
-    early-return, because the two have different scopes. Error magnitudes are
-    legitimately UNRANGED — a Brier score or a drift bound is not a ratio — so
-    they cannot take the [0, 1] check. They are never legitimately non-finite.
-
-    The first version of this guard ran the combined check after the magnitude
-    early-return, so it covered the six converted fields and left
-    maximum_drift, maximum_variance_from_overall and maximum_brier_score
-    laundering NaN exactly as before. Measured on the unguarded half: a
-    stability target of .nan against a real promise gave
-    validate_contracts() -> [], a breach reporting CLEAN — the same worst
-    outcome the range check was added to stop, on half the field set.
-
-    Splitting the checks also means this needs NO decision about the magnitudes'
-    taxonomy, which 3c is about to change.
+    Finiteness is checked first and separately from range so the message
+    names the actual defect. (Error magnitudes, which motivated the split, are
+    thresholds since opensrm-l33e; thresholds.py checks theirs.)
     """
     if not math.isfinite(value):
         raise ValueError(
@@ -212,19 +198,18 @@ def _check_declared_ratio(field_name: str, value: float) -> None:
 def judgment_target_percent(field_name: str, value: object) -> float:
     """A judgment target as the canonical 0-100 SLI floor.
 
-    Fields absent from TARGET_FIELD_IS_CEILING pass through UNCHANGED rather
-    than being guessed at: a wrong conversion is indistinguishable from a right
-    one downstream, whereas an unconverted value still trips
-    TargetConventionWarning.
-
     Raises ValueError for a non-numeric value, and — for a field this module
     converts — for one outside the Ratio domain. See _check_declared_ratio.
     """
     numeric = require_number(field_name, value, what="target")
     check_finite(field_name, numeric, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
-    if is_ceiling is None:  # error magnitude — stays in declared space
-        return numeric
+    if is_ceiling is None:
+        raise ValueError(
+            f"'{field_name}' is not a judgment SLO target field; judgment error "
+            f"magnitudes are thresholds in OpenSRM v2 (OPENSRM-CORE-v2 §5.5) and are never "
+            f"converted"
+        )
     _check_declared_ratio(field_name, numeric)
     if is_ceiling:
         return (1.0 - numeric) * 100.0
@@ -246,15 +231,18 @@ def judgment_target_ratio(field_name: str, percent: float) -> float:
     The classical path has had its counterpart all along (_v1_slo_to_openslo
     divides by 100); only the judgment path lacked one.
 
-    Composes with judgment_target_percent() to the identity, for converted
-    fields and for untouched magnitudes alike. Not bit-exact — float round trips
-    differ by up to ~7e-15 for some values — but exact for every realistic SLI
-    floor, and nothing compares a target with ``==``.
+    Composes with judgment_target_percent() to the identity. Not bit-exact: float
+    round trips differ by up to ~7e-15 for some values, but it is exact for every
+    realistic SLI floor, and nothing compares a target with ``==``.
     """
     check_finite(field_name, percent, what="target")
     is_ceiling = TARGET_FIELD_IS_CEILING.get(field_name)
-    if is_ceiling is None:  # error magnitude — already in declared space
-        return percent
+    if is_ceiling is None:
+        raise ValueError(
+            f"'{field_name}' is not a judgment SLO target field; judgment error "
+            f"magnitudes are thresholds in OpenSRM v2 (OPENSRM-CORE-v2 §5.5) and are never "
+            f"converted"
+        )
     # Symmetric with the inbound check, and it catches the v1 manifest that
     # already wrote a RATIO where hard rule 1 wants a percentage: `target:
     # 0.985` complemented to 0.99015, which is a LEGAL Ratio and re-parsed to
@@ -274,21 +262,19 @@ def judgment_promise_direction(field_name: str) -> str:
 
     MUST be derived from the same lookup as judgment_target_percent(), because
     the two answers have to describe the same space. Hardcoding either one is
-    how this bead produced a defect in each direction:
+    how this bead produced a defect: hardcoded "below" put a 0-100 floor
+    against a raw ratio, so any converted target exceeded any threshold and every
+    judgment SLO read as looser.
 
-    - hardcoded "below" put a 0-100 floor against a raw ratio, so any converted
-      target exceeded any threshold and every judgment SLO read as looser.
-    - hardcoded "above" then inverted the three error MAGNITUDES, which
-      judgment_target_percent deliberately leaves unconverted — measured, a
-      stability SLO at 0.02 drift against a 0.05 promise reported "looser"
-      while 0.08 against 0.05 reported clean.
+    Before decision 3c, unconverted error magnitudes compared 'below'; they are
+    thresholds now and never reach this function.
 
     A field this module converts is in SLI-floor space, where higher is better,
-    so the promise is a FLOOR and the comparison is "above". A field it leaves
-    alone is a raw error magnitude, where lower is better, so the promise is a
-    CEILING and the comparison is "below".
+    so the promise is a FLOOR and the comparison is "above".
     """
-    return "above" if converts_to_sli_floor(field_name) else "below"
+    if not converts_to_sli_floor(field_name):
+        raise ValueError(f"'{field_name}' is not a judgment SLO target field")
+    return "above"
 
 
 def judgment_promise(judgment_type: str, declared: object) -> JudgmentPromise:
@@ -301,11 +287,21 @@ def judgment_promise(judgment_type: str, declared: object) -> JudgmentPromise:
     passthrough branch. Duplicating that in two modules is how they diverged in
     the first place.
 
-    An unknown judgment_type still yields a self-consistent pair: declared value
-    untouched, compared "below". Inert in practice, because validate_contracts()
-    finds no SLO for a type the parser could not read.
+    An unknown type or a threshold type is an error: either would produce a
+    promise no SLO can match, which validate_contracts() then silently never
+    reports.
     """
-    field = JUDGMENT_TARGET_FIELDS.get(judgment_type, "")
+    if judgment_type in V2_JUDGMENT_THRESHOLD_TYPES:
+        raise ValueError(
+            f"'{judgment_type}' is a judgment threshold, not an SLO; OpenSRM "
+            f"defines no contract promise for it (OPENSRM-CORE-v2 §5.5)"
+        )
+    field = JUDGMENT_TARGET_FIELDS.get(judgment_type)
+    if field is None:
+        raise ValueError(
+            f"unknown judgment type '{judgment_type}' in a contract promise; "
+            f"promisable types are {', '.join(sorted(JUDGMENT_TARGET_FIELDS))}"
+        )
     return JudgmentPromise(
         judgment_type=judgment_type,
         threshold=judgment_target_percent(field, declared),

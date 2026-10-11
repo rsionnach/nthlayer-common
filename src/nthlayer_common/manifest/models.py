@@ -146,17 +146,37 @@ def is_valid_service_type(value: object) -> bool:
     )
 
 
-# 8 standard judgment SLO types (v2 spec §5.2)
-JUDGMENT_SLO_TYPES = {
+# Decision 3c (opensrm-l33e) splits the judgment vocabulary in two. Both sets
+# are pinned against opensrm/spec/v2/schema.json in BOTH directions by
+# tests/test_judgment_thresholds_against_spec.py.
+V2_JUDGMENT_SLO_TYPES: frozenset[str] = frozenset({
     "reversal_rate",
     "high_confidence_failure",
     "audit_sampling",
     "outcomes",
     "escalation",
+})
+
+# Error magnitudes: bounds, not SLOs. See manifest/thresholds.py.
+V2_JUDGMENT_THRESHOLD_TYPES: frozenset[str] = frozenset({
     "segments",
     "stability",
     "calibration",
-}
+    "audit_backlog",
+    "feedback_latency",
+})
+
+# The judgment types srm/v1 can express as thresholds when parsed. srm/v1 writes
+# judgment types flat under spec.slos (its SLO names are V2_JUDGMENT_SLO_TYPES).
+# segments and stability are absent deliberately: their v2 forms need fields
+# (segment_dimension, probe) the flat format cannot express, so srm/v1 rejects
+# them. Published for consumers that need the srm/v1 lift set; parser/v1.py
+# routes on V2_JUDGMENT_THRESHOLD_TYPES instead, so segments, stability and
+# audit_backlog reach their rejection rather than falling through.
+SRM_V1_JUDGMENT_THRESHOLD_TYPES: frozenset[str] = frozenset({
+    "calibration",
+    "feedback_latency",
+})
 
 # Standard (classical) SLO types
 STANDARD_SLO_TYPES = {
@@ -335,6 +355,36 @@ class JudgmentMeasurement:
 
 
 @dataclass
+class ThresholdMeasurement:
+    """Type-specific measurement fields of a JudgmentThreshold (opensrm-l33e).
+
+    Which fields each threshold type sets (schema.json JudgmentThresholdSpec):
+
+    - calibration: ``bins`` and ``window``
+    - stability: ``probe`` (``frozen_input_set``, ``frequency``)
+    - segments: ``segment_dimension`` and ``segment_values``
+    - audit_backlog, feedback_latency: none; every field stays at its default
+
+    Deliberately omits JudgmentMeasurement's SLO-only fields (``source``,
+    ``confidence_threshold``, ``method``, ``frequency``, ``sampling``). On a
+    threshold they were always None, so an evaluator reading ``.frequency``
+    instead of ``.probe.frequency`` got a silent None. Here it is an
+    AttributeError.
+
+    Nothing here enforces which fields go with which type: the parsers are the
+    only invariant enforcer, so a hand-built instance can pair any fields.
+    ``window`` keeps the declared Duration string (so it round-trips);
+    convert it with ``duration_seconds()``.
+    """
+
+    bins: int | None = None
+    window: str | None = None
+    probe: ProbeConfig | None = None
+    segment_dimension: str | None = None
+    segment_values: list[str] = field(default_factory=list)
+
+
+@dataclass
 class BreachAction:
     """Structured breach action declaration (v2 spec §5.4).
 
@@ -419,7 +469,7 @@ class SLODefinition:
     source_ref: str | None = None  # Original $ref path (OpenSLO)
 
     # Judgment SLO fields (None for classical SLOs)
-    judgment_type: str | None = None  # one of 8 JUDGMENT_SLO_TYPES
+    judgment_type: str | None = None  # one of V2_JUDGMENT_SLO_TYPES
     measurement: JudgmentMeasurement | None = None
     breach_actions: list[BreachAction] = field(default_factory=list)
     statistical_requirements: StatisticalRequirements | None = None
@@ -427,6 +477,28 @@ class SLODefinition:
     def is_judgment_slo(self) -> bool:
         """Check if this is a judgment SLO. Only checks judgment_type."""
         return self.judgment_type is not None
+
+
+@dataclass
+class JudgmentThreshold:
+    """A bound on a judgment ERROR MAGNITUDE (decision 3c, opensrm-l33e).
+
+    Not an SLO, and deliberately not an SLODefinition: there is no target in
+    SLI-floor space, no error budget and no complement. A breach is the
+    measured value exceeding ANY declared bound. ``bounds`` holds the values
+    exactly as declared: floats for Ratio bounds, duration strings such as
+    ``"24h"`` for Duration bounds. Validated by manifest/thresholds.py.
+
+    ``measurement`` is a ThresholdMeasurement holding the type-specific
+    fields (calibration bins/window, stability probe, segments
+    dimension/values), not the judgment-SLO JudgmentMeasurement.
+    """
+
+    # A plain str by design, like every judgment_type in this module; the
+    # contract is membership in V2_JUDGMENT_THRESHOLD_TYPES.
+    type: str
+    bounds: dict[str, float | str]
+    measurement: ThresholdMeasurement = field(default_factory=ThresholdMeasurement)
 
 
 # =============================================================================
@@ -438,7 +510,7 @@ class SLODefinition:
 class JudgmentPromise:
     """A single judgment-type promise within a reliability contract."""
 
-    judgment_type: str  # one of JUDGMENT_SLO_TYPES
+    judgment_type: str  # one of V2_JUDGMENT_SLO_TYPES
     threshold: float
     direction: Literal["above", "below"]  # "above" = value must stay above threshold
 
@@ -866,6 +938,7 @@ class ReliabilityManifest:
     # Spec
     # ==========================================================================
     slos: list[SLODefinition] = field(default_factory=list)
+    judgment_thresholds: list[JudgmentThreshold] = field(default_factory=list)
     dependencies: list[Dependency] = field(default_factory=list)
     ownership: Ownership | None = None
     observability: Observability | None = None
@@ -954,6 +1027,10 @@ class ReliabilityManifest:
     def get_standard_slos(self) -> list[SLODefinition]:
         """Get all standard (non-judgment) SLOs."""
         return [s for s in self.slos if not s.is_judgment_slo()]
+
+    def get_judgment_thresholds(self) -> list[JudgmentThreshold]:
+        """Get all judgment thresholds (bounds on error magnitudes)."""
+        return list(self.judgment_thresholds)
 
     def validate_contracts(self) -> list[str]:
         """Validate that internal SLOs are tighter than external contracts."""

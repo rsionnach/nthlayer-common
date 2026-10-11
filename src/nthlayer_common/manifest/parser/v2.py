@@ -15,7 +15,8 @@ import structlog
 import yaml
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     APIRef,
     BreachAction,
     BreachSemantics,
@@ -28,6 +29,7 @@ from nthlayer_common.manifest.models import (
     FallbackDeclaration,
     Instrumentation,
     JudgmentMeasurement,
+    JudgmentThreshold,
     Outcomes,
     Ownership,
     ProbeConfig,
@@ -43,6 +45,7 @@ from nthlayer_common.manifest.models import (
     SourceFormat,
     StatisticalRequirements,
     StratifiedSample,
+    ThresholdMeasurement,
     VolumeEstimate,
     resolve_service_type,
     valid_service_types_phrase,
@@ -56,6 +59,12 @@ from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
     judgment_promise,
     judgment_target_percent,
+)
+from nthlayer_common.manifest.thresholds import (
+    THRESHOLD_REQUIRED_FIELDS,
+    check_type_fields,
+    normalise_bins,
+    parse_bounds,
 )
 
 logger = structlog.get_logger()
@@ -167,14 +176,17 @@ def parse_opensrm_v2(
     #
     # Presence, not truthiness: the schema's `judgment_slo: false` rejects
     # any value, so `judgment_slo: []` is invalid too.
-    if "judgment_slo" in spec and service_type != "ai-gate":
-        raise OpenSRMV2ParseError(
-            f"spec.judgment_slo is only permitted on an 'ai-gate' service, "
-            f"but spec.service.type is '{service_type}'. Judgment SLOs measure "
-            f"decision quality and are only meaningful on a decision-making "
-            f"service. Remove the judgment_slo block, or declare the service "
-            f"as an ai-gate if it does make decisions."
-        )
+    #
+    # judgment_threshold shares the rule (schema.json ServiceManifest.allOf, opensrm-l33e).
+    for judgment_key in ("judgment_slo", "judgment_threshold"):
+        if judgment_key in spec and service_type != "ai-gate":
+            raise OpenSRMV2ParseError(
+                f"spec.{judgment_key} is only permitted on an 'ai-gate' service, "
+                f"but spec.service.type is '{service_type}'. Judgment SLOs and "
+                f"thresholds measure decision quality and are only meaningful on "
+                f"a decision-making service. Remove the {judgment_key} block, or "
+                f"declare the service as an ai-gate if it does make decisions."
+            )
 
     # Parse classical SLOs (OpenSLO v1 documents)
     slos: list[SLODefinition] = []
@@ -207,7 +219,25 @@ def parse_opensrm_v2(
                 f"spec.judgment_slo[{index}] must be a mapping, got "
                 f"{type(js_data).__name__}."
             )
+        _reject_pre_3c_placement(index, js_data)
         slos.append(_parse_judgment_slo(js_data))
+
+    # Parse judgment thresholds (§5.5) - bounds on error magnitudes, decision
+    # 3c. Same list/element guards as judgment_slo above, for the same reason.
+    thresholds_block = spec.get("judgment_threshold", [])
+    if not isinstance(thresholds_block, list):
+        raise OpenSRMV2ParseError(
+            f"spec.judgment_threshold must be a list, got "
+            f"{type(thresholds_block).__name__}."
+        )
+    judgment_thresholds: list[JudgmentThreshold] = []
+    for index, th_data in enumerate(thresholds_block):
+        if not isinstance(th_data, dict):
+            raise OpenSRMV2ParseError(
+                f"spec.judgment_threshold[{index}] must be a mapping, got "
+                f"{type(th_data).__name__}."
+            )
+        judgment_thresholds.append(_parse_judgment_threshold(index, th_data))
 
     # Parse contracts (§6)
     contracts = _parse_contracts(spec.get("contracts", []))
@@ -241,6 +271,7 @@ def parse_opensrm_v2(
         labels=labels,
         annotations=metadata.get("annotations", {}),
         slos=slos,
+        judgment_thresholds=judgment_thresholds,
         dependencies=dependencies,
         ownership=ownership,
         observability=observability,
@@ -355,29 +386,127 @@ def _resolve_backstage_ref(ref: str, expected_kind: str) -> str:
 # =============================================================================
 
 
+# Fields a departing type carries besides target (schema JudgmentThresholdSpec),
+# derived from the thresholds table so there is one source.
+_THRESHOLD_OWN_FIELDS: dict[str, tuple[str, ...]] = {
+    t: fields for t, fields in THRESHOLD_REQUIRED_FIELDS.items() if fields
+}
+
+
+def _render_threshold_block(entry: dict[str, Any]) -> str:
+    """Render a judgment_threshold block, indented as a message example.
+
+    yaml.safe_dump raises RepresenterError for values the dict API admits but
+    YAML does not (a Decimal); fall back to repr so only OpenSRMV2ParseError
+    ever leaves the caller.
+    """
+    try:
+        text = yaml.safe_dump(
+            {"judgment_threshold": [entry]}, default_flow_style=False, sort_keys=False
+        )
+    except yaml.YAMLError:
+        text = f"judgment_threshold:\n- {entry!r}\n"
+    return "".join(f"  {line}\n" for line in text.splitlines())
+
+
+def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
+    """Fail a judgment_slo item that uses a placement decision 3c removed.
+
+    Reads both item shapes - the wrapped JudgmentSLO document this parser
+    handles, and the schema's flat inline item (opensrm-a742) - so a manifest
+    written for nthlayer-common 3.x gets the fix-it error whichever shape it
+    used, instead of a KeyError or an unrelated 'missing metadata.name'.
+
+    Raises only OpenSRMV2ParseError; any other odd shape (a non-string
+    judgment_type, a scalar target or spec) falls through to
+    _parse_judgment_slo, which reports it.
+    """
+    body = js_data.get("spec") if isinstance(js_data.get("spec"), dict) else js_data
+    judgment_type = body.get("judgment_type")
+    if not isinstance(judgment_type, str):
+        return
+    target = body.get("target") if isinstance(body.get("target"), dict) else {}
+    where = f"spec.judgment_slo[{index}]"
+
+    if judgment_type in V2_JUDGMENT_THRESHOLD_TYPES:
+        # A loadable judgment_threshold entry: the type's own fields carry
+        # over (schema JudgmentThresholdSpec requires them), `target` becomes
+        # `bounds`, and measurement.method is dropped (the schema forbids it).
+        entry: dict[str, Any] = {"type": judgment_type}
+        for field in _THRESHOLD_OWN_FIELDS.get(judgment_type, ()):
+            if field not in body:
+                continue
+            value = body[field]
+            if field == "measurement" and isinstance(value, dict):
+                value = {k: v for k, v in value.items() if k != "method"}
+            entry[field] = value
+        entry["bounds"] = target
+        dropped = ""
+        measurement = entry.get("measurement")
+        if judgment_type == "calibration" and not (
+            isinstance(measurement, dict) and "bins" in measurement and "window" in measurement
+        ):
+            dropped = (
+                "\n\nA calibration threshold requires `measurement` with `bins` "
+                "and `window`; add one."
+            )
+        if "breach_actions" in body or "service" in body:
+            dropped += (
+                "\n\n`breach_actions` and `service` do not carry over: "
+                "thresholds do not declare them."
+            )
+        raise OpenSRMV2ParseError(
+            f"{where}: '{judgment_type}' is not a judgment SLO in OpenSRM v2 "
+            f"(OPENSRM-CORE-v2 §5.5) - it bounds an error magnitude and has "
+            f"no error budget. Move it to spec.judgment_threshold, renaming "
+            f"'target' to 'bounds':\n\n"
+            + _render_threshold_block(entry)
+            + dropped
+        )
+    if judgment_type == "audit_sampling" and "audit_backlog_maximum_age" in target:
+        suggested = {
+            "type": "audit_backlog",
+            "bounds": {"maximum_age": target["audit_backlog_maximum_age"]},
+        }
+        raise OpenSRMV2ParseError(
+            f"{where}: audit_backlog_maximum_age left audit_sampling's target in "
+            f"OpenSRM v2 (OPENSRM-CORE-v2 §5.5). Only the backlog bound moves; "
+            f"audit_completion_rate stays in the audit_sampling target. "
+            f"Declare the backlog as:\n\n" + _render_threshold_block(suggested)
+        )
+
+
 def _parse_judgment_slo(data: dict[str, Any]) -> SLODefinition:
     """Parse a v2 judgment SLO entry into SLODefinition.
 
-    Handles all 8 standard types from §5.2.
+    Handles the five standard types from §5.2.
     """
     js_spec = data.get("spec", {})
     js_metadata = data.get("metadata", {})
+    # Mapping guards: a scalar spec/metadata/target otherwise leaked
+    # AttributeError on `.get`, escaping every caller's except clause.
+    if not isinstance(js_metadata, dict):
+        raise OpenSRMV2ParseError("Judgment SLO metadata must be a mapping")
 
     name = js_metadata.get("name")
     if not name:
         raise OpenSRMV2ParseError("Judgment SLO missing metadata.name")
+    if not isinstance(js_spec, dict):
+        raise OpenSRMV2ParseError(f"Judgment SLO '{name}' spec must be a mapping")
 
     judgment_type = js_spec.get("judgment_type")
     if not judgment_type:
         raise OpenSRMV2ParseError(f"Judgment SLO '{name}' missing spec.judgment_type")
-    if judgment_type not in JUDGMENT_SLO_TYPES:
+    if not isinstance(judgment_type, str) or judgment_type not in V2_JUDGMENT_SLO_TYPES:
         raise OpenSRMV2ParseError(
             f"Unknown judgment_type '{judgment_type}' in '{name}'. "
-            f"Valid types: {', '.join(sorted(JUDGMENT_SLO_TYPES))}"
+            f"Valid types: {', '.join(sorted(V2_JUDGMENT_SLO_TYPES))}"
         )
 
     # Extract target value from type-specific target block
     target_data = js_spec.get("target", {})
+    if not isinstance(target_data, dict):
+        raise OpenSRMV2ParseError(f"Judgment SLO '{name}' target must be a mapping")
     target = _extract_judgment_target(judgment_type, target_data, name)
 
     # Measurement config
@@ -453,14 +582,6 @@ def _parse_judgment_measurement(
         frequency=m_data.get("frequency"),
     )
 
-    # Probe config (stability type)
-    probe_data = spec.get("probe")
-    if probe_data:
-        measurement.probe = ProbeConfig(
-            frozen_input_set=probe_data.get("frozen_input_set", ""),
-            frequency=probe_data.get("frequency", "daily"),
-        )
-
     # Sampling config (audit_sampling type)
     sampling_data = spec.get("sampling")
     if sampling_data:
@@ -475,13 +596,78 @@ def _parse_judgment_measurement(
             stratified=stratified,
         )
 
-    # Segment config (segments type)
-    measurement.segment_dimension = spec.get("segment_dimension")
-    segment_values = spec.get("segment_values", [])
-    if segment_values:
-        measurement.segment_values = segment_values
-
+    # No probe/segment_* parsing: only the stability and segments thresholds
+    # use those keys, and they are parsed by _threshold_measurement.
     return measurement
+
+
+def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThreshold:
+    """Parse one flat ``spec.judgment_threshold`` entry (§5.5, opensrm-l33e)."""
+    where = f"spec.judgment_threshold[{index}]"
+    threshold_type = data.get("type")
+    # The schema's `type` is an enum of strings. Checked first: a list or
+    # mapping here would otherwise raise TypeError (unhashable) at the set
+    # membership tests below, escaping the loader's error handling.
+    if not isinstance(threshold_type, str):
+        raise OpenSRMV2ParseError(
+            f"{where}: 'type' must be one of "
+            f"{', '.join(sorted(V2_JUDGMENT_THRESHOLD_TYPES))}, got {threshold_type!r}."
+        )
+    if threshold_type in V2_JUDGMENT_SLO_TYPES:
+        raise OpenSRMV2ParseError(
+            f"{where}: '{threshold_type}' is a judgment SLO, not a threshold. "
+            f"Declare it under spec.judgment_slo."
+        )
+    if threshold_type not in V2_JUDGMENT_THRESHOLD_TYPES:
+        raise OpenSRMV2ParseError(
+            f"{where}: 'type' must be one of "
+            f"{', '.join(sorted(V2_JUDGMENT_THRESHOLD_TYPES))}, got {threshold_type!r}."
+        )
+    try:
+        check_type_fields(threshold_type, data)
+        bounds = parse_bounds(threshold_type, data.get("bounds"))
+    except ValueError as exc:
+        raise OpenSRMV2ParseError(f"{where} ({threshold_type}): {exc}") from exc
+    return JudgmentThreshold(
+        type=threshold_type,
+        bounds=bounds,
+        measurement=_threshold_measurement(threshold_type, data),
+    )
+
+
+def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> ThresholdMeasurement:
+    """Build a threshold's measurement from the keys its type uses, only.
+
+    JudgmentThresholdSpec is open: ``measurement``, ``probe``, ``sampling`` and
+    the ``segment_*`` keys are constrained only inside the branch of the type
+    that uses them, so on any other type the schema accepts any value for them.
+    Those keys are ignored here. The keys read are exactly the ones
+    ``check_type_fields`` has already validated for this type, which is why
+    this does not reuse ``_parse_judgment_measurement`` (the judgment_slo path).
+    """
+    if threshold_type == "calibration":
+        m_data = data["measurement"]
+        # check_type_fields accepted bins (integral float allowed) but never
+        # rewrites it; the model carries an int.
+        return ThresholdMeasurement(
+            bins=normalise_bins(m_data["bins"]),
+            window=m_data["window"],
+        )
+    if threshold_type == "stability":
+        probe = data["probe"]
+        return ThresholdMeasurement(
+            probe=ProbeConfig(
+                frozen_input_set=probe["frozen_input_set"],
+                frequency=probe["frequency"],
+            ),
+        )
+    if threshold_type == "segments":
+        return ThresholdMeasurement(
+            segment_dimension=data["segment_dimension"],
+            segment_values=list(data["segment_values"]),
+        )
+    # audit_backlog, feedback_latency: bounds only.
+    return ThresholdMeasurement()
 
 
 def _parse_breach_actions(actions_data: list[dict[str, Any]]) -> list[BreachAction]:
@@ -956,6 +1142,9 @@ def resolve_v2_template(
     return result
 
 
+_THRESHOLD_KEY = "judgment_threshold"
+
+
 def _merge_template_spec(
     template_spec: dict[str, Any],
     manifest_spec: dict[str, Any],
@@ -967,6 +1156,10 @@ def _merge_template_spec(
       - append: add items to a list
       - replace: replace a section entirely
       - (default): manifest values override template values
+
+    ``judgment_threshold`` is the exception (CORE §5.5): the resolved list is
+    the template's entries followed by the manifest's, and an override may
+    only append. A manifest cannot remove a threshold its template declares.
     """
     result = dict(template_spec)
 
@@ -975,7 +1168,9 @@ def _merge_template_spec(
         if key == "template":
             continue  # Skip template block itself
 
-        if key in result and isinstance(result[key], list) and isinstance(value, list):
+        if key == _THRESHOLD_KEY and key in result:
+            result[key] = _concatenate_thresholds(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
             # Lists: manifest replaces template by default
             result[key] = value
         elif key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -988,6 +1183,8 @@ def _merge_template_spec(
 
     # Apply explicit overrides
     for key, directive in overrides.items():
+        if key == _THRESHOLD_KEY:
+            _check_threshold_override(directive)
         if not isinstance(directive, dict):
             continue
 
@@ -1002,3 +1199,56 @@ def _merge_template_spec(
             result[key] = directive["replace"]
 
     return result
+
+
+def _concatenate_thresholds(template_value: Any, manifest_value: Any) -> list[Any]:
+    """Template entries followed by manifest entries (CORE §5.5).
+
+    Both sides must be lists. Any other list key lets a manifest value replace
+    the template's, so a manifest-side ``null`` here would silently discard
+    every template threshold before the parser's own list guard could see it.
+    """
+    for side, value in (("template", template_value), ("manifest", manifest_value)):
+        if not isinstance(value, list):
+            raise OpenSRMV2ParseError(
+                f"spec.judgment_threshold must be a list, got "
+                f"{type(value).__name__} in the {side}."
+            )
+    return template_value + manifest_value
+
+
+def _check_threshold_override(directive: Any) -> None:
+    """``overrides.judgment_threshold`` may only append (CORE §5.5).
+
+    Every other key ignores a directive it cannot act on; here an ignored
+    directive would drop thresholds the author declared, so each shape the
+    merger would not apply is an error instead.
+    """
+    if not isinstance(directive, dict):
+        hint = (
+            " Write `judgment_threshold: {append: [...]}`; the list form shown "
+            "in CORE §9 is not yet supported."
+            if isinstance(directive, list)
+            else ""
+        )
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides.judgment_threshold must be a mapping "
+            f"with an 'append' list, got {type(directive).__name__}.{hint}"
+        )
+    if "replace" in directive:
+        raise OpenSRMV2ParseError(
+            "spec.template.overrides.judgment_threshold must not 'replace': "
+            "an override MUST NOT remove or replace a template's thresholds "
+            "(OPENSRM-CORE-v2 §5.5). Use 'append' to add entries."
+        )
+    unknown = sorted(set(directive) - {"append"}, key=repr)
+    if unknown:
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides.judgment_threshold supports only "
+            f"'append', got {', '.join(map(repr, unknown))}."
+        )
+    if not isinstance(directive.get("append"), list):
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides.judgment_threshold 'append' must be a "
+            f"list, got {type(directive.get('append')).__name__}."
+        )

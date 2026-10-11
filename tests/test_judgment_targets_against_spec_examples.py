@@ -6,7 +6,7 @@ own green suite — there was no external authority either could be measured
 against, so both were free to be wrong in their own direction.
 
 ``opensrm/spec/v2/examples/judgment-slos/*.yaml`` is that authority. Every one
-of the eight judgment types has a worked example there with a declared target
+of the five judgment SLO types has a worked example there with a declared target
 value chosen by the spec, not by this implementation. Running the complement
 rule over them answers the question the other fixtures cannot: does the rule
 agree with something nobody here wrote?
@@ -50,7 +50,10 @@ JUDGMENT_EXAMPLES_DIR = (
 #
 #   three maxima        complement -> (1 - declared) * 100
 #   outcomes, audit     scale      -> declared * 100
-#   error magnitudes    untouched  -> declared
+#
+# The three error-magnitude examples left this directory in opensrm-l33e
+# (decision 3c); they are judgment THRESHOLDS now, pinned against the spec in
+# tests/test_judgment_thresholds_against_spec.py.
 #
 # Written as literals rather than computed, so a change to the converter cannot
 # quietly redefine what "correct" means here. If a spec example's declared value
@@ -61,9 +64,6 @@ EXPECTED_FLOORS: dict[str, float] = {
     "03-audit-sampling.yaml": 95.0,             # audit_completion_rate 0.95, SCALED
     "04-outcomes.yaml": 90.0,                   # desired_outcome_rate 0.9, SCALED
     "05-escalation.yaml": 85.0,                 # maximum_escalation_rate 0.15
-    "06-segments.yaml": 0.05,                   # maximum_variance..., UNTOUCHED
-    "07-stability.yaml": 0.02,                  # maximum_drift, UNTOUCHED
-    "08-calibration.yaml": 0.05,                # maximum_brier_score, UNTOUCHED
 }
 
 

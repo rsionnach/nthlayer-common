@@ -10,7 +10,8 @@ values explicitly.
 
 Defaults:
   - Statistical requirements: 95% confidence intervals for all judgment types.
-    Method inferred from judgment_type.
+    Method inferred from judgment_type (currently hypothesis_test for every
+    judgment SLO type).
   - JudgmentMeasurement: source and method inferred from judgment_type.
   - Contract conversion: v1's flat Contract(availability, latency, judgment)
     becomes a single-element contracts list with name derived from service name.
@@ -26,7 +27,8 @@ import warnings
 from typing import Any
 
 from nthlayer_common.manifest.models import (
-    JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     ContractPromise,
     JudgmentMeasurement,
     ReliabilityContract,
@@ -37,11 +39,11 @@ from nthlayer_common.manifest.models import (
 from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
     TargetConventionWarning,
-    converts_to_sli_floor,
     judgment_promise,
     judgment_target_ratio,
     require_number,
 )
+from nthlayer_common.manifest.thresholds import srm_v1_threshold, threshold_to_v2_entry
 
 # =============================================================================
 # Statistical Requirements Defaults
@@ -55,9 +57,6 @@ _JUDGMENT_METHOD: dict[str, str] = {
     "audit_sampling": "hypothesis_test",
     "outcomes": "hypothesis_test",
     "escalation": "hypothesis_test",
-    "segments": "hypothesis_test",
-    "stability": "hypothesis_test",
-    "calibration": "brier_score",
 }
 
 
@@ -66,8 +65,9 @@ def default_statistical_requirements(judgment_type: str) -> StatisticalRequireme
 
     Assumptions:
       - 95% confidence intervals (standard for SRE metrics)
-      - Method inferred from judgment_type: calibration → brier_score,
-        all others → hypothesis_test (appropriate for rate comparisons)
+      - Method is hypothesis_test for every judgment SLO type (appropriate
+        for rate comparisons). Calibration is a threshold, not an SLO; its
+        defaults live in thresholds.srm_v1_threshold.
       - No minimum_sample_size default — sample size requirements vary
         too much by use case to pick a safe default
     """
@@ -87,7 +87,6 @@ _JUDGMENT_SOURCE: dict[str, str] = {
     "reversal_rate": "lineage",
     "high_confidence_failure": "lineage",
     "outcomes": "downstream_signal",
-    "calibration": "calibration_sample",
 }
 
 
@@ -99,10 +98,10 @@ def default_measurement(judgment_type: str, window: str) -> JudgmentMeasurement:
         (verdict chain tracks reversals naturally)
       - outcomes: source is downstream_signal (outcomes are resolved
         by downstream feedback)
-      - calibration: source is calibration_sample, method is brier_score,
-        10 bins (standard calibration curve resolution)
-      - audit_sampling, escalation, segments, stability: no source default
-        (these require service-specific configuration)
+      - audit_sampling, escalation: no source default (these require
+        service-specific configuration)
+      - Calibration is a threshold, not an SLO; its srm/v1 defaults (10 bins)
+        live in thresholds.srm_v1_threshold.
       - window: carried from the SLO definition's window field
     """
     source = _JUDGMENT_SOURCE.get(judgment_type)
@@ -111,11 +110,6 @@ def default_measurement(judgment_type: str, window: str) -> JudgmentMeasurement:
         source=source,
         window=window,
     )
-
-    # Calibration gets additional defaults
-    if judgment_type == "calibration":
-        measurement.method = "brier_score"
-        measurement.bins = 10
 
     # High-confidence failure gets default threshold
     if judgment_type == "high_confidence_failure":
@@ -182,8 +176,10 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
       through :data:`SERVICE_TYPE_ALIASES`, and an absent value raises)
     - ``spec.slos.<name>`` (dict-of-dicts):
 
-      - judgment SLO names (one of :data:`JUDGMENT_SLO_TYPES`) →
+      - judgment SLO names (one of :data:`V2_JUDGMENT_SLO_TYPES`) →
         ``spec.judgment_slo`` entries with the type-specific target field.
+      - threshold names (:data:`V2_JUDGMENT_THRESHOLD_TYPES`) →
+        ``spec.judgment_threshold`` entries via ``thresholds.srm_v1_threshold``.
       - all other SLOs → ``spec.slo`` OpenSLO list using a thresholdMetric
         carrying the v1 ``indicator.query``. v1 percentage targets
         (e.g. ``99.9``) are normalised to OpenSLO ratio (``0.999``).
@@ -262,10 +258,12 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         v2_spec["owner"] = {"group": f"group:default/{team}"}
 
     # SLOs: split into classical (OpenSLO) + judgment lists
-    classical_slos, judgment_slos = _convert_v1_slos(name, spec.get("slos") or {})
+    classical_slos, judgment_slos, judgment_thresholds = _convert_v1_slos(
+        name, spec.get("slos") or {}
+    )
     if classical_slos:
         v2_spec["slo"] = classical_slos
-    if judgment_slos:
+    if (judgment_slos or judgment_thresholds) and service_type != "ai-gate":
         # v2 permits judgment_slo only on an ai-gate (ServiceManifest.allOf).
         # v1's shipped schema never enforced its own §11 equivalent, so v1
         # manifests pairing a non-ai-gate type with a judgment SLO really do
@@ -273,21 +271,27 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         # document anyway produced output that failed its own round-trip
         # inside migrate_manifest_command, and handed direct callers an
         # invalid manifest with no error at all.
-        if service_type != "ai-gate":
-            # Names come from the entries actually routed, not from
-            # intersecting JUDGMENT_SLO_TYPES with the raw slos keys:
-            # _convert_v1_slos skips entries whose value is not a dict, so
-            # the intersection would name SLOs that were never routed.
-            slo_names = ", ".join(
-                sorted(js["spec"]["judgment_type"] for js in judgment_slos)
+        # Names come from the entries actually routed, not from
+        # intersecting the judgment type sets with the raw slos keys: a
+        # non-dict judgment SLO entry is skipped by _convert_v1_slos, so the
+        # intersection would name SLOs that were never routed. (Thresholds are
+        # normalised, not skipped.)
+        slo_names = ", ".join(
+            sorted(
+                [js["spec"]["judgment_type"] for js in judgment_slos]
+                + [th["type"] for th in judgment_thresholds]
             )
-            raise ValueError(
-                f"v1 manifest '{name}' declares spec.type '{service_type}' but "
-                f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
-                f"only on an 'ai-gate' service. Either declare the service as "
-                f"an ai-gate, or remove the judgment SLOs before upconverting."
-            )
+        )
+        raise ValueError(
+            f"v1 manifest '{name}' declares spec.type '{service_type}' but "
+            f"defines judgment SLOs or thresholds ({slo_names}). v2 permits "
+            f"them only on an 'ai-gate' service. Either declare the service "
+            f"as an ai-gate, or remove them before upconverting."
+        )
+    if judgment_slos:
         v2_spec["judgment_slo"] = judgment_slos
+    if judgment_thresholds:
+        v2_spec["judgment_threshold"] = judgment_thresholds
 
     # Dependencies: name → component ref
     v1_deps = spec.get("dependencies") or []
@@ -304,21 +308,30 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
 
 def _convert_v1_slos(
     service_name: str, v1_slos: dict[str, Any]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split v1's flat slos dict into v2's (classical, judgment) lists."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split v1's flat slos dict into v2's (classical, judgment SLO, judgment threshold) lists."""
     classical: list[dict[str, Any]] = []
     judgment: list[dict[str, Any]] = []
+    thresholds: list[dict[str, Any]] = []
 
     for slo_name, slo_def in v1_slos.items():
+        if slo_name in V2_JUDGMENT_THRESHOLD_TYPES:
+            # srm/v1 lets `name: value` stand for `name: {target: value}`
+            # (parser/v1.py::_parse_slos); normalise so conversion never drops
+            # a threshold the direct parse keeps.
+            if not isinstance(slo_def, dict):
+                slo_def = {"target": slo_def}
+            thresholds.append(threshold_to_v2_entry(srm_v1_threshold(slo_name, slo_def)))
+            continue
         if not isinstance(slo_def, dict):
             continue
 
-        if slo_name in JUDGMENT_SLO_TYPES:
+        if slo_name in V2_JUDGMENT_SLO_TYPES:
             judgment.append(_v1_slo_to_judgment(service_name, slo_name, slo_def))
         else:
             classical.append(_v1_slo_to_openslo(service_name, slo_name, slo_def))
 
-    return classical, judgment
+    return classical, judgment, thresholds
 
 
 def _v1_slo_to_openslo(
@@ -405,13 +418,9 @@ def _v1_slo_to_judgment(
     # "loud enough to catch contributor mistakes; it never rejects". 0.985% is
     # a legal floor, just an implausible one, so rejecting it would be this
     # module deciding something the convention deliberately leaves open.
-    # ONLY for fields this converts. The error MAGNITUDES (segments, stability,
-    # calibration) legitimately live in (0, 1) — a Brier score of 0.2 is a
-    # perfectly ordinary value — and they pass through unconverted, so a
-    # sub-1 target is correct for them. The first version of this warning fired
-    # on `calibration: {target: 0.2}` in the repo's own suite, which is the same
-    # converted-vs-unconverted distinction this whole bead turns on.
-    if converts_to_sli_floor(target_field) and 0.0 < percent < 1.0:
+    # Only rate fields reach here (thresholds are routed away before this
+    # point), so every target in this function is converted.
+    if 0.0 < percent < 1.0:
         warnings.warn(
             f"v1 SLO '{slo_name}' on service '{service_name}' has "
             f"target={percent}, which looks like a ratio (0.0-1.0). v1 targets "
