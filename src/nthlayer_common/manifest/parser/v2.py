@@ -16,6 +16,8 @@ import yaml
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     APIRef,
     BreachAction,
     BreachSemantics,
@@ -28,6 +30,7 @@ from nthlayer_common.manifest.models import (
     FallbackDeclaration,
     Instrumentation,
     JudgmentMeasurement,
+    JudgmentThreshold,
     Outcomes,
     Ownership,
     ProbeConfig,
@@ -56,6 +59,11 @@ from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
     judgment_promise,
     judgment_target_percent,
+)
+from nthlayer_common.manifest.thresholds import (
+    check_type_fields,
+    normalise_bins,
+    parse_bounds,
 )
 
 logger = structlog.get_logger()
@@ -167,14 +175,17 @@ def parse_opensrm_v2(
     #
     # Presence, not truthiness: the schema's `judgment_slo: false` rejects
     # any value, so `judgment_slo: []` is invalid too.
-    if "judgment_slo" in spec and service_type != "ai-gate":
-        raise OpenSRMV2ParseError(
-            f"spec.judgment_slo is only permitted on an 'ai-gate' service, "
-            f"but spec.service.type is '{service_type}'. Judgment SLOs measure "
-            f"decision quality and are only meaningful on a decision-making "
-            f"service. Remove the judgment_slo block, or declare the service "
-            f"as an ai-gate if it does make decisions."
-        )
+    #
+    # judgment_threshold shares the rule (schema.json ServiceManifest.allOf, opensrm-l33e).
+    for judgment_key in ("judgment_slo", "judgment_threshold"):
+        if judgment_key in spec and service_type != "ai-gate":
+            raise OpenSRMV2ParseError(
+                f"spec.{judgment_key} is only permitted on an 'ai-gate' service, "
+                f"but spec.service.type is '{service_type}'. Judgment SLOs and "
+                f"thresholds measure decision quality and are only meaningful on "
+                f"a decision-making service. Remove the {judgment_key} block, or "
+                f"declare the service as an ai-gate if it does make decisions."
+            )
 
     # Parse classical SLOs (OpenSLO v1 documents)
     slos: list[SLODefinition] = []
@@ -209,6 +220,23 @@ def parse_opensrm_v2(
             )
         slos.append(_parse_judgment_slo(js_data))
 
+    # Parse judgment thresholds (§5.5) - bounds on error magnitudes, decision
+    # 3c. Same list/element guards as judgment_slo above, for the same reason.
+    thresholds_block = spec.get("judgment_threshold", [])
+    if not isinstance(thresholds_block, list):
+        raise OpenSRMV2ParseError(
+            f"spec.judgment_threshold must be a list, got "
+            f"{type(thresholds_block).__name__}."
+        )
+    judgment_thresholds: list[JudgmentThreshold] = []
+    for index, th_data in enumerate(thresholds_block):
+        if not isinstance(th_data, dict):
+            raise OpenSRMV2ParseError(
+                f"spec.judgment_threshold[{index}] must be a mapping, got "
+                f"{type(th_data).__name__}."
+            )
+        judgment_thresholds.append(_parse_judgment_threshold(index, th_data))
+
     # Parse contracts (§6)
     contracts = _parse_contracts(spec.get("contracts", []))
 
@@ -241,6 +269,7 @@ def parse_opensrm_v2(
         labels=labels,
         annotations=metadata.get("annotations", {}),
         slos=slos,
+        judgment_thresholds=judgment_thresholds,
         dependencies=dependencies,
         ownership=ownership,
         observability=observability,
@@ -482,6 +511,37 @@ def _parse_judgment_measurement(
         measurement.segment_values = segment_values
 
     return measurement
+
+
+def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThreshold:
+    """Parse one flat ``spec.judgment_threshold`` entry (§5.5, opensrm-l33e)."""
+    where = f"spec.judgment_threshold[{index}]"
+    threshold_type = data.get("type")
+    if threshold_type in V2_JUDGMENT_SLO_TYPES:
+        raise OpenSRMV2ParseError(
+            f"{where}: '{threshold_type}' is a judgment SLO, not a threshold. "
+            f"Declare it under spec.judgment_slo."
+        )
+    if threshold_type not in V2_JUDGMENT_THRESHOLD_TYPES:
+        raise OpenSRMV2ParseError(
+            f"{where}: 'type' must be one of "
+            f"{', '.join(sorted(V2_JUDGMENT_THRESHOLD_TYPES))}, got {threshold_type!r}."
+        )
+    try:
+        check_type_fields(threshold_type, data)
+        bounds = parse_bounds(threshold_type, data.get("bounds"))
+    except ValueError as exc:
+        raise OpenSRMV2ParseError(f"{where} ({threshold_type}): {exc}") from exc
+    measurement = _parse_judgment_measurement(threshold_type, data)
+    if threshold_type == "calibration":
+        # check_type_fields accepted bins (integral float allowed) but never
+        # rewrites it; the model carries an int.
+        measurement.bins = normalise_bins(data["measurement"]["bins"])
+    return JudgmentThreshold(
+        type=threshold_type,
+        bounds=bounds,
+        measurement=measurement,
+    )
 
 
 def _parse_breach_actions(actions_data: list[dict[str, Any]]) -> list[BreachAction]:
@@ -967,6 +1027,10 @@ def _merge_template_spec(
       - append: add items to a list
       - replace: replace a section entirely
       - (default): manifest values override template values
+
+    ``judgment_threshold`` is the exception (CORE §5.5): the resolved list is
+    the template's entries followed by the manifest's, and an override may
+    only append. A manifest cannot remove a threshold its template declares.
     """
     result = dict(template_spec)
 
@@ -975,7 +1039,9 @@ def _merge_template_spec(
         if key == "template":
             continue  # Skip template block itself
 
-        if key in result and isinstance(result[key], list) and isinstance(value, list):
+        if key == _THRESHOLD_KEY and key in result:
+            result[key] = _concatenate_thresholds(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
             # Lists: manifest replaces template by default
             result[key] = value
         elif key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -988,6 +1054,8 @@ def _merge_template_spec(
 
     # Apply explicit overrides
     for key, directive in overrides.items():
+        if key == _THRESHOLD_KEY:
+            _check_threshold_override(directive)
         if not isinstance(directive, dict):
             continue
 
@@ -1002,3 +1070,53 @@ def _merge_template_spec(
             result[key] = directive["replace"]
 
     return result
+
+
+_THRESHOLD_KEY = "judgment_threshold"
+
+
+def _concatenate_thresholds(template_value: Any, manifest_value: Any) -> list[Any]:
+    """Template entries followed by manifest entries (CORE §5.5).
+
+    Both sides must be lists. Any other list key lets a manifest value replace
+    the template's, so a manifest-side ``null`` here would silently discard
+    every template threshold before the parser's own list guard could see it.
+    """
+    for side, value in (("template", template_value), ("manifest", manifest_value)):
+        if not isinstance(value, list):
+            raise OpenSRMV2ParseError(
+                f"spec.judgment_threshold must be a list, got "
+                f"{type(value).__name__} in the {side}."
+            )
+    return template_value + manifest_value
+
+
+def _check_threshold_override(directive: Any) -> None:
+    """``overrides.judgment_threshold`` may only append (CORE §5.5).
+
+    Every other key ignores a directive it cannot act on; here an ignored
+    directive would drop thresholds the author declared, so each shape the
+    merger would not apply is an error instead.
+    """
+    if not isinstance(directive, dict):
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides.judgment_threshold must be a mapping "
+            f"with an 'append' list, got {type(directive).__name__}."
+        )
+    if "replace" in directive:
+        raise OpenSRMV2ParseError(
+            "spec.template.overrides.judgment_threshold must not 'replace': "
+            "an override MUST NOT remove or replace a template's thresholds "
+            "(OPENSRM-CORE-v2 §5.5). Use 'append' to add entries."
+        )
+    unknown = sorted(set(directive) - {"append"})
+    if unknown:
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides.judgment_threshold supports only "
+            f"'append', got {', '.join(map(repr, unknown))}."
+        )
+    if not isinstance(directive.get("append"), list):
+        raise OpenSRMV2ParseError(
+            f"spec.template.overrides.judgment_threshold 'append' must be a "
+            f"list, got {type(directive.get('append')).__name__}."
+        )

@@ -26,6 +26,7 @@ from nthlayer_common.manifest import (
     V2_JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
 )
+from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2, parse_opensrm_v2_file
 from nthlayer_common.manifest.thresholds import (
     DURATION,
     FORBIDDEN_THRESHOLD_KEYS,
@@ -120,8 +121,8 @@ def test_required_type_fields_match_the_schema():
     ids=lambda p: p.name,
 )
 def test_threshold_examples_validate_against_the_schema(example: Path):
-    """Half one of the seam; the parser half is in test_manifest_parser.py
-    (Task B3), over the same files."""
+    """Half one of the seam; the parser half is
+    test_threshold_examples_parse_to_the_declared_bounds, over the same files."""
     jsonschema.validate(yaml.safe_load(example.read_text(encoding="utf-8")), _schema())
 
 
@@ -170,3 +171,53 @@ def test_v2_judgment_vocabularies_match_the_schema_both_ways():
         defs["JudgmentThresholdSpec"]["properties"]["type"]["enum"]
     ) == V2_JUDGMENT_THRESHOLD_TYPES
     assert not V2_JUDGMENT_SLO_TYPES & V2_JUDGMENT_THRESHOLD_TYPES
+
+
+def _parse_example(example: Path, doc: dict[str, Any], tmp_path: Path):
+    """Parse an example the way its `kind` says it is consumed.
+
+    A ServiceManifest is parsed directly. A ServiceManifestTemplate is never a
+    manifest: it is copied, byte for byte, to where template resolution looks
+    for it and extended by a minimal ai-gate manifest that declares no
+    thresholds of its own, so the resolved list is exactly the template's.
+    """
+    kind = doc.get("kind")
+    if kind == "ServiceManifest":
+        return parse_opensrm_v2(doc, base_dir=example.parent)
+    if kind == "ServiceManifestTemplate":
+        name = doc["metadata"]["name"]
+        templates = tmp_path / "templates"
+        templates.mkdir()
+        (templates / f"{name}.yaml").write_bytes(example.read_bytes())
+        manifest = tmp_path / "extending.yaml"
+        manifest.write_text(yaml.safe_dump({
+            "apiVersion": "opensrm.nthlayer.io/v2",
+            "kind": "ServiceManifest",
+            "metadata": {"name": "extending", "labels": {"tier": "critical"}},
+            "spec": {
+                "owner": {"group": "group:default/team"},
+                "service": {"name": "extending", "type": "ai-gate"},
+                "template": {"extends": f"template:default/{name}"},
+            },
+        }))
+        return parse_opensrm_v2_file(manifest)
+    raise AssertionError(f"{example.name}: unhandled kind {kind!r}")
+
+
+@pytest.mark.parametrize(
+    "example",
+    sorted(THRESHOLD_EXAMPLES_DIR.glob("*.yaml")),
+    ids=lambda p: p.name,
+)
+def test_threshold_examples_parse_to_the_declared_bounds(example: Path, tmp_path: Path):
+    """Half two: the parser accepts the same bytes, and every declared bound
+    survives unchanged, compared against the file rather than a literal."""
+    doc = yaml.safe_load(example.read_text(encoding="utf-8"))
+
+    manifest = _parse_example(example, doc, tmp_path)
+
+    declared = [(t["type"], t["bounds"]) for t in doc["spec"]["judgment_threshold"]]
+    assert declared, f"{example.name} declares no thresholds"
+    parsed = [(t.type, t.bounds) for t in manifest.judgment_thresholds]
+    assert parsed == declared
+    assert manifest.get_judgment_slos() == []
