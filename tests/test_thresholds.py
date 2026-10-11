@@ -16,6 +16,7 @@ import pytest
 
 from nthlayer_common.manifest.thresholds import (
     FORBIDDEN_THRESHOLD_KEYS,
+    THRESHOLD_BOUNDS,
     check_type_fields,
     is_duration,
     normalise_bins,
@@ -196,11 +197,9 @@ def test_threshold_to_v2_entry_round_trips_all_five_types():
     assert _ALL_FIVE.is_file(), f"spec example missing: {_ALL_FIVE}"
     doc = yaml.safe_load(_ALL_FIVE.read_text(encoding="utf-8"))
     originals = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
-    assert {t.type for t in originals} == set(THRESHOLD_BOUNDS_TYPES)
+    assert {t.type for t in originals} == set(THRESHOLD_BOUNDS)
 
     doc["spec"]["judgment_threshold"] = [threshold_to_v2_entry(t) for t in originals]
     reparsed = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
     assert reparsed == originals
 
-
-THRESHOLD_BOUNDS_TYPES = ("segments", "stability", "calibration", "audit_backlog", "feedback_latency")

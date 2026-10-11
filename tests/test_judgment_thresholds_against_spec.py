@@ -225,7 +225,7 @@ def test_threshold_examples_parse_to_the_declared_bounds(example: Path, tmp_path
     # The measurement fields too, against the file: bounds-only comparison let
     # a hardcoded frequency/window survive, because every example uses the
     # defaults.
-    for entry, threshold in zip(doc["spec"]["judgment_threshold"], manifest.judgment_thresholds):
+    for entry, threshold in zip(doc["spec"]["judgment_threshold"], manifest.judgment_thresholds, strict=True):
         m = threshold.measurement
         if entry["type"] == "stability":
             assert m.probe is not None
