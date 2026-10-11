@@ -396,7 +396,7 @@ def test_v1_judgment_slo_error_names_only_routed_slos():
     """The message must name what was actually routed.
 
     _convert_v1_slos skips entries whose value is not a dict, so building
-    the list by intersecting JUDGMENT_SLO_TYPES with the raw slos keys named
+    the list by intersecting JUDGMENT_SLO_TYPES and V2_JUDGMENT_THRESHOLD_TYPES with the raw slos keys named
     SLOs that never reached spec.judgment_slo.
     """
     v1 = _v1_doc("api")

@@ -27,6 +27,7 @@ from typing import Any
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     ContractPromise,
     JudgmentMeasurement,
     ReliabilityContract,
@@ -42,6 +43,7 @@ from nthlayer_common.manifest.target_validation import (
     judgment_target_ratio,
     require_number,
 )
+from nthlayer_common.manifest.thresholds import srm_v1_threshold, threshold_to_v2_entry
 
 # =============================================================================
 # Statistical Requirements Defaults
@@ -184,6 +186,8 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
 
       - judgment SLO names (one of :data:`JUDGMENT_SLO_TYPES`) →
         ``spec.judgment_slo`` entries with the type-specific target field.
+      - threshold names (:data:`V2_JUDGMENT_THRESHOLD_TYPES`) →
+        ``spec.judgment_threshold`` entries via ``thresholds.srm_v1_threshold``.
       - all other SLOs → ``spec.slo`` OpenSLO list using a thresholdMetric
         carrying the v1 ``indicator.query``. v1 percentage targets
         (e.g. ``99.9``) are normalised to OpenSLO ratio (``0.999``).
@@ -262,10 +266,12 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         v2_spec["owner"] = {"group": f"group:default/{team}"}
 
     # SLOs: split into classical (OpenSLO) + judgment lists
-    classical_slos, judgment_slos = _convert_v1_slos(name, spec.get("slos") or {})
+    classical_slos, judgment_slos, judgment_thresholds = _convert_v1_slos(
+        name, spec.get("slos") or {}
+    )
     if classical_slos:
         v2_spec["slo"] = classical_slos
-    if judgment_slos:
+    if (judgment_slos or judgment_thresholds) and service_type != "ai-gate":
         # v2 permits judgment_slo only on an ai-gate (ServiceManifest.allOf).
         # v1's shipped schema never enforced its own §11 equivalent, so v1
         # manifests pairing a non-ai-gate type with a judgment SLO really do
@@ -273,21 +279,26 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
         # document anyway produced output that failed its own round-trip
         # inside migrate_manifest_command, and handed direct callers an
         # invalid manifest with no error at all.
-        if service_type != "ai-gate":
-            # Names come from the entries actually routed, not from
-            # intersecting JUDGMENT_SLO_TYPES with the raw slos keys:
-            # _convert_v1_slos skips entries whose value is not a dict, so
-            # the intersection would name SLOs that were never routed.
-            slo_names = ", ".join(
-                sorted(js["spec"]["judgment_type"] for js in judgment_slos)
+        # Names come from the entries actually routed, not from
+        # intersecting JUDGMENT_SLO_TYPES with the raw slos keys:
+        # _convert_v1_slos skips entries whose value is not a dict, so
+        # the intersection would name SLOs that were never routed.
+        slo_names = ", ".join(
+            sorted(
+                [js["spec"]["judgment_type"] for js in judgment_slos]
+                + [th["type"] for th in judgment_thresholds]
             )
-            raise ValueError(
-                f"v1 manifest '{name}' declares spec.type '{service_type}' but "
-                f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
-                f"only on an 'ai-gate' service. Either declare the service as "
-                f"an ai-gate, or remove the judgment SLOs before upconverting."
-            )
+        )
+        raise ValueError(
+            f"v1 manifest '{name}' declares spec.type '{service_type}' but "
+            f"defines judgment SLOs ({slo_names}). v2 permits judgment SLOs "
+            f"only on an 'ai-gate' service. Either declare the service as "
+            f"an ai-gate, or remove the judgment SLOs before upconverting."
+        )
+    if judgment_slos:
         v2_spec["judgment_slo"] = judgment_slos
+    if judgment_thresholds:
+        v2_spec["judgment_threshold"] = judgment_thresholds
 
     # Dependencies: name → component ref
     v1_deps = spec.get("dependencies") or []
@@ -304,12 +315,21 @@ def convert_v1_to_v2(v1_data: dict[str, Any]) -> dict[str, Any]:
 
 def _convert_v1_slos(
     service_name: str, v1_slos: dict[str, Any]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split v1's flat slos dict into v2's (classical, judgment) lists."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split v1's flat slos dict into v2's (classical, judgment SLO, judgment threshold) lists."""
     classical: list[dict[str, Any]] = []
     judgment: list[dict[str, Any]] = []
+    thresholds: list[dict[str, Any]] = []
 
     for slo_name, slo_def in v1_slos.items():
+        if slo_name in V2_JUDGMENT_THRESHOLD_TYPES:
+            # srm/v1 lets `name: value` stand for `name: {target: value}`
+            # (parser/v1.py::_parse_slos); normalise so conversion never drops
+            # a threshold the direct parse keeps.
+            if not isinstance(slo_def, dict):
+                slo_def = {"target": slo_def}
+            thresholds.append(threshold_to_v2_entry(srm_v1_threshold(slo_name, slo_def)))
+            continue
         if not isinstance(slo_def, dict):
             continue
 
@@ -318,7 +338,7 @@ def _convert_v1_slos(
         else:
             classical.append(_v1_slo_to_openslo(service_name, slo_name, slo_def))
 
-    return classical, judgment
+    return classical, judgment, thresholds
 
 
 def _v1_slo_to_openslo(

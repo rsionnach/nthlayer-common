@@ -233,3 +233,21 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
             )
         return JudgmentThreshold(type="feedback_latency", bounds={"maximum_p50": f"{target}s"})
     raise ValueError(f"'{name}' is not an srm/v1 judgment threshold")
+
+
+def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
+    """The flat ``spec.judgment_threshold`` entry for *threshold*.
+
+    Inverse of parser/v2.py::_parse_judgment_threshold for every type, so that
+    convert_v1_to_v2's output re-parses to an equal JudgmentThreshold.
+    """
+    entry: dict[str, Any] = {"type": threshold.type, "bounds": dict(threshold.bounds)}
+    m = threshold.measurement
+    if threshold.type == "calibration":
+        entry["measurement"] = {"bins": m.bins, "window": m.window}
+    elif threshold.type == "stability" and m.probe is not None:
+        entry["probe"] = {"frozen_input_set": m.probe.frozen_input_set, "frequency": m.probe.frequency}
+    elif threshold.type == "segments":
+        entry["segment_dimension"] = m.segment_dimension
+        entry["segment_values"] = list(m.segment_values)
+    return entry

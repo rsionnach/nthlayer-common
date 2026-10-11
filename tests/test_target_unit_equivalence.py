@@ -584,9 +584,9 @@ def test_migration_does_not_warn_for_an_error_magnitude_in_zero_to_one():
     assert not [
         w for w in caught if issubclass(w.category, TargetConventionWarning)
     ]
-    # and it is emitted unchanged, since magnitudes are not converted
-    target = v2["spec"]["judgment_slo"][0]["spec"]["target"]
-    assert target["maximum_brier_score"] == pytest.approx(0.2)
+    # and it is lifted to a threshold, never converted (opensrm-l33e)
+    [entry] = v2["spec"]["judgment_threshold"]
+    assert entry["bounds"] == {"maximum_expected_calibration_error": pytest.approx(0.2)}
 
 
 # Finiteness is checked for EVERY field; the [0, 1] range only for converted
