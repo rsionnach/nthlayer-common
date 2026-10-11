@@ -104,7 +104,7 @@ def parse_bounds(threshold_type: str, raw: object) -> dict[str, float | str]:
         raise ValueError(
             f"bounds must be a mapping, got {type(raw).__name__}: {raw!r}"
         )
-    unknown = sorted(set(raw) - set(kinds))
+    unknown = sorted(set(raw) - set(kinds), key=repr)
     if unknown:
         raise ValueError(
             f"bound(s) {', '.join(map(str, unknown))} do not belong to "
@@ -205,6 +205,12 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
     Shared by parser/v1.py and v1_compat.convert_v1_to_v2 so the two cannot
     map one srm/v1 entry to different thresholds. Raises ValueError.
     """
+    if name == "audit_backlog":
+        raise ValueError(
+            "srm/v1 cannot declare 'audit_backlog': it has no srm/v1 form. "
+            "Declare it in an opensrm.nthlayer.io/v2 manifest under "
+            "spec.judgment_threshold."
+        )
     if name in ("segments", "stability"):
         raise ValueError(
             f"srm/v1 cannot declare '{name}': its threshold form needs "

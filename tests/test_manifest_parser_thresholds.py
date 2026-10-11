@@ -177,6 +177,13 @@ def test_invalid_entries_raise_the_parser_error(entry, match):
         parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
 
 
+@pytest.mark.parametrize("bounds", [{1: "1h", "x": "2h"}, {None: "1h", "x": "2h"}], ids=["int-key", "null-key"])
+def test_mixed_type_bound_keys_raise_the_parser_error(bounds):
+    entry = {"type": "audit_backlog", "bounds": bounds}
+    with pytest.raises(OpenSRMV2ParseError):
+        parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+
+
 # JudgmentThresholdSpec is open: `measurement`, `probe`, `sampling` and the
 # segment_* keys are constrained only inside the allOf branch of the type that
 # uses them, so on any other type the schema accepts every value for them.
@@ -387,4 +394,15 @@ def test_threshold_override_directives_the_merger_would_ignore_are_rejected(tmp_
         overrides={"judgment_threshold": directive},
     )
     with pytest.raises(OpenSRMV2ParseError, match=match):
+        parse_opensrm_v2_file(path)
+
+
+def test_mixed_type_override_keys_raise_the_parser_error(tmp_path):
+    """YAML allows int mapping keys; sorting them with str keys is a TypeError."""
+    path = _write_pair(
+        tmp_path,
+        {"judgment_threshold": [STABILITY]},
+        overrides={"judgment_threshold": {"append": [], 1: 2, "b": 3}},
+    )
+    with pytest.raises(OpenSRMV2ParseError, match="only 'append'"):
         parse_opensrm_v2_file(path)

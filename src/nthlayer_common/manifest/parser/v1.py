@@ -108,14 +108,17 @@ def parse_srm_v1(
     contracts = []
     contract_data = spec.get("contract")
     if contract_data:
-        contracts.append(
-            convert_v1_contract(
-                service_name=name,
-                availability=contract_data.get("availability"),
-                latency=contract_data.get("latency"),
-                judgment=contract_data.get("judgment"),
+        try:
+            contracts.append(
+                convert_v1_contract(
+                    service_name=name,
+                    availability=contract_data.get("availability"),
+                    latency=contract_data.get("latency"),
+                    judgment=contract_data.get("judgment"),
+                )
             )
-        )
+        except ValueError as exc:
+            raise OpenSRMParseError(str(exc)) from exc
 
     # Alerting: store raw dict, nthlayer-generate post-processes
     alerting = spec.get("alerting")

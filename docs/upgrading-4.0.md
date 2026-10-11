@@ -1,9 +1,7 @@
 # Upgrading to nthlayer-common 4.0
 
 4.0 implements OpenSRM decision 3c (opensrm-l33e): judgment error magnitudes
-are no longer SLOs. This file exists because the generated `CHANGELOG.md` keeps
-only the first paragraph of a `BREAKING CHANGE:` footer; the footer links here
-for the rest.
+are no longer SLOs. The release notes link here for detail.
 
 ## What changed
 
@@ -39,8 +37,8 @@ evaluators such as nthlayer-workers.
 v2 manifests must move these entries from `judgment_slo` to `judgment_threshold`.
 The parser's error shows the replacement block. srm/v1 manifests need no change
 for `calibration` or `feedback_latency` (an srm/v1 `calibration` target reads as
-`maximum_expected_calibration_error`); srm/v1 `segments` and `stability` are
-now rejected and must be declared in a v2 manifest.
+`maximum_expected_calibration_error`); srm/v1 `segments`, `stability` and `audit_backlog`
+are now rejected and must be declared in a v2 manifest.
 
 ## Threshold entries
 

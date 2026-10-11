@@ -72,6 +72,13 @@ def test_parse_bounds_rejects_what_the_schema_rejects(threshold_type, raw, match
         parse_bounds(threshold_type, raw)
 
 
+@pytest.mark.parametrize("raw", [{1: "1h", "x": "2h"}, {None: "1h", "x": "2h"}], ids=["int-key", "null-key"])
+def test_parse_bounds_reports_mixed_type_keys_as_a_value_error(raw):
+    """YAML allows int/null mapping keys; sorting them with str keys is a TypeError."""
+    with pytest.raises(ValueError, match=r"do not belong to 'audit_backlog'"):
+        parse_bounds("audit_backlog", raw)
+
+
 def test_parse_bounds_rejects_an_unknown_type():
     with pytest.raises(ValueError, match="threshold type"):
         parse_bounds("reversal_rate", {"maximum_reversal_rate": 0.05})

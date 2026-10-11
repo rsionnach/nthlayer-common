@@ -195,6 +195,23 @@ def test_srm_v1_contract_promise_on_a_threshold_type_is_rejected():
         convert_v1_contract("svc", None, None, {"calibration": 0.1})
 
 
+def test_parse_srm_v1_reports_a_contract_promise_on_a_threshold_as_a_parse_error():
+    from nthlayer_common.manifest.parser.v1 import OpenSRMParseError, parse_srm_v1
+
+    doc = {
+        "apiVersion": "srm/v1",
+        "kind": "ServiceReliabilityManifest",
+        "metadata": {"name": "svc", "team": "t", "tier": "critical"},
+        "spec": {
+            "type": "ai-gate",
+            "slos": {},
+            "contract": {"judgment": {"calibration": 0.1}},
+        },
+    }
+    with pytest.raises(OpenSRMParseError, match="threshold"):
+        parse_srm_v1(doc)
+
+
 def test_contract_promise_on_an_unknown_type_is_rejected():
     """Was silently inert: a promise that matched no SLO, so
     validate_contracts() could never report it (spec 2.4, Review Focus 5)."""

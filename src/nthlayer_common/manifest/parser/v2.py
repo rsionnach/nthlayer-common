@@ -1244,7 +1244,7 @@ def _check_threshold_override(directive: Any) -> None:
             "an override MUST NOT remove or replace a template's thresholds "
             "(OPENSRM-CORE-v2 §5.5). Use 'append' to add entries."
         )
-    unknown = sorted(set(directive) - {"append"})
+    unknown = sorted(set(directive) - {"append"}, key=repr)
     if unknown:
         raise OpenSRMV2ParseError(
             f"spec.template.overrides.judgment_threshold supports only "

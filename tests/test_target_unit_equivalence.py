@@ -462,7 +462,7 @@ def test_non_numeric_promise_raises_a_declared_error(bad):
         },
     }
 
-    with pytest.raises(ValueError):
+    with pytest.raises(OpenSRMParseError):
         parse_srm_v1(doc)
 
 

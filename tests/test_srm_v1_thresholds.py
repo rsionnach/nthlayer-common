@@ -49,7 +49,7 @@ def test_rate_types_stay_judgment_slos():
     assert manifest.judgment_thresholds == []
 
 
-@pytest.mark.parametrize("name", ["segments", "stability"])
+@pytest.mark.parametrize("name", ["segments", "stability", "audit_backlog"])
 def test_types_the_flat_format_cannot_express_are_rejected(name):
     with pytest.raises(OpenSRMParseError, match="v2"):
         parse_srm_v1(_srm_v1({name: {"target": 0.05}}))
