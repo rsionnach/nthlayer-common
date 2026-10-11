@@ -81,7 +81,9 @@ def _ratio(name: str, value: object) -> float:
         raise ValueError(
             f"bound '{name}' must be a number, got {type(value).__name__}: {value!r}"
         )
-    if not math.isfinite(value):
+    # Only floats can be non-finite. math.isfinite on a huge YAML int raises
+    # OverflowError, which is not a parse error, so ints go straight to range.
+    if isinstance(value, float) and not math.isfinite(value):
         raise ValueError(f"bound '{name}' must be a finite number, got {value!r}")
     if not 0.0 <= value <= 1.0:
         raise ValueError(f"bound '{name}' must be in [0, 1], got {value!r}")

@@ -165,3 +165,10 @@ def test_normalise_bins_leaves_int_unchanged():
     result = normalise_bins(10)
     assert result == 10
     assert isinstance(result, int)
+
+
+def test_a_huge_integer_bound_is_a_range_error_not_an_overflow():
+    """math.isfinite(10**400) raises OverflowError, which no parser catches;
+    an integer is always finite, so it must reach the [0, 1] check instead."""
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        parse_bounds("stability", {"maximum_drift": 10**400})
