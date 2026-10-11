@@ -370,6 +370,11 @@ class ThresholdMeasurement:
     threshold they were always None, so an evaluator reading ``.frequency``
     instead of ``.probe.frequency`` got a silent None. Here it is an
     AttributeError.
+
+    Nothing here enforces which fields go with which type: the parsers are the
+    only invariant enforcer, so a hand-built instance can pair any fields.
+    ``window`` keeps the declared Duration string (so it round-trips);
+    convert it with ``duration_seconds()``.
     """
 
     bins: int | None = None
@@ -489,7 +494,9 @@ class JudgmentThreshold:
     dimension/values), not the judgment-SLO JudgmentMeasurement.
     """
 
-    type: str  # one of V2_JUDGMENT_THRESHOLD_TYPES
+    # A plain str by design, like every judgment_type in this module; the
+    # contract is membership in V2_JUDGMENT_THRESHOLD_TYPES.
+    type: str
     bounds: dict[str, float | str]
     measurement: ThresholdMeasurement = field(default_factory=ThresholdMeasurement)
 
