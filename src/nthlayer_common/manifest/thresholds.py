@@ -21,6 +21,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from nthlayer_common.manifest.models import JudgmentMeasurement, JudgmentThreshold
+
 RATIO = "ratio"
 DURATION = "duration"
 
@@ -190,3 +192,44 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
                 f"'measurement.window' must be a duration such as '30d', got "
                 f"{measurement.get('window')!r}"
             )
+
+
+# srm/v1 defaulted calibration to 10 bins (v1_compat.default_measurement);
+# v2's calibration threshold requires bins, so the lift keeps that default.
+_SRM_V1_CALIBRATION_BINS = 10
+
+
+def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
+    """Lift an srm/v1 ``spec.slos.<name>`` entry into a JudgmentThreshold.
+
+    Shared by parser/v1.py and v1_compat.convert_v1_to_v2 so the two cannot
+    map one srm/v1 entry to different thresholds. Raises ValueError.
+    """
+    if name in ("segments", "stability"):
+        raise ValueError(
+            f"srm/v1 cannot declare '{name}': its threshold form needs "
+            f"{' and '.join(THRESHOLD_REQUIRED_FIELDS[name])}, which the flat "
+            f"srm/v1 format cannot express. Declare it in an "
+            f"opensrm.nthlayer.io/v2 manifest under spec.judgment_threshold."
+        )
+    target = config.get("target")
+    if name == "calibration":
+        if target is None:
+            raise ValueError("srm/v1 'calibration' requires a target (maximum ECE)")
+        window = config.get("window", "30d")
+        if not is_duration(window):
+            raise ValueError(f"srm/v1 'calibration' window must be a duration, got {window!r}")
+        bound = _ratio("maximum_expected_calibration_error", target)
+        return JudgmentThreshold(
+            type="calibration",
+            bounds={"maximum_expected_calibration_error": bound},
+            measurement=JudgmentMeasurement(window=window, bins=_SRM_V1_CALIBRATION_BINS),
+        )
+    if name == "feedback_latency":
+        if isinstance(target, bool) or not isinstance(target, int) or target < 0:
+            raise ValueError(
+                f"srm/v1 'feedback_latency' target must be a non-negative whole "
+                f"number of seconds, got {target!r}"
+            )
+        return JudgmentThreshold(type="feedback_latency", bounds={"maximum_p50": f"{target}s"})
+    raise ValueError(f"'{name}' is not an srm/v1 judgment threshold")

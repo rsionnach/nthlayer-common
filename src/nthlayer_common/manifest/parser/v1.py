@@ -16,6 +16,7 @@ import yaml
 
 from nthlayer_common.manifest.models import (
     JUDGMENT_SLO_TYPES,
+    V2_JUDGMENT_THRESHOLD_TYPES,
     AuditConfig,
     BudgetPolicy,
     BudgetThresholds,
@@ -26,6 +27,7 @@ from nthlayer_common.manifest.models import (
     DeploymentGates,
     ErrorBudgetGate,
     Instrumentation,
+    JudgmentThreshold,
     ManifestEscalationStep,
     OnCallConfig,
     Override,
@@ -46,6 +48,7 @@ from nthlayer_common.manifest.target_validation import (
     check_finite,
     require_number,
 )
+from nthlayer_common.manifest.thresholds import srm_v1_threshold
 from nthlayer_common.manifest.v1_compat import (
     convert_v1_contract,
     default_measurement,
@@ -94,7 +97,7 @@ def parse_srm_v1(
     if not service_type:
         raise OpenSRMParseError("spec.type is required")
 
-    slos = _parse_slos(spec.get("slos", {}), service_type)
+    slos, judgment_thresholds = _parse_slos(spec.get("slos", {}), service_type)
     dependencies = _parse_dependencies(spec.get("dependencies", []))
     ownership = _parse_ownership(spec.get("ownership"))
     observability = parse_observability(spec.get("observability"))
@@ -126,6 +129,7 @@ def parse_srm_v1(
         labels=metadata.get("labels", {}),
         annotations=metadata.get("annotations", {}),
         slos=slos,
+        judgment_thresholds=judgment_thresholds,
         dependencies=dependencies,
         ownership=ownership,
         observability=observability,
@@ -264,13 +268,29 @@ def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str
 def _parse_slos(
     slos_data: dict[str, Any],
     service_type: str,
-) -> list[SLODefinition]:
-    """Parse SLOs from srm/v1 spec.slos section."""
+) -> tuple[list[SLODefinition], list[JudgmentThreshold]]:
+    """Parse SLOs from srm/v1 spec.slos section.
+
+    Returns the SLOs and, separately, the judgment thresholds (calibration,
+    feedback_latency) that srm/v1 declares in the same mapping.
+    """
     slos = []
+    thresholds: list[JudgmentThreshold] = []
 
     for name, config in slos_data.items():
         if not isinstance(config, dict):
             config = {"target": config}
+
+        # Decision 3c (opensrm-l33e): error magnitudes are thresholds, not SLOs.
+        # V2_JUDGMENT_THRESHOLD_TYPES, not the srm/v1 subset, so segments and
+        # stability reach srm_v1_threshold's explicit rejection rather than
+        # falling through to classical-SLO inference.
+        if name in V2_JUDGMENT_THRESHOLD_TYPES:
+            try:
+                thresholds.append(srm_v1_threshold(name, config))
+            except ValueError as exc:
+                raise OpenSRMParseError(f"SLO '{name}': {exc}") from exc
+            continue
 
         target = config.get("target")
         if target is None:
@@ -325,7 +345,7 @@ def _parse_slos(
         )
         slos.append(slo)
 
-    return slos
+    return slos, thresholds
 
 
 def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
