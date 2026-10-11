@@ -243,3 +243,14 @@ def test_duration_seconds_reports_an_unrepresentable_duration_as_value_error():
     surface as ValueError like every other rejected duration."""
     with pytest.raises(ValueError, match="too large"):
         duration_seconds("1" + "0" * 400 + "d")
+
+
+def test_duration_seconds_is_correctly_rounded_for_milliseconds():
+    """n * 0.001 is not correctly rounded (e.g. 9ms); n / 1000 is. A bound
+    compared at its edge must not be off by one ULP."""
+    assert all(duration_seconds(f"{n}ms") == n / 1000 for n in range(1, 5000))
+
+
+def test_duration_seconds_past_the_int_digit_limit_uses_the_same_message():
+    with pytest.raises(ValueError, match="too large"):
+        duration_seconds("1" + "0" * 5000 + "s")

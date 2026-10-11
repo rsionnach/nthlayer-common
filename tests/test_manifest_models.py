@@ -295,3 +295,11 @@ def test_threshold_measurement_is_exported_from_the_package():
 
     assert manifest.ThresholdMeasurement is ThresholdMeasurement
     assert "ThresholdMeasurement" in manifest.__all__
+
+
+def test_threshold_measurement_defaults_are_not_shared():
+    a = JudgmentThreshold(type="segments", bounds={"maximum_variance_from_overall": 0.05})
+    b = JudgmentThreshold(type="segments", bounds={"maximum_variance_from_overall": 0.05})
+    a.measurement.segment_values.append("x")
+    assert b.measurement.segment_values == []
+    assert a.measurement is not b.measurement

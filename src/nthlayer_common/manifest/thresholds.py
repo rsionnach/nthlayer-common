@@ -65,13 +65,16 @@ _PROBE_FREQUENCIES = ("hourly", "daily", "weekly")
 
 # Longest suffix first: "5ms" must not be read as "5m" + a stray "s".
 # Values are seconds per unit; dict order is the match order.
-_DURATION_SECONDS: dict[str, float] = {
-    "ms": 0.001,
-    "s": 1.0,
-    "m": 60.0,
-    "h": 3600.0,
-    "d": 86400.0,
-    "w": 604800.0,
+# Seconds per unit as an exact (numerator, denominator) pair. Multiplying by the
+# float 0.001 is not correctly rounded (671 of 1..4999 ms differ from n/1000), so
+# ms is divided instead: int / int true division in Python is correctly rounded.
+_DURATION_SECONDS: dict[str, tuple[int, int]] = {
+    "ms": (1, 1000),
+    "s": (1, 1),
+    "m": (60, 1),
+    "h": (3600, 1),
+    "d": (86400, 1),
+    "w": (604800, 1),
 }
 _DURATION_UNITS = tuple(_DURATION_SECONDS)
 
@@ -102,11 +105,13 @@ def duration_seconds(value: str) -> float:
         raise ValueError(
             f"not a duration such as '24h' (<integer><ms|s|m|h|d|w>): {value!r}"
         )
-    for unit, seconds in _DURATION_SECONDS.items():
+    for unit, (numerator, denominator) in _DURATION_SECONDS.items():
         if value.endswith(unit):
             try:
-                return int(value[: -len(unit)]) * seconds
-            except OverflowError as exc:  # a pattern-valid but absurdly long integer
+                return int(value[: -len(unit)]) * numerator / denominator
+            # An absurdly long integer: OverflowError past float range, ValueError
+            # past CPython's int-digit limit. One message for both.
+            except (OverflowError, ValueError) as exc:
                 raise ValueError(f"duration too large to represent: {value!r}") from exc
     raise AssertionError(f"unreachable: is_duration accepted {value!r}")  # pragma: no cover
 
