@@ -49,6 +49,7 @@ def _shell(entries: list[Any]) -> dict[str, Any]:
 
 
 def test_is_public():
+    """Listed in the package's __all__ (the public-API rule)."""
     import nthlayer_common.manifest as manifest
 
     assert "threshold_from_v2_entry" in manifest.__all__
@@ -74,17 +75,24 @@ def test_inverts_threshold_to_v2_entry(source):
         assert threshold_to_v2_entry(back) == served
 
 
+# The spec negatives whose only defect is inside a judgment_threshold entry:
+# opensrm-7zpz added n67-n92. Presence is asserted below, never skipped.
+_FIRST_THRESHOLD_NEGATIVE = 67
+_LAST_THRESHOLD_NEGATIVE = 92
+_THRESHOLD_NEGATIVE_COUNT = _LAST_THRESHOLD_NEGATIVE - _FIRST_THRESHOLD_NEGATIVE + 1
+
+
 def _threshold_negatives() -> list[Path]:
-    # Every spec negative whose only defect is inside a judgment_threshold entry
-    # (opensrm-7zpz n67-n92). Presence is asserted below, never skipped.
     return sorted(
         p for p in _INVALID.glob("n*.yaml")
-        if 67 <= int(p.name[1:].split("-", 1)[0]) <= 92
+        if _FIRST_THRESHOLD_NEGATIVE
+        <= int(p.name[1:].split("-", 1)[0])
+        <= _LAST_THRESHOLD_NEGATIVE
     )
 
 
 def test_the_threshold_negatives_are_present():
-    assert len(_threshold_negatives()) >= 26
+    assert len(_threshold_negatives()) == _THRESHOLD_NEGATIVE_COUNT
 
 
 @pytest.mark.parametrize("path", _threshold_negatives(), ids=lambda p: p.name)

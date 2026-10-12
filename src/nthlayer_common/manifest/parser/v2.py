@@ -636,14 +636,15 @@ def _parse_threshold_entries(prefix: str, entries: list[Any]) -> list[JudgmentTh
 def threshold_from_v2_entry(
     entry: Any, where: str = "judgment_threshold entry"
 ) -> JudgmentThreshold:
-    """The JudgmentThreshold for one flat ``spec.judgment_threshold`` entry.
+    """Parse one flat ``spec.judgment_threshold`` entry into a JudgmentThreshold.
 
     Public inverse of ``threshold_to_v2_entry`` (opensrm-908x), for consumers
     that receive entries outside a manifest - e.g. nthlayer-core's /manifests
     ``judgment_thresholds`` items. It applies exactly the rules the manifest
     parser applies to the same entry, so a consumer never re-implements them.
-    *where* prefixes any error so it locates the entry in the caller's own
-    document. Never mutates *entry*.
+    Pass *where* as a path to the entry in the caller's own document, e.g.
+    ``/manifests[3].judgment_thresholds[1]``; errors read ``<where>: <reason>``
+    (or ``<where> must be a mapping, ...``). Never mutates *entry*.
 
     Only per-entry rules apply. Manifest-level ones - the ai-gate service
     requirement, template concatenation - cannot be checked on a lone entry;
