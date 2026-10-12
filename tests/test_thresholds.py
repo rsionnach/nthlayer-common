@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from nthlayer_common.manifest.models import OutcomeSignal
 from nthlayer_common.manifest.thresholds import (
     FORBIDDEN_THRESHOLD_KEYS,
     SEGMENTS_DEFAULT_WINDOW,
@@ -468,3 +469,42 @@ def test_audit_sampling_gets_its_own_rejection_not_the_generic_enum_one():
         return str(exc_info.value)
 
     assert message("audit_sampling") != message("accuracy").replace("accuracy", "audit_sampling")
+
+
+# threshold_to_v2_entry validates what it builds: a hand-built threshold the
+# parser could never produce must fail here, not emit a schema-invalid entry.
+def _hand_built(threshold_type: str, bounds: dict[str, Any], **fields: Any):
+    from nthlayer_common.manifest.models import JudgmentThreshold, ThresholdMeasurement
+
+    return JudgmentThreshold(type=threshold_type, bounds=bounds, measurement=ThresholdMeasurement(**fields))
+
+
+_SEG_BOUNDS = {"maximum_variance_from_overall": 0.05}
+
+
+@pytest.mark.parametrize(
+    ("threshold_type", "bounds", "fields", "match"),
+    [
+        ("segments", _SEG_BOUNDS,
+         {"metric": None, "window": "30d", "segment_dimension": "t", "segment_values": ["a"]}, "metric"),
+        ("segments", _SEG_BOUNDS,
+         {"metric": "escalation", "window": None, "segment_dimension": "t", "segment_values": ["a"]},
+         "window"),
+        ("segments", _SEG_BOUNDS,
+         {"metric": "escalation", "window": "30d", "segment_dimension": "t", "segment_values": ["a"],
+          "outcome_signal": OutcomeSignal(source="s", window="1h")}, "outcome_signal"),
+        ("segments", _SEG_BOUNDS,
+         {"metric": "reversal_rate", "window": "30d", "segment_dimension": "t", "segment_values": ["a"]},
+         "source"),
+        ("calibration", {"maximum_brier_score": 0.05}, {"bins": None, "window": "30d"}, "bins"),
+        ("stability", {"maximum_drift": 0.02}, {}, "probe"),
+        ("audit_backlog", {"maximum_age": 24}, {}, "duration"),
+    ],
+    ids=["segments-no-metric", "segments-no-window", "escalation-outcome-signal",
+         "reversal-rate-no-source", "calibration-no-bins", "stability-no-probe", "bad-bound"],
+)
+def test_threshold_to_v2_entry_rejects_a_threshold_the_parser_could_not_produce(
+    threshold_type, bounds, fields, match
+):
+    with pytest.raises(ValueError, match=match):
+        threshold_to_v2_entry(_hand_built(threshold_type, bounds, **fields))

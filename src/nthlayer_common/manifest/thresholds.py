@@ -557,6 +557,11 @@ def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
         entry["metric"] = m.metric
         # window always: the parser stores the 30d default when it is absent.
         measurement: dict[str, Any] = {"window": m.window}
+
+    The built entry is checked with the parser's own rules before it is
+    returned: a hand-built threshold the parser could never produce (segments
+    with no metric or window, an outcome_signal on escalation, calibration
+    without bins) raises ValueError instead of emitting a schema-invalid entry.
         if m.source is not None:
             measurement["source"] = m.source
         if m.confidence_threshold is not None:
@@ -570,3 +575,5 @@ def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
         entry["segment_dimension"] = m.segment_dimension
         entry["segment_values"] = list(m.segment_values)
     return entry
+    check_type_fields(threshold.type, entry)
+    parse_bounds(threshold.type, entry["bounds"])

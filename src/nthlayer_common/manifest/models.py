@@ -395,7 +395,11 @@ class ThresholdMeasurement:
     Nothing here enforces which fields go with which type: the parsers are the
     only invariant enforcer, so a hand-built instance can pair any fields.
     ``window`` keeps the declared Duration string (so it round-trips);
-    convert it with ``duration_seconds()``.
+    convert it with ``duration_seconds()``. A hand-built segments threshold
+    must set ``window`` itself, normally to ``"30d"``
+    (``manifest.thresholds.SEGMENTS_DEFAULT_WINDOW``): a parsed one always
+    carries it, so a ``None`` window compares unequal to the parsed form and
+    ``threshold_to_v2_entry`` rejects it.
     """
 
     bins: int | None = None
