@@ -49,7 +49,8 @@ are now rejected and must be declared in a v2 manifest.
 ## Threshold entries
 
 - Entries are flat (`type`, `bounds`, ...), not wrapped in `metadata`/`spec`.
-- Other keys that do not belong to a threshold's type are ignored.
+- Other keys that do not belong to a threshold's type are ignored. (5.0 closes
+  entries: such keys are errors. See [upgrading-5.0.md](upgrading-5.0.md).)
 - `breach_actions`, `target`, `judgment_type` and `service` on a threshold raise
   `OpenSRMV2ParseError`, as does `measurement.method` on a `calibration` threshold.
 - `segment_dimension` and every `segment_values` entry must be non-empty strings.

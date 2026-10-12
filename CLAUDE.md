@@ -41,8 +41,9 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          converted at all"), `judgment_target_percent()` [inbound],
          `judgment_target_ratio()` [outbound],
          `judgment_promise_direction()`, `judgment_promise()` [factory].
-       - thresholds — `manifest/thresholds.py` (bound tables,
-         `FORBIDDEN_THRESHOLD_KEYS`, `srm_v1_threshold()`,
+       - thresholds — `manifest/thresholds.py` (bound tables, the
+         closure table `THRESHOLD_TYPE_FIELDS` and `SEGMENTS_METRICS`
+         (opensrm-7zpz), `FORBIDDEN_THRESHOLD_KEYS`, `srm_v1_threshold()`,
          `threshold_to_v2_entry()`, `check_type_fields()`,
          `parse_bounds()`, `is_duration()`, `normalise_bins()`,
          `duration_seconds()`), also package-internal and not
