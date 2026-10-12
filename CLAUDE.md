@@ -41,13 +41,16 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          converted at all"), `judgment_target_percent()` [inbound],
          `judgment_target_ratio()` [outbound],
          `judgment_promise_direction()`, `judgment_promise()` [factory].
-       - thresholds — `manifest/thresholds.py` (bound tables,
-         `FORBIDDEN_THRESHOLD_KEYS`, `srm_v1_threshold()`,
+       - thresholds — `manifest/thresholds.py` (bound tables, the
+         closure table `THRESHOLD_TYPE_FIELDS` and `SEGMENTS_METRICS`
+         (opensrm-7zpz), `FORBIDDEN_THRESHOLD_KEYS`, `srm_v1_threshold()`,
          `threshold_to_v2_entry()`, `check_type_fields()`,
          `parse_bounds()`, `is_duration()`, `normalise_bins()`,
          `duration_seconds()`), also package-internal and not
-         re-exported, except `duration_seconds()`, which is public and
-         re-exported from `manifest/__init__.py`.
+         re-exported, except `duration_seconds()` and
+         `threshold_to_v2_entry()`, which are public and re-exported from
+         `manifest/__init__.py` (the latter so consumers serialise a
+         threshold through the one validated emitter, opensrm-7zpz).
        - domain guards, used on the CLASSICAL writers too, not just
          judgment — `require_number()` (numeric or a string spelling
          one; raises ValueError where a bare `float()` raised an

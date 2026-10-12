@@ -15,7 +15,7 @@ import jsonschema
 import pytest
 import yaml
 
-from nthlayer_common.manifest.models import ThresholdMeasurement
+from nthlayer_common.manifest.models import OutcomeSignal, ThresholdMeasurement
 from nthlayer_common.manifest.parser.v2 import (
     OpenSRMV2ParseError,
     parse_opensrm_v2,
@@ -111,6 +111,7 @@ def test_scalar_judgment_slo_metadata_is_a_parse_error_not_an_attribute_error():
 def test_segment_fields_are_carried():
     entry = {
         "type": "segments",
+        "metric": "escalation",
         "segment_dimension": "customer_tier",
         "segment_values": ["enterprise", "smb"],
         "bounds": {"maximum_variance_from_overall": 0.05},
@@ -118,6 +119,55 @@ def test_segment_fields_are_carried():
     [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
     assert threshold.measurement.segment_dimension == "customer_tier"
     assert threshold.measurement.segment_values == ["enterprise", "smb"]
+    assert threshold.measurement.metric == "escalation"
+    # CORE §5.5.1: measurement.window defaults to 30d, stored as such.
+    assert threshold.measurement.window == "30d"
+    assert threshold.measurement.source is None
+    assert threshold.measurement.confidence_threshold is None
+    assert threshold.measurement.outcome_signal is None
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        ({"metric": "reversal_rate", "measurement": {"source": "downstream_signal", "window": "14d"}},
+         {"metric": "reversal_rate", "source": "downstream_signal", "window": "14d"}),
+        ({"metric": "high_confidence_failure", "measurement": {"confidence_threshold": 0.8}},
+         {"metric": "high_confidence_failure", "confidence_threshold": 0.8, "window": "30d"}),
+        ({"metric": "outcomes", "outcome_signal": {"source": "retro", "window": "2h"},
+          "measurement": {"window": "60d"}},
+         {"metric": "outcomes", "outcome_signal": OutcomeSignal(source="retro", window="2h"),
+          "window": "60d"}),
+    ],
+    ids=["reversal_rate", "high_confidence_failure", "outcomes"],
+)
+def test_segments_metric_parameters_are_carried(extra, expected):
+    """Non-default values throughout (14d/60d windows, a 0.8 threshold, a
+    downstream_signal source), so a hardcoded default cannot pass."""
+    entry = {
+        "type": "segments",
+        "segment_dimension": "tier",
+        "segment_values": ["a"],
+        "bounds": {"maximum_variance_from_overall": 0.05},
+        **extra,
+    }
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+    defaults = {"source": None, "confidence_threshold": None, "outcome_signal": None}
+    m = threshold.measurement
+    for name, value in {**defaults, **expected}.items():
+        assert getattr(m, name) == value, name
+
+
+def test_segments_confidence_threshold_is_carried_as_a_float():
+    entry = {
+        "type": "segments", "metric": "high_confidence_failure",
+        "measurement": {"confidence_threshold": 1},
+        "segment_dimension": "tier", "segment_values": ["a"],
+        "bounds": {"maximum_variance_from_overall": 0.05},
+    }
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+    assert threshold.measurement.confidence_threshold == 1.0
+    assert isinstance(threshold.measurement.confidence_threshold, float)
 
 
 def test_integral_float_bins_become_an_int():
@@ -191,7 +241,7 @@ def test_an_slo_type_points_back_to_judgment_slo():
         ({"type": "calibration",
           "measurement": {"bins": 10, "window": "30d", "method": "brier_score"},
           "bounds": {"maximum_brier_score": 0.05}}, "method"),                     # n28
-        ({"type": "segments", "segment_values": ["a"],
+        ({"type": "segments", "metric": "escalation", "segment_values": ["a"],
           "bounds": {"maximum_variance_from_overall": 0.05}}, "segment_dimension"),  # n30
         ({"type": "calibration", "measurement": {"bins": 1, "window": "30d"},
           "bounds": {"maximum_brier_score": 0.05}}, "bins"),                       # n12
@@ -215,54 +265,54 @@ def test_mixed_type_bound_keys_raise_the_parser_error(bounds):
         parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
 
 
-# JudgmentThresholdSpec is open: `measurement`, `probe`, `sampling` and the
-# segment_* keys are constrained only inside the allOf branch of the type that
-# uses them, so on any other type the schema accepts every value for them.
-_STRAY_KEYS = ("measurement", "probe", "sampling", "segment_values")
+# CORE §5.5 (opensrm-7zpz): each entry is closed. Keys that belong to another
+# type, or to no type, are errors on every type that does not define them,
+# whatever their value. Until 5.0.0 these were ignored.
+_STRAY_KEYS = ("measurement", "probe", "sampling", "segment_values", "metric", "window",
+               "outcome_signal")
 _STRAY_VALUES = (None, "x", [1])
-
-
-def _assert_empty_measurement(threshold: Any) -> None:
-    m = threshold.measurement
-    assert type(m) is ThresholdMeasurement
-    assert (m.bins, m.window, m.probe, m.segment_dimension) == (None, None, None, None)
-    assert m.segment_values == []
-    assert m == ThresholdMeasurement()
 
 
 @pytest.mark.parametrize("value", _STRAY_VALUES, ids=repr)
 @pytest.mark.parametrize("key", _STRAY_KEYS)
-def test_keys_irrelevant_to_the_type_are_ignored(key, value):
+def test_keys_irrelevant_to_the_type_are_rejected(key, value):
     entry = {**AUDIT_BACKLOG, key: value}
-    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
-    _assert_empty_measurement(threshold)
+    with pytest.raises(OpenSRMV2ParseError, match=rf"judgment_threshold\[0\].*'{key}'"):
+        parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
 
 
-def test_keys_irrelevant_to_feedback_latency_are_ignored():
-    entry = {**FEEDBACK_LATENCY, "probe": "x", "measurement": [1], "segment_values": "abc"}
-    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
-    _assert_empty_measurement(threshold)
+@pytest.mark.parametrize("key", ["probe", "measurement", "segment_values", "window"])
+def test_keys_irrelevant_to_feedback_latency_are_rejected(key):
+    entry = {**FEEDBACK_LATENCY, key: "x"}
+    with pytest.raises(OpenSRMV2ParseError, match=rf"'{key}'"):
+        parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
 
 
-def test_the_schema_accepts_stray_keys_on_a_type_that_does_not_use_them():
-    """Pins the premise of the two tests above: if the schema ever closes
-    JudgmentThresholdSpec, the parser must start rejecting these too."""
-    entry = {**AUDIT_BACKLOG, "measurement": "x", "probe": [1], "sampling": None,
-             "segment_values": "abc"}
+def test_the_schema_rejects_stray_keys_on_a_type_that_does_not_use_them():
+    """Pins the premise of the tests above against the live schema: it closed
+    JudgmentThresholdSpec in opensrm-7zpz, so the parser rejects these too."""
+    entry = {**AUDIT_BACKLOG, "measurement": "x"}
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    jsonschema.validate(_manifest(judgment_threshold=[entry]), schema)
-    parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(_manifest(judgment_threshold=[entry]), schema)
+    with pytest.raises(OpenSRMV2ParseError, match="'measurement'"):
+        parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
 
 
-def test_stability_carries_only_its_probe():
-    entry = {**STABILITY, "measurement": "x", "sampling": "x", "segment_values": "abc"}
-    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+@pytest.mark.parametrize("key", ["measurement", "sampling", "segment_values"])
+def test_stability_rejects_keys_beside_its_probe(key):
+    entry = {**STABILITY, key: "x"}
+    with pytest.raises(OpenSRMV2ParseError, match=rf"'{key}'"):
+        parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+
+
+def test_stability_measurement_has_no_slo_only_fields():
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[STABILITY])).judgment_thresholds
     m = threshold.measurement
     assert type(m) is ThresholdMeasurement
     assert m.probe is not None
-    # A stray `sampling` has nowhere to land: the type has no such field.
     assert not hasattr(m, "sampling")
-    assert (m.bins, m.window, m.segment_dimension) == (None, None, None)
+    assert (m.bins, m.window, m.segment_dimension, m.metric) == (None, None, None, None)
     assert m.segment_values == []
 
 
@@ -288,7 +338,7 @@ def test_forbidden_keys_surface_as_the_parser_error(key):
 )
 def test_segment_strings_must_be_non_empty(entry):
     # schema.json segments branch: minLength 1 on both.
-    full = {"type": "segments", **entry, "bounds": {"maximum_variance_from_overall": 0.05}}
+    full = {"type": "segments", "metric": "escalation", **entry, "bounds": {"maximum_variance_from_overall": 0.05}}
     with pytest.raises(OpenSRMV2ParseError, match="segment_"):
         parse_opensrm_v2(_manifest(judgment_threshold=[full]))
 
@@ -353,6 +403,79 @@ def test_override_append_lands_after_the_concatenation(tmp_path):
         judgment_threshold=[AUDIT_BACKLOG],
     )
     assert _types(path) == ["stability", "audit_backlog", "feedback_latency"]
+
+
+_TEMPLATE_REF = "template:default/base"
+
+
+@pytest.mark.parametrize(
+    ("via", "location"),
+    [
+        ("template", rf"^template '{_TEMPLATE_REF}' judgment_threshold\[1\] "),
+        ("manifest", r"^spec\.judgment_threshold\[0\] "),
+        ("override", r"^spec\.template\.overrides\.judgment_threshold\.append\[0\] "),
+    ],
+)
+def test_closure_applies_to_every_source_of_an_entry(tmp_path, via, location):
+    """The schema checks closure only on judgment_threshold itself, not on
+    template.overrides (AUTHORING §9, opensrm-0myj); the parser checks every
+    source, so an appended entry is closed too. The error locates the entry
+    in the document that declares it, not in the merged list."""
+    stray = {**AUDIT_BACKLOG, "window": "7d"}
+    kwargs: dict[str, Any] = {}
+    template_spec: dict[str, Any] = {"judgment_threshold": [STABILITY]}
+    if via == "template":
+        template_spec = {"judgment_threshold": [STABILITY, stray]}
+    elif via == "manifest":
+        kwargs["judgment_threshold"] = [stray]
+    else:
+        kwargs["overrides"] = {"judgment_threshold": {"append": [stray]}}
+    path = _write_pair(tmp_path, template_spec, **kwargs)
+    with pytest.raises(OpenSRMV2ParseError, match=location + r".*'window'"):
+        parse_opensrm_v2_file(path)
+
+
+def test_a_template_entry_error_names_the_template_not_the_manifest_entry(tmp_path):
+    """The merged list puts template entries first, so merged index 0 is the
+    template's. Reported as spec.judgment_threshold[0] it named the
+    manifest's own, valid, entry and never mentioned the template."""
+    metricless = {
+        "type": "segments", "segment_dimension": "tier", "segment_values": ["a"],
+        "bounds": {"maximum_variance_from_overall": 0.05},
+    }
+    path = _write_pair(
+        tmp_path, {"judgment_threshold": [metricless]}, judgment_threshold=[FEEDBACK_LATENCY]
+    )
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2_file(path)
+    location = str(exc_info.value).split(" (", 1)[0]
+    assert location == f"template '{_TEMPLATE_REF}' judgment_threshold[0]"
+
+
+def test_manifest_entries_are_indexed_within_the_manifest(tmp_path):
+    path = _write_pair(
+        tmp_path,
+        {"judgment_threshold": [STABILITY, AUDIT_BACKLOG]},
+        judgment_threshold=[FEEDBACK_LATENCY, {**AUDIT_BACKLOG, "probe": {}}],
+    )
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2_file(path)
+    assert str(exc_info.value).split(" (", 1)[0] == "spec.judgment_threshold[1]"
+
+
+@pytest.mark.parametrize("via", ["template", "override"])
+def test_a_non_mapping_entry_is_located_in_its_source(tmp_path, via):
+    kwargs: dict[str, Any] = {}
+    template_spec: dict[str, Any] = {"judgment_threshold": [STABILITY]}
+    if via == "template":
+        template_spec = {"judgment_threshold": [STABILITY, "x"]}
+        expected = rf"^template '{_TEMPLATE_REF}' judgment_threshold\[1\] must be a mapping"
+    else:
+        kwargs["overrides"] = {"judgment_threshold": {"append": ["x"]}}
+        expected = r"^spec\.template\.overrides\.judgment_threshold\.append\[0\] must be a mapping"
+    path = _write_pair(tmp_path, template_spec, **kwargs)
+    with pytest.raises(OpenSRMV2ParseError, match=expected):
+        parse_opensrm_v2_file(path)
 
 
 def test_override_replace_is_rejected(tmp_path):

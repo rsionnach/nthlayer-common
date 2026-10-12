@@ -52,7 +52,8 @@ src/nthlayer_common/
                          #     threshold_to_v2_entry, check_type_fields,
                          #     parse_bounds, is_duration, normalise_bins,
                          #     duration_seconds (package-internal except
-                         #     duration_seconds, which is re-exported)
+                         #     duration_seconds and threshold_to_v2_entry,
+                         #     which are re-exported)
 ```
 
 ## Subsystem references
@@ -320,7 +321,16 @@ a fourth directory walk** — three existed before this was shared
   judgment-SLO `JudgmentMeasurement`) and land in
   `ReliabilityManifest.judgment_thresholds`, never in `slos`. Bounds are stored
   as declared, never converted. Vocabulary sets: `V2_JUDGMENT_SLO_TYPES` and
-  `V2_JUDGMENT_THRESHOLD_TYPES`. See `docs/upgrading-4.0.md`.
+  `V2_JUDGMENT_THRESHOLD_TYPES`. Entries are closed (CORE §5.5, opensrm-7zpz):
+  `thresholds.check_type_fields` rejects any key a type does not define, from
+  the one `THRESHOLD_TYPE_FIELDS` table (pinned against schema.json). A
+  `segments` entry names its `metric` (`reversal_rate`,
+  `high_confidence_failure`, `outcomes`, `escalation`) and that metric's
+  parameter, carried on `ThresholdMeasurement` (`source`,
+  `confidence_threshold`, `outcome_signal` as an `OutcomeSignal`), with the
+  population `window` defaulting to `30d`. The srm/v1 lift accepts only
+  `target`, `window`, `unit`, `description` and `labels` (opensrm-1rnr). See
+  `docs/upgrading-4.0.md` and `docs/upgrading-5.0.md`.
 - v1→v2 compat helpers in `v1_compat.py`:
   `default_statistical_requirements`, `default_measurement`,
   `convert_v1_contract`, `convert_v1_to_v2(v1_data: dict) -> dict`.
