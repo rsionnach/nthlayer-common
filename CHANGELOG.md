@@ -17,14 +17,14 @@ Apache-2.0.
 * **manifest:** close judgment_threshold entries; segments name a metric (opensrm-7zpz) ([a503f40](https://github.com/rsionnach/nthlayer-common/commit/a503f4086fbe8047339f3c4381db233a04932bd6))
 * **manifest:** export threshold_to_v2_entry for consumers (opensrm-7zpz) ([8656776](https://github.com/rsionnach/nthlayer-common/commit/865677643b775aa6793738c1298740f8844cc84b))
 * **manifest:** OutcomeSignal and segments metric fields on ThresholdMeasurement (opensrm-7zpz) ([2759377](https://github.com/rsionnach/nthlayer-common/commit/2759377cee8cb7845713bc823d15bc36b924ff2b))
+* **manifest:** srm/v1 feedback_latency targets are capped at 2**53 (opensrm-1rnr) ([fd85791](https://github.com/rsionnach/nthlayer-common/commit/fd857915ca2622b2c4c97716421debbaec598d97))
+* **manifest:** a threshold error names the document that declares it (template, manifest or overrides) (opensrm-7zpz) ([c3fe0b5](https://github.com/rsionnach/nthlayer-common/commit/c3fe0b5b4e648da29659d1ac29277fc7cf2a1c87))
+* **manifest:** threshold_to_v2_entry validates what it emits (opensrm-7zpz) ([1fbd09d](https://github.com/rsionnach/nthlayer-common/commit/1fbd09dc9f52ebbb1909012dcb176369b85a70b8))
 
 
 ### Bug Fixes
 
-* **manifest:** cap an srm/v1 feedback_latency target at 2**53 (opensrm-1rnr) ([fd85791](https://github.com/rsionnach/nthlayer-common/commit/fd857915ca2622b2c4c97716421debbaec598d97))
-* **manifest:** locate a threshold error in the document that declares it (opensrm-7zpz) ([c3fe0b5](https://github.com/rsionnach/nthlayer-common/commit/c3fe0b5b4e648da29659d1ac29277fc7cf2a1c87))
 * **manifest:** srm/v1 threshold lift rejects keys it would drop; honours unit (opensrm-1rnr) ([394a7c3](https://github.com/rsionnach/nthlayer-common/commit/394a7c3018cb8146b95cf0320db68f9878697a01))
-* **manifest:** threshold_to_v2_entry refuses to emit a schema-invalid entry (opensrm-7zpz) ([1fbd09d](https://github.com/rsionnach/nthlayer-common/commit/1fbd09dc9f52ebbb1909012dcb176369b85a70b8))
 
 
 ### Documentation
