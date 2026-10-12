@@ -117,8 +117,9 @@ no `method`, `frequency` or `sampling`.
   (public from 5.1.0, opensrm-908x) rather than parsing the dict by hand: it
   turns a served entry (e.g. an item of core 3.0's `/manifests`
   `judgment_thresholds`) into a `JudgmentThreshold` with exactly the manifest
-  parser's rules, raising `OpenSRMV2ParseError` prefixed with the `where` you
-  pass.
+  parser's per-entry rules, raising `OpenSRMV2ParseError` prefixed with the
+  `where` you pass. That error is not a `ValueError` (which
+  `threshold_to_v2_entry` raises): catch both.
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
   today, so they need only the version bump and any `segments` fixtures; an
   evaluator added to workers later should get its thresholds through

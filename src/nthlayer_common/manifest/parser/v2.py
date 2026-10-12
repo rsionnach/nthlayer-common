@@ -643,7 +643,14 @@ def threshold_from_v2_entry(
     ``judgment_thresholds`` items. It applies exactly the rules the manifest
     parser applies to the same entry, so a consumer never re-implements them.
     *where* prefixes any error so it locates the entry in the caller's own
-    document. Raises OpenSRMV2ParseError; never mutates *entry*.
+    document. Never mutates *entry*.
+
+    Only per-entry rules apply. Manifest-level ones - the ai-gate service
+    requirement, template concatenation - cannot be checked on a lone entry;
+    an entry served by core already passed them.
+
+    Raises OpenSRMV2ParseError, which is not a ValueError: a consumer using
+    both this and threshold_to_v2_entry (ValueError) catches both.
     """
     if not isinstance(entry, dict):
         raise OpenSRMV2ParseError(
