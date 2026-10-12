@@ -13,6 +13,7 @@ from nthlayer_common.manifest.models import (
     JudgmentMeasurement,
     JudgmentPromise,
     JudgmentThreshold,
+    OutcomeSignal,
     Ownership,
     ReliabilityContract,
     ReliabilityManifest,
@@ -277,9 +278,9 @@ def test_threshold_defaults_to_an_empty_measurement():
     assert type(threshold.measurement) is ThresholdMeasurement
 
 
-@pytest.mark.parametrize(
-    "slo_only_field", ["method", "frequency", "source", "sampling", "confidence_threshold"]
-)
+# source and confidence_threshold left this list in 5.0.0 (opensrm-7zpz): a
+# segments threshold's metric takes them as parameters (CORE §5.5.1).
+@pytest.mark.parametrize("slo_only_field", ["method", "frequency", "sampling"])
 def test_threshold_measurement_has_no_slo_only_fields(slo_only_field):
     """The trap ThresholdMeasurement exists to remove: on JudgmentMeasurement
     these were always None for a threshold, so an evaluator reading
@@ -303,3 +304,25 @@ def test_threshold_measurement_defaults_are_not_shared():
     a.measurement.segment_values.append("x")
     assert b.measurement.segment_values == []
     assert a.measurement is not b.measurement
+
+
+def test_segments_metric_parameters_default_to_none():
+    """CORE §5.5.1: metric and its parameters exist only on segments; every
+    other type leaves them unset."""
+    m = ThresholdMeasurement()
+    assert (m.metric, m.source, m.confidence_threshold, m.outcome_signal) == (None, None, None, None)
+
+
+def test_outcome_signal_is_frozen_and_compares_by_value():
+    a = OutcomeSignal(source="retro-consumer", window="1h")
+    assert a == OutcomeSignal(source="retro-consumer", window="1h")
+    assert (a.source, a.window) == ("retro-consumer", "1h")
+    with pytest.raises(AttributeError):
+        a.window = "2h"  # type: ignore[misc]
+
+
+def test_outcome_signal_is_exported_from_the_package():
+    from nthlayer_common import manifest
+
+    assert manifest.OutcomeSignal is OutcomeSignal
+    assert "OutcomeSignal" in manifest.__all__

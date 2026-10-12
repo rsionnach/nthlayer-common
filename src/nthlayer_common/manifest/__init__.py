@@ -39,6 +39,7 @@ from nthlayer_common.manifest.models import (
     Observability,
     OnCallConfig,
     Outcomes,
+    OutcomeSignal,
     Override,
     Ownership,
     PagerDutyConfig,
@@ -133,6 +134,7 @@ __all__ = [
     "BreachAction",
     "StatisticalRequirements",
     "ProbeConfig",
+    "OutcomeSignal",
     "SamplingConfig",
     "StratifiedSample",
     # Contract

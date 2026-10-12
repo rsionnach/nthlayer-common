@@ -354,6 +354,21 @@ class JudgmentMeasurement:
     segment_values: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class OutcomeSignal:
+    """Where a decision's outcome comes from, and how long to wait for it.
+
+    The ``outcome_signal`` of a segments threshold whose ``metric`` is
+    ``outcomes`` (CORE §5.5.1, opensrm-7zpz), with the meaning the outcomes
+    judgment SLO gives it. ``window`` is the outcome wait, a Duration string
+    kept as declared (``"0s"`` allowed); it is not the population window,
+    which is ``ThresholdMeasurement.window``.
+    """
+
+    source: str
+    window: str
+
+
 @dataclass
 class ThresholdMeasurement:
     """Type-specific measurement fields of a JudgmentThreshold (opensrm-l33e).
@@ -362,14 +377,20 @@ class ThresholdMeasurement:
 
     - calibration: ``bins`` and ``window``
     - stability: ``probe`` (``frozen_input_set``, ``frequency``)
-    - segments: ``segment_dimension`` and ``segment_values``
+    - segments: ``metric``, ``segment_dimension``, ``segment_values`` and
+      ``window`` (the population window; the parser stores the spec default
+      ``"30d"`` when ``measurement.window`` is absent), plus the parameter the
+      metric takes (CORE §5.5.1, opensrm-7zpz): ``source`` for
+      ``reversal_rate``, ``confidence_threshold`` for
+      ``high_confidence_failure``, ``outcome_signal`` for ``outcomes``;
+      ``escalation`` takes none
     - audit_backlog, feedback_latency: none; every field stays at its default
 
-    Deliberately omits JudgmentMeasurement's SLO-only fields (``source``,
-    ``confidence_threshold``, ``method``, ``frequency``, ``sampling``). On a
-    threshold they were always None, so an evaluator reading ``.frequency``
-    instead of ``.probe.frequency`` got a silent None. Here it is an
-    AttributeError.
+    Deliberately omits JudgmentMeasurement's SLO-only fields (``method``,
+    ``frequency``, ``sampling``). On a threshold they were always None, so an
+    evaluator reading ``.frequency`` instead of ``.probe.frequency`` got a
+    silent None. Here it is an AttributeError. ``source`` and
+    ``confidence_threshold`` are present because a segments metric takes them.
 
     Nothing here enforces which fields go with which type: the parsers are the
     only invariant enforcer, so a hand-built instance can pair any fields.
@@ -382,6 +403,11 @@ class ThresholdMeasurement:
     probe: ProbeConfig | None = None
     segment_dimension: str | None = None
     segment_values: list[str] = field(default_factory=list)
+    # segments only (opensrm-7zpz): the rate compared, and its parameter.
+    metric: str | None = None  # reversal_rate | high_confidence_failure | outcomes | escalation
+    source: str | None = None  # reversal_rate: lineage | calibration_sample | downstream_signal
+    confidence_threshold: float | None = None  # high_confidence_failure, a ratio
+    outcome_signal: OutcomeSignal | None = None  # outcomes
 
 
 @dataclass
@@ -491,7 +517,8 @@ class JudgmentThreshold:
 
     ``measurement`` is a ThresholdMeasurement holding the type-specific
     fields (calibration bins/window, stability probe, segments
-    dimension/values), not the judgment-SLO JudgmentMeasurement.
+    metric/dimension/values/window and the metric's parameter), not the
+    judgment-SLO JudgmentMeasurement.
     """
 
     # A plain str by design, like every judgment_type in this module; the
