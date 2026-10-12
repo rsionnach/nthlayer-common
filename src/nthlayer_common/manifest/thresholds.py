@@ -5,8 +5,8 @@ error budget; a breach is the measured value exceeding a declared bound. So
 the parsers never convert a v2 bound: bounds are stored exactly as declared,
 which is the opposite of target_validation.py's job for judgment SLO targets.
 The coercions are normalise_bins() (an integral float bins becomes an int) and
-srm_v1_threshold(), which builds a float ECE bound and a "<n>s" duration from
-srm/v1's bare numbers.
+srm_v1_threshold(), which builds a float ECE bound and a "<n><unit>" duration
+(unit default s) from srm/v1's bare numbers.
 
 This module also holds the srm/v1 lift (srm_v1_threshold), the v2 emit
 (threshold_to_v2_entry), and duration_seconds(), which turns a Duration bound
@@ -412,11 +412,56 @@ _SRM_V1_UNCARRIABLE_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+# The srm/v1 SLO keys the lift accepts (opensrm-1rnr). Of srm/v1's SLO key set
+# (target | minimum, window, type, unit, percentile, query, description,
+# labels), the others have no threshold meaning; they are rejected rather than
+# dropped. description and labels are accepted and dropped: nothing evaluated
+# depends on them.
+_SRM_V1_THRESHOLD_KEYS = ("target", "window", "unit", "description", "labels")
+
+# v2's feedback_latency window is fixed at 30d (CORE §5.5.5), so the only
+# srm/v1 window the lift can carry is that one.
+_FEEDBACK_LATENCY_WINDOW = "30d"
+
+
+def _srm_v1_feedback_latency_bound(config: dict[str, Any]) -> str:
+    """The maximum_p50 Duration for an srm/v1 feedback_latency entry.
+
+    The target is a whole number of ``unit`` (default seconds); ``unit`` must
+    be a Duration unit, so the bound is the same quantity in v2's grammar.
+    """
+    unit = config.get("unit", "s")
+    if not isinstance(unit, str) or unit not in _DURATION_SECONDS:
+        raise ValueError(
+            f"srm/v1 'feedback_latency' unit must be one of "
+            f"{', '.join(_DURATION_UNITS)} (default s), got {unit!r}"
+        )
+    if "window" in config and config["window"] != _FEEDBACK_LATENCY_WINDOW:
+        raise ValueError(
+            f"srm/v1 'feedback_latency' window must be {_FEEDBACK_LATENCY_WINDOW} or "
+            f"absent: v2 measures feedback latency over a fixed "
+            f"{_FEEDBACK_LATENCY_WINDOW} window (OPENSRM-CORE-v2 §5.5.5), so the lift "
+            f"cannot carry {config['window']!r}"
+        )
+    target = config.get("target")
+    # An integral float (3600.0) is a whole number of units, as for bins.
+    whole = isinstance(target, int) or (isinstance(target, float) and target.is_integer())
+    if isinstance(target, bool) or not whole or target < 0:
+        units = "seconds" if unit == "s" else f"'{unit}'"
+        raise ValueError(
+            f"srm/v1 'feedback_latency' target must be a non-negative whole "
+            f"number of {units}, got {target!r}"
+        )
+    return f"{int(target)}{unit}"
+
+
 def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
     """Lift an srm/v1 ``spec.slos.<name>`` entry into a JudgmentThreshold.
 
     Shared by parser/v1.py and v1_compat.convert_v1_to_v2 so the two cannot
-    map one srm/v1 entry to different thresholds. Raises ValueError.
+    map one srm/v1 entry to different thresholds. Accepts only the keys in
+    _SRM_V1_THRESHOLD_KEYS (calibration: not ``unit``); any other key is an
+    error, never dropped (opensrm-1rnr). Raises ValueError.
     """
     if name == "audit_backlog":
         raise ValueError(
@@ -447,6 +492,19 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
                 f"opensrm.nthlayer.io/v2 manifest under spec.judgment_threshold "
                 f"(OPENSRM-CORE-v2 §5.5)."
             )
+    # calibration's target is a ratio (ECE): a unit on it means nothing the
+    # lift could carry, so it is an error rather than dropped.
+    accepted = tuple(
+        k for k in _SRM_V1_THRESHOLD_KEYS if not (name == "calibration" and k == "unit")
+    )
+    unknown = sorted((k for k in config if k not in accepted), key=repr)
+    if unknown:
+        raise ValueError(
+            f"srm/v1 '{name}' does not take {', '.join(map(repr, unknown))}: the lift "
+            f"accepts only {', '.join(accepted)} and would otherwise drop it "
+            f"silently. Declare the threshold in an opensrm.nthlayer.io/v2 manifest "
+            f"under spec.judgment_threshold (OPENSRM-CORE-v2 §5.5)."
+        )
     target = config.get("target")
     if name == "calibration":
         if target is None:
@@ -461,14 +519,10 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
             measurement=ThresholdMeasurement(window=window, bins=_SRM_V1_CALIBRATION_BINS),
         )
     if name == "feedback_latency":
-        # An integral float (3600.0) is a whole number of seconds, as for bins.
-        whole = isinstance(target, int) or (isinstance(target, float) and target.is_integer())
-        if isinstance(target, bool) or not whole or target < 0:
-            raise ValueError(
-                f"srm/v1 'feedback_latency' target must be a non-negative whole "
-                f"number of seconds, got {target!r}"
-            )
-        return JudgmentThreshold(type="feedback_latency", bounds={"maximum_p50": f"{int(target)}s"})
+        return JudgmentThreshold(
+            type="feedback_latency",
+            bounds={"maximum_p50": _srm_v1_feedback_latency_bound(config)},
+        )
     raise ValueError(f"'{name}' is not an srm/v1 judgment threshold")
 
 
