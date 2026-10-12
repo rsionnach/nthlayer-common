@@ -122,6 +122,8 @@ no `method`, `frequency` or `sampling`.
   `threshold_from_v2_entry(item, where=f"/manifests[{i}].judgment_thresholds[{j}]")`;
   errors then read `<where>: <reason>`. It raises `OpenSRMV2ParseError`, which
   is not a `ValueError` (what `threshold_to_v2_entry` raises): catch both.
+  Entries are closed, so a key a newer nthlayer-common adds is an error here:
+  upgrade nthlayer-common no later than the service serving the entries.
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
   today, so they need only the version bump and any `segments` fixtures; an
   evaluator added to workers later should get its thresholds through

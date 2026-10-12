@@ -650,6 +650,10 @@ def threshold_from_v2_entry(
     requirement, template concatenation - cannot be checked on a lone entry;
     an entry served by core already passed them.
 
+    Entries are closed (CORE §5.5), so a key, bound or type added by a newer
+    nthlayer-common is an error here: upgrade nthlayer-common no later than
+    the producer (e.g. nthlayer-core), or catch the error per entry.
+
     Raises OpenSRMV2ParseError, which is not a ValueError: a consumer using
     both this and threshold_to_v2_entry (ValueError) catches both.
     """

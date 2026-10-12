@@ -119,3 +119,40 @@ def test_does_not_mutate_the_entry():
     before = yaml.safe_dump(entry)
     threshold_from_v2_entry(entry)
     assert yaml.safe_dump(entry) == before
+
+
+def test_json_decoded_entries_equal_yaml_parsed_ones():
+    """The consumer reads JSON (core's /manifests); ints and floats decode
+    differently from YAML but must give an equal threshold."""
+    import json
+
+    for source in _SOURCES:
+        for entry in _entries(source):
+            assert threshold_from_v2_entry(json.loads(json.dumps(entry))) == threshold_from_v2_entry(entry)
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_rejects_json_non_finite_bounds(token):
+    import json
+
+    entry = json.loads(
+        '{"type": "stability", "probe": {"frozen_input_set": "s3://p", '
+        '"frequency": "daily"}, "bounds": {"maximum_drift": ' + token + "}}"
+    )
+    with pytest.raises(OpenSRMV2ParseError):
+        threshold_from_v2_entry(entry)
+
+
+def test_accepts_a_dict_subclass():
+    from collections import OrderedDict
+
+    entry = _entries(_SOURCES[0])[0]
+    assert threshold_from_v2_entry(OrderedDict(entry)) == threshold_from_v2_entry(entry)
+
+
+def test_a_key_from_a_newer_common_is_an_error_not_ignored():
+    """Forward compatibility is deliberately strict (closed entries, CORE
+    §5.5): consumers upgrade nthlayer-common no later than the producer."""
+    entry = dict(_entries(_SOURCES[0])[0], added_in_a_later_version=1)
+    with pytest.raises(OpenSRMV2ParseError):
+        threshold_from_v2_entry(entry)
