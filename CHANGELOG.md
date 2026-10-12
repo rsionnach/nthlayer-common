@@ -9,7 +9,6 @@ Apache-2.0.
 
 ### Features
 
-* **manifest:** threshold_from_v2_entry, the public inverse of threshold_to_v2_entry ([510736f](https://github.com/rsionnach/nthlayer-common/commit/510736f5bcf8f66d0997ec21aa9255e53edf445e))
 * **manifest:** threshold_from_v2_entry, the public inverse of threshold_to_v2_entry (opensrm-908x) ([02faf08](https://github.com/rsionnach/nthlayer-common/commit/02faf087077e2478c567f61dc71b1d2abb3e953a))
 
 
