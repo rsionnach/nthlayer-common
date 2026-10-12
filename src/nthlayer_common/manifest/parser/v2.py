@@ -633,6 +633,37 @@ def _parse_threshold_entries(prefix: str, entries: list[Any]) -> list[JudgmentTh
     return parsed
 
 
+def threshold_from_v2_entry(
+    entry: Any, where: str = "judgment_threshold entry"
+) -> JudgmentThreshold:
+    """Parse one flat ``spec.judgment_threshold`` entry into a JudgmentThreshold.
+
+    Public inverse of ``threshold_to_v2_entry`` (opensrm-908x), for consumers
+    that receive entries outside a manifest - e.g. nthlayer-core's /manifests
+    ``judgment_thresholds`` items. It applies exactly the rules the manifest
+    parser applies to the same entry, so a consumer never re-implements them.
+    Pass *where* as a path to the entry in the caller's own document, e.g.
+    ``/manifests[3].judgment_thresholds[1]``; errors read ``<where>: <reason>``
+    (or ``<where> must be a mapping, ...``). Never mutates *entry*.
+
+    Only per-entry rules apply. Manifest-level ones - the ai-gate service
+    requirement, template concatenation - cannot be checked on a lone entry;
+    an entry served by core already passed them.
+
+    Entries are closed (CORE §5.5), so a key, bound or type added by a newer
+    nthlayer-common is an error here: upgrade nthlayer-common no later than
+    the producer (e.g. nthlayer-core), or catch the error per entry.
+
+    Raises OpenSRMV2ParseError, which is not a ValueError: a consumer using
+    both this and threshold_to_v2_entry (ValueError) catches both.
+    """
+    if not isinstance(entry, dict):
+        raise OpenSRMV2ParseError(
+            f"{where} must be a mapping, got {type(entry).__name__}."
+        )
+    return _parse_judgment_threshold(where, entry)
+
+
 def _parse_judgment_threshold(where: str, data: dict[str, Any]) -> JudgmentThreshold:
     """Parse one flat threshold entry (§5.5, opensrm-l33e); *where* locates it
     in the document that declares it, for errors."""

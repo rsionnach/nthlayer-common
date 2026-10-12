@@ -77,7 +77,7 @@ from nthlayer_common.manifest.parser.loader import (
     load_manifest,
 )
 from nthlayer_common.manifest.parser.v1 import OpenSRMParseError
-from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
+from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError, threshold_from_v2_entry
 from nthlayer_common.manifest.scan import (
     MANIFEST_SUFFIXES,
     ManifestCollisionWarning,
@@ -131,6 +131,7 @@ __all__ = [
     "JudgmentThreshold",
     "ThresholdMeasurement",
     "duration_seconds",
+    "threshold_from_v2_entry",
     "threshold_to_v2_entry",
     "BreachAction",
     "StatisticalRequirements",
