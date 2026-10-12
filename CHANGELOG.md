@@ -4,6 +4,35 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.0.0](https://github.com/rsionnach/nthlayer-common/compare/v4.0.0...v5.0.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **manifest:** srm/v1 manifests whose calibration or feedback_latency entry carries a key outside target/window/unit/description/labels, a non-30d feedback_latency window, a non-Duration unit, or a unit on calibration are now rejected; a feedback_latency `unit` other than s now changes the lifted bound instead of being ignored. See docs/upgrading-5.0.md.
+* **manifest:** manifests that 4.x accepted are now rejected: a segments threshold without `metric`, and any threshold entry carrying a key its type does not define (previously ignored). See docs/upgrading-5.0.md.
+
+### Features
+
+* **manifest:** close judgment_threshold entries; segments name a metric (opensrm-7zpz) ([a503f40](https://github.com/rsionnach/nthlayer-common/commit/a503f4086fbe8047339f3c4381db233a04932bd6))
+* **manifest:** export threshold_to_v2_entry for consumers (opensrm-7zpz) ([8656776](https://github.com/rsionnach/nthlayer-common/commit/865677643b775aa6793738c1298740f8844cc84b))
+* **manifest:** OutcomeSignal and segments metric fields on ThresholdMeasurement (opensrm-7zpz) ([2759377](https://github.com/rsionnach/nthlayer-common/commit/2759377cee8cb7845713bc823d15bc36b924ff2b))
+* **manifest:** srm/v1 feedback_latency targets are capped at 2**53 (opensrm-1rnr) ([fd85791](https://github.com/rsionnach/nthlayer-common/commit/fd857915ca2622b2c4c97716421debbaec598d97))
+* **manifest:** a threshold error names the document that declares it (template, manifest or overrides) (opensrm-7zpz) ([c3fe0b5](https://github.com/rsionnach/nthlayer-common/commit/c3fe0b5b4e648da29659d1ac29277fc7cf2a1c87))
+* **manifest:** threshold_to_v2_entry validates what it emits (opensrm-7zpz) ([1fbd09d](https://github.com/rsionnach/nthlayer-common/commit/1fbd09dc9f52ebbb1909012dcb176369b85a70b8))
+
+
+### Bug Fixes
+
+* **manifest:** srm/v1 threshold lift rejects keys it would drop; honours unit (opensrm-1rnr) ([394a7c3](https://github.com/rsionnach/nthlayer-common/commit/394a7c3018cb8146b95cf0320db68f9878697a01))
+
+
+### Documentation
+
+* threshold_to_v2_entry raises ValueError on an unparseable threshold ([2197104](https://github.com/rsionnach/nthlayer-common/commit/2197104aa1aa272f0031519d5eb9f94e4d6e518d))
+* unit is accepted on srm/v1 feedback_latency only ([52e4819](https://github.com/rsionnach/nthlayer-common/commit/52e4819ce6f86757bc0dda1b7900290e5a4138b7))
+* upgrading to 5.0 — closed threshold entries, segments metric, srm/v1 lift (opensrm-7zpz, opensrm-1rnr) ([5fb9482](https://github.com/rsionnach/nthlayer-common/commit/5fb94826a631db104e8aacf437e374c5689dc14b))
+
 ## [4.0.0](https://github.com/rsionnach/nthlayer-common/compare/v3.0.0...v4.0.0) (2026-10-11)
 
 
