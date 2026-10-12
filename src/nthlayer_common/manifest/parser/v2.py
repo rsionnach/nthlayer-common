@@ -633,6 +633,25 @@ def _parse_threshold_entries(prefix: str, entries: list[Any]) -> list[JudgmentTh
     return parsed
 
 
+def threshold_from_v2_entry(
+    entry: Any, where: str = "judgment_threshold entry"
+) -> JudgmentThreshold:
+    """The JudgmentThreshold for one flat ``spec.judgment_threshold`` entry.
+
+    Public inverse of ``threshold_to_v2_entry`` (opensrm-908x), for consumers
+    that receive entries outside a manifest - e.g. nthlayer-core's /manifests
+    ``judgment_thresholds`` items. It applies exactly the rules the manifest
+    parser applies to the same entry, so a consumer never re-implements them.
+    *where* prefixes any error so it locates the entry in the caller's own
+    document. Raises OpenSRMV2ParseError; never mutates *entry*.
+    """
+    if not isinstance(entry, dict):
+        raise OpenSRMV2ParseError(
+            f"{where} must be a mapping, got {type(entry).__name__}."
+        )
+    return _parse_judgment_threshold(where, entry)
+
+
 def _parse_judgment_threshold(where: str, data: dict[str, Any]) -> JudgmentThreshold:
     """Parse one flat threshold entry (§5.5, opensrm-l33e); *where* locates it
     in the document that declares it, for errors."""

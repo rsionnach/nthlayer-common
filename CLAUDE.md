@@ -50,7 +50,10 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          re-exported, except `duration_seconds()` and
          `threshold_to_v2_entry()`, which are public and re-exported from
          `manifest/__init__.py` (the latter so consumers serialise a
-         threshold through the one validated emitter, opensrm-7zpz).
+         threshold through the one validated emitter, opensrm-7zpz). Its
+         inverse, `threshold_from_v2_entry()`, lives in `parser/v2.py`
+         (it wraps the parser's own entry function) and is public too
+         (opensrm-908x).
        - domain guards, used on the CLASSICAL writers too, not just
          judgment — `require_number()` (numeric or a string spelling
          one; raises ValueError where a bare `float()` raised an

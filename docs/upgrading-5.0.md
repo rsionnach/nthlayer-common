@@ -113,9 +113,17 @@ no `method`, `frequency` or `sampling`.
   emits (raising `ValueError` for a threshold the parser could never produce), and picks up future fields without a consumer change. nthlayer-core's
   `/manifests` serialiser must move to it (and its inline `segments` fixtures
   gain `metric`).
+- Read one back with `nthlayer_common.manifest.threshold_from_v2_entry`
+  (public from 5.1.0, opensrm-908x) rather than parsing the dict by hand: it
+  turns a served entry (e.g. an item of core 3.0's `/manifests`
+  `judgment_thresholds`) into a `JudgmentThreshold` with exactly the manifest
+  parser's rules, raising `OpenSRMV2ParseError` prefixed with the `where` you
+  pass.
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
   today, so they need only the version bump and any `segments` fixtures; an
-  evaluator added to workers later must read `metric` and its parameters.
+  evaluator added to workers later should get its thresholds through
+  `threshold_from_v2_entry` and read `metric` and its parameters from the
+  result.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).
