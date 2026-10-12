@@ -31,6 +31,7 @@ from nthlayer_common.manifest.models import (
     JudgmentMeasurement,
     JudgmentThreshold,
     Outcomes,
+    OutcomeSignal,
     Ownership,
     ProbeConfig,
     ReliabilityContract,
@@ -61,7 +62,10 @@ from nthlayer_common.manifest.target_validation import (
     judgment_target_percent,
 )
 from nthlayer_common.manifest.thresholds import (
+    SEGMENTS_DEFAULT_WINDOW,
+    SEGMENTS_METRICS,
     THRESHOLD_REQUIRED_FIELDS,
+    THRESHOLD_TYPE_FIELDS,
     check_type_fields,
     normalise_bins,
     parse_bounds,
@@ -392,6 +396,11 @@ _THRESHOLD_OWN_FIELDS: dict[str, tuple[str, ...]] = {
     t: fields for t, fields in THRESHOLD_REQUIRED_FIELDS.items() if fields
 }
 
+# A pre-3c segments item names no rate, and the fix-it cannot guess one
+# (CORE §5.5.1, opensrm-7zpz). The placeholder is not a metric, so a
+# suggestion pasted unedited fails on `metric` rather than loading.
+_METRIC_PLACEHOLDER = f"<choose one: {' | '.join(SEGMENTS_METRICS)}>"
+
 
 def _render_threshold_block(entry: dict[str, Any]) -> str:
     """Render a judgment_threshold block, indented as a message example.
@@ -432,21 +441,38 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
         # A loadable judgment_threshold entry: the type's own fields carry
         # over (schema JudgmentThresholdSpec requires them), `target` becomes
         # `bounds`, and measurement.method is dropped (the schema forbids it).
+        # Only the type's required fields carry over, and an object-valued
+        # one only with the keys the closed entry defines (CORE §5.5), so the
+        # suggestion never carries a key the threshold would reject - neither
+        # measurement.method nor a stray measurement on segments.
         entry: dict[str, Any] = {"type": judgment_type}
         for field in _THRESHOLD_OWN_FIELDS.get(judgment_type, ()):
+            if field == "metric":
+                entry[field] = _METRIC_PLACEHOLDER
+                continue
             if field not in body:
                 continue
             value = body[field]
-            if field == "measurement" and isinstance(value, dict):
-                value = {k: v for k, v in value.items() if k != "method"}
+            allowed = THRESHOLD_TYPE_FIELDS[judgment_type].get(field)
+            if allowed is not None and isinstance(value, dict):
+                value = {k: v for k, v in value.items() if k in allowed}
             entry[field] = value
         entry["bounds"] = target
         dropped = ""
+        if judgment_type == "segments":
+            dropped = (
+                "\n\nA segments threshold must name the rate it compares "
+                "(OPENSRM-CORE-v2 §5.5.1): replace the `metric` placeholder with "
+                f"one of {', '.join(SEGMENTS_METRICS)}. reversal_rate also needs "
+                "`measurement.source`, high_confidence_failure "
+                "`measurement.confidence_threshold`, and outcomes an "
+                "`outcome_signal`; escalation takes none."
+            )
         measurement = entry.get("measurement")
         if judgment_type == "calibration" and not (
             isinstance(measurement, dict) and "bins" in measurement and "window" in measurement
         ):
-            dropped = (
+            dropped += (
                 "\n\nA calibration threshold requires `measurement` with `bins` "
                 "and `window`; add one."
             )
@@ -636,14 +662,12 @@ def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThres
 
 
 def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> ThresholdMeasurement:
-    """Build a threshold's measurement from the keys its type uses, only.
+    """Build a threshold's measurement from an entry check_type_fields accepted.
 
-    JudgmentThresholdSpec is open: ``measurement``, ``probe``, ``sampling`` and
-    the ``segment_*`` keys are constrained only inside the branch of the type
-    that uses them, so on any other type the schema accepts any value for them.
-    Those keys are ignored here. The keys read are exactly the ones
-    ``check_type_fields`` has already validated for this type, which is why
-    this does not reuse ``_parse_judgment_measurement`` (the judgment_slo path).
+    Entries are closed (CORE §5.5, opensrm-7zpz), so by now *data* holds only
+    the keys its type defines, each validated. This does not reuse
+    ``_parse_judgment_measurement`` (the judgment_slo path), whose fields are
+    a different set.
     """
     if threshold_type == "calibration":
         m_data = data["measurement"]
@@ -662,7 +686,18 @@ def _threshold_measurement(threshold_type: str, data: dict[str, Any]) -> Thresho
             ),
         )
     if threshold_type == "segments":
+        m_data = data.get("measurement", {})
+        signal = data.get("outcome_signal")
+        confidence = m_data.get("confidence_threshold")
         return ThresholdMeasurement(
+            metric=data["metric"],
+            window=m_data.get("window", SEGMENTS_DEFAULT_WINDOW),
+            source=m_data.get("source"),
+            confidence_threshold=None if confidence is None else float(confidence),
+            outcome_signal=(
+                None if signal is None
+                else OutcomeSignal(source=signal["source"], window=signal["window"])
+            ),
             segment_dimension=data["segment_dimension"],
             segment_values=list(data["segment_values"]),
         )

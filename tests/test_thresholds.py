@@ -11,11 +11,14 @@ from __future__ import annotations
 import copy
 import math
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from nthlayer_common.manifest.thresholds import (
     FORBIDDEN_THRESHOLD_KEYS,
+    SEGMENTS_DEFAULT_WINDOW,
+    SEGMENTS_METRICS,
     THRESHOLD_BOUNDS,
     check_type_fields,
     duration_seconds,
@@ -123,10 +126,10 @@ def test_parse_bounds_rejects_an_unknown_type():
 @pytest.mark.parametrize(
     ("threshold_type", "entry", "match"),
     [
-        ("segments", {"segment_values": ["a"]}, "segment_dimension"),
-        ("segments", {"segment_dimension": "tier", "segment_values": []}, "segment_values"),
-        ("segments", {"segment_dimension": "tier", "segment_values": "a"}, "segment_values"),
-        ("segments", {"segment_dimension": "tier", "segment_values": [1]}, "segment_values"),
+        ("segments", {"metric": "escalation", "segment_values": ["a"]}, "segment_dimension"),
+        ("segments", {"metric": "escalation", "segment_dimension": "tier", "segment_values": []}, "segment_values"),
+        ("segments", {"metric": "escalation", "segment_dimension": "tier", "segment_values": "a"}, "segment_values"),
+        ("segments", {"metric": "escalation", "segment_dimension": "tier", "segment_values": [1]}, "segment_values"),
         ("stability", {}, "probe"),
         ("stability", {"probe": {"frozen_input_set": "s3://x"}}, "frequency"),
         ("stability", {"probe": {"frozen_input_set": "s3://x", "frequency": "monthly"}}, "frequency"),
@@ -137,11 +140,11 @@ def test_parse_bounds_rejects_an_unknown_type():
         ("calibration", {"measurement": {"bins": 2.5, "window": "30d"}}, "bins"),
         ("calibration", {"measurement": {"bins": 10, "window": "30"}}, "window"),
         ("calibration", {"measurement": {"bins": 10, "window": "30d", "method": "brier_score"}}, "method"),
-        ("segments", {"segment_dimension": "", "segment_values": ["a"]}, "segment_dimension"),
-        ("segments", {"segment_dimension": 5, "segment_values": ["a"]}, "segment_dimension"),
+        ("segments", {"metric": "escalation", "segment_dimension": "", "segment_values": ["a"]}, "segment_dimension"),
+        ("segments", {"metric": "escalation", "segment_dimension": 5, "segment_values": ["a"]}, "segment_dimension"),
         ("stability", {"probe": {"frequency": "daily"}}, "frozen_input_set"),
         ("stability", {"probe": {"frozen_input_set": 5, "frequency": "daily"}}, "frozen_input_set"),
-        ("segments", {"segment_dimension": "tier", "segment_values": ["a", ""]}, "segment_values"),
+        ("segments", {"metric": "escalation", "segment_dimension": "tier", "segment_values": ["a", ""]}, "segment_values"),
     ],
 )
 def test_check_type_fields_rejects_what_the_schema_rejects(threshold_type, entry, match):
@@ -152,7 +155,7 @@ def test_check_type_fields_rejects_what_the_schema_rejects(threshold_type, entry
 @pytest.mark.parametrize(
     ("threshold_type", "entry"),
     [
-        ("segments", {"segment_dimension": "tier", "segment_values": ["a", "b"]}),
+        ("segments", {"metric": "escalation", "segment_dimension": "tier", "segment_values": ["a", "b"]}),
         ("stability", {"probe": {"frozen_input_set": "s3://x", "frequency": "daily"}}),
         ("calibration", {"measurement": {"bins": 10, "window": "30d"}}),
         # schema.json bins `type: integer`: draft-07 accepts an integral float
@@ -169,7 +172,7 @@ def test_check_type_fields_accepts_the_schema_shapes(threshold_type, entry):
 @pytest.mark.parametrize(
     ("threshold_type", "entry"),
     [
-        ("segments", {"segment_dimension": "tier", "segment_values": ["a"]}),
+        ("segments", {"metric": "escalation", "segment_dimension": "tier", "segment_values": ["a"]}),
         ("stability", {"probe": {"frozen_input_set": "s3://x", "frequency": "daily"}}),
         ("calibration", {"measurement": {"bins": 10, "window": "30d"}}),
         ("audit_backlog", {}),
@@ -214,28 +217,227 @@ def test_a_huge_integer_bound_is_a_range_error_not_an_overflow():
 
 
 # parents: [0]=tests/ [1]=nthlayer-common/ [2]=<ecosystem>/
-_ALL_FIVE = (
-    Path(__file__).resolve().parents[2]
-    / "opensrm" / "spec" / "v2" / "examples" / "judgment-thresholds" / "all-five-types.yaml"
-)
+_SPEC_V2 = Path(__file__).resolve().parents[2] / "opensrm" / "spec" / "v2"
+_THRESHOLD_EXAMPLES = _SPEC_V2 / "examples" / "judgment-thresholds"
+_AI_GATE = _SPEC_V2 / "examples" / "services" / "ai-gate.yaml"
 
 
-def test_threshold_to_v2_entry_round_trips_all_five_types():
-    """The docstring claims it inverts the v2 parser for every type; callers
-    only reach calibration/feedback_latency, so check the rest directly."""
+def _threshold_sources() -> list[Path]:
+    """The live spec files whose thresholds the round trip covers: every
+    segments metric form the spec ships (opensrm-7zpz) and all five types."""
+    return [
+        _THRESHOLD_EXAMPLES / "all-five-types.yaml",
+        _THRESHOLD_EXAMPLES / "segments-two-dimensions.yaml",
+        _AI_GATE,
+    ]
+
+
+def _bare_ai_gate(entries: list[Any]) -> dict[str, Any]:
+    """A minimal ai-gate manifest carrying *entries*. ai-gate.yaml itself does
+    not parse whole yet (opensrm-a742: its flat judgment_slo items), so its
+    thresholds are lifted into this shell, unchanged."""
+    return {
+        "apiVersion": "opensrm.nthlayer.io/v2",
+        "kind": "ServiceManifest",
+        "metadata": {"name": "svc", "labels": {"tier": "critical"}},
+        "spec": {
+            "owner": {"group": "group:default/team"},
+            "service": {"name": "svc", "type": "ai-gate"},
+            "judgment_threshold": entries,
+        },
+    }
+
+
+@pytest.mark.parametrize("source", _threshold_sources(), ids=lambda p: p.name)
+def test_threshold_to_v2_entry_round_trips_the_spec_examples(source):
+    """threshold_to_v2_entry inverts the v2 parser: emitting a parsed threshold
+    and re-parsing it gives an equal JudgmentThreshold."""
     import yaml
 
     from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
-    assert _ALL_FIVE.is_file(), f"spec example missing: {_ALL_FIVE}"
-    doc = yaml.safe_load(_ALL_FIVE.read_text(encoding="utf-8"))
-    originals = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
-    assert {t.type for t in originals} == set(THRESHOLD_BOUNDS)
+    assert source.is_file(), f"spec example missing: {source}"
+    entries = yaml.safe_load(source.read_text(encoding="utf-8"))["spec"]["judgment_threshold"]
+    assert entries, f"{source.name} declares no thresholds"
+    originals = parse_opensrm_v2(_bare_ai_gate(entries)).judgment_thresholds
+    assert len(originals) == len(entries)
 
-    doc["spec"]["judgment_threshold"] = [threshold_to_v2_entry(t) for t in originals]
-    reparsed = parse_opensrm_v2(doc, base_dir=_ALL_FIVE.parent).judgment_thresholds
+    emitted = [threshold_to_v2_entry(t) for t in originals]
+    reparsed = parse_opensrm_v2(_bare_ai_gate(emitted)).judgment_thresholds
     assert reparsed == originals
 
+
+def test_the_round_trip_sources_cover_every_type_and_metric():
+    """Pins the coverage the round trip claims, so a spec edit that drops a
+    form from these files fails here instead of thinning the test."""
+    import yaml
+
+    entries = [
+        e
+        for path in _threshold_sources()
+        for e in yaml.safe_load(path.read_text(encoding="utf-8"))["spec"]["judgment_threshold"]
+    ]
+    assert {e["type"] for e in entries} == set(THRESHOLD_BOUNDS)
+    assert {e["metric"] for e in entries if e["type"] == "segments"} == set(SEGMENTS_METRICS)
+
+
+def test_segments_emit_always_carries_the_stored_window():
+    """The parser stores the 30d default, so the emit writes it out."""
+    from nthlayer_common.manifest.models import JudgmentThreshold, ThresholdMeasurement
+
+    threshold = JudgmentThreshold(
+        type="segments",
+        bounds={"maximum_variance_from_overall": 0.05},
+        measurement=ThresholdMeasurement(
+            metric="escalation", window=SEGMENTS_DEFAULT_WINDOW,
+            segment_dimension="tier", segment_values=["a"],
+        ),
+    )
+    entry = threshold_to_v2_entry(threshold)
+    assert entry["metric"] == "escalation"
+    assert entry["measurement"] == {"window": SEGMENTS_DEFAULT_WINDOW}
+    assert "outcome_signal" not in entry
+
+
+# =============================================================================
+# segments metric (CORE §5.5.1, opensrm-7zpz) and closed entries (CORE §5.5).
+# Each rejected shape is one the schema's segments branch rejects; the clause
+# is named beside it. The spec's own negatives (n67-n92) are run whole in
+# test_judgment_thresholds_against_spec.py.
+# =============================================================================
+
+_SEG = {"segment_dimension": "tier", "segment_values": ["a"]}
+
+
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [
+        ({**_SEG}, "metric"),                                                     # required
+        ({**_SEG, "metric": "audit_sampling"}, "audit_sampling"),                # enum, by name
+        ({**_SEG, "metric": "accuracy"}, "metric"),                              # enum
+        ({**_SEG, "metric": ["escalation"]}, "metric"),                          # enum, unhashable
+        ({**_SEG, "metric": "reversal_rate"}, "source"),                         # then: required
+        ({**_SEG, "metric": "reversal_rate", "measurement": {}}, "source"),
+        ({**_SEG, "metric": "reversal_rate", "measurement": {"source": "audit"}}, "source"),
+        ({**_SEG, "metric": "reversal_rate", "measurement": {"source": ["lineage"]}}, "source"),
+        ({**_SEG, "metric": "high_confidence_failure"}, "confidence_threshold"),
+        ({**_SEG, "metric": "high_confidence_failure",
+          "measurement": {"window": "7d"}}, "confidence_threshold"),
+        ({**_SEG, "metric": "escalation", "measurement": {"source": "lineage"}}, "source"),  # else: not
+        ({**_SEG, "metric": "outcomes", "measurement": {"source": "lineage"},
+          "outcome_signal": {"source": "s", "window": "1h"}}, "source"),
+        ({**_SEG, "metric": "escalation",
+          "measurement": {"confidence_threshold": 0.9}}, "confidence_threshold"),
+        ({**_SEG, "metric": "outcomes"}, "outcome_signal"),
+        ({**_SEG, "metric": "escalation",
+          "outcome_signal": {"source": "s", "window": "1h"}}, "outcome_signal"),
+        ({**_SEG, "metric": "escalation", "measurement": "7d"}, "measurement"),  # type object
+        ({**_SEG, "metric": "escalation", "measurement": {"windw": "7d"}}, "windw"),  # closed
+        ({**_SEG, "metric": "escalation", "measurement": {"window": "7 days"}}, "window"),
+        ({**_SEG, "metric": "escalation", "measurement": {"window": 7}}, "window"),
+        ({**_SEG, "metric": "escalation", "measurement": {"window": "0d"}}, "window"),  # not 0+
+        ({**_SEG, "metric": "escalation", "measurement": {"window": "000ms"}}, "window"),
+        ({**_SEG, "metric": "outcomes", "outcome_signal": "s"}, "outcome_signal"),
+        ({**_SEG, "metric": "outcomes", "outcome_signal": {"source": "s"}}, "window"),
+        ({**_SEG, "metric": "outcomes", "outcome_signal": {"window": "1h"}}, "source"),
+        ({**_SEG, "metric": "outcomes",
+          "outcome_signal": {"source": "s", "window": "1 hour"}}, "window"),
+        ({**_SEG, "metric": "outcomes",
+          "outcome_signal": {"source": 5, "window": "1h"}}, "source"),
+        ({**_SEG, "metric": "outcomes",
+          "outcome_signal": {"source": "s", "window": "1h", "wait": "2h"}}, "wait"),
+    ],
+)
+def test_segments_metric_rules_reject_what_the_schema_rejects(entry, match):
+    with pytest.raises(ValueError, match=match):
+        check_type_fields("segments", entry)
+
+
+# Ratio: number, 0..1. A string is not a number to the schema.
+@pytest.mark.parametrize("value", [1.5, -0.1, True, "0.9", None, math.nan, math.inf, 10**400], ids=repr)
+def test_segments_confidence_threshold_is_a_ratio(value):
+    entry = {**_SEG, "metric": "high_confidence_failure", "measurement": {"confidence_threshold": value}}
+    with pytest.raises(ValueError, match="confidence_threshold"):
+        check_type_fields("segments", entry)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {**_SEG, "metric": "escalation"},
+        {**_SEG, "metric": "escalation", "measurement": {"window": "7d"}},
+        {**_SEG, "metric": "escalation", "measurement": {}},
+        {**_SEG, "metric": "reversal_rate", "measurement": {"source": "lineage"}},
+        {**_SEG, "metric": "reversal_rate", "measurement": {"source": "calibration_sample", "window": "1w"}},
+        {**_SEG, "metric": "reversal_rate", "measurement": {"source": "downstream_signal"}},
+        {**_SEG, "metric": "high_confidence_failure", "measurement": {"confidence_threshold": 0}},
+        {**_SEG, "metric": "high_confidence_failure", "measurement": {"confidence_threshold": 1}},
+        {**_SEG, "metric": "high_confidence_failure", "measurement": {"confidence_threshold": 0.9}},
+        {**_SEG, "metric": "outcomes", "outcome_signal": {"source": "s", "window": "1h"}},
+        # The outcome wait may be zero: it is the SLO's Duration, unguarded.
+        {**_SEG, "metric": "outcomes", "outcome_signal": {"source": "s", "window": "0s"}},
+        {**_SEG, "metric": "outcomes", "outcome_signal": {"source": "", "window": "1h"},
+         "measurement": {"window": "10d"}},
+    ],
+    ids=lambda e: f"{e['metric']}-{sorted(e.get('measurement', {}))}-{sorted(e.get('outcome_signal', {}))}",
+)
+def test_segments_metric_rules_accept_the_schema_shapes(entry):
+    check_type_fields("segments", entry)
+
+
+@pytest.mark.parametrize(
+    ("threshold_type", "entry", "key"),
+    [
+        # entry level: n74, n79, n85, n86, n87
+        ("segments", {**_SEG, "metric": "escalation", "window": "7d"}, "window"),
+        ("segments", {**_SEG, "metric": "escalation", "probe": {}}, "probe"),
+        ("segments", {**_SEG, "metric": "escalation", "sampling": None}, "sampling"),
+        ("stability", {"window": "7d", "probe": {"frozen_input_set": "s3://x", "frequency": "daily"}},
+         "window"),
+        ("stability", {"metric": "escalation", "probe": {"frozen_input_set": "s3://x", "frequency": "daily"}},
+         "metric"),
+        ("calibration", {"bins": 10, "measurement": {"bins": 10, "window": "30d"}}, "bins"),
+        ("calibration", {"segment_values": ["a"], "measurement": {"bins": 10, "window": "30d"}},
+         "segment_values"),
+        ("audit_backlog", {"measurement": {"window": "7d"}}, "measurement"),
+        ("audit_backlog", {"metric": "escalation"}, "metric"),
+        ("feedback_latency", {"window": "7d"}, "window"),
+        ("feedback_latency", {"outcome_signal": {"source": "s", "window": "1h"}}, "outcome_signal"),
+        # nested objects: n77, n78
+        ("stability", {"probe": {"frozen_input_set": "s3://x", "frequency": "daily", "frequncy": "hourly"}},
+         "frequncy"),
+        ("calibration", {"measurement": {"bins": 10, "window": "30d", "bin": 20}}, "bin"),
+    ],
+)
+def test_threshold_entries_are_closed(threshold_type, entry, key):
+    with pytest.raises(ValueError, match=rf"'{key}'.*§5\.5"):
+        check_type_fields(threshold_type, entry)
+
+
+@pytest.mark.parametrize("threshold_type", list(THRESHOLD_BOUNDS))
+def test_type_and_bounds_are_always_allowed(threshold_type):
+    """Closure admits the two keys every entry has; check_type_fields leaves
+    their validation to the parser and parse_bounds."""
+    entry = {
+        "segments": {**_SEG, "metric": "escalation"},
+        "stability": {"probe": {"frozen_input_set": "s3://x", "frequency": "daily"}},
+        "calibration": {"measurement": {"bins": 10, "window": "30d"}},
+    }.get(threshold_type, {})
+    check_type_fields(threshold_type, {"type": threshold_type, "bounds": {}, **entry})
+
+
+def test_mixed_type_entry_keys_are_a_value_error():
+    """YAML allows int/null mapping keys; sorting them with str keys is a TypeError."""
+    with pytest.raises(ValueError, match="audit_backlog"):
+        check_type_fields("audit_backlog", {1: "x", None: "y", "z": 2})
+
+
+def test_unknown_calibration_measurement_key_is_reported_after_method():
+    """measurement.method keeps its own message (schema: method is `not`)."""
+    with pytest.raises(ValueError, match="measurement.method"):
+        check_type_fields(
+            "calibration", {"measurement": {"bins": 10, "window": "30d", "method": "x", "bin": 1}}
+        )
 
 
 def test_duration_seconds_reports_an_unrepresentable_duration_as_value_error():
@@ -254,3 +456,15 @@ def test_duration_seconds_is_correctly_rounded_for_milliseconds():
 def test_duration_seconds_past_the_int_digit_limit_uses_the_same_message():
     with pytest.raises(ValueError, match="too large"):
         duration_seconds("1" + "0" * 5000 + "s")
+
+
+def test_audit_sampling_gets_its_own_rejection_not_the_generic_enum_one():
+    """CORE §5.5.1 says why audit_sampling is excluded; the parser must say so
+    rather than list it as an unknown value. Compared structurally: the two
+    messages differ beyond the value they echo."""
+    def message(metric: str) -> str:
+        with pytest.raises(ValueError) as exc_info:
+            check_type_fields("segments", {**_SEG, "metric": metric})
+        return str(exc_info.value)
+
+    assert message("audit_sampling") != message("accuracy").replace("accuracy", "audit_sampling")

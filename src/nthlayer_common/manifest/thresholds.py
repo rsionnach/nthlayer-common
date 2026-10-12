@@ -12,6 +12,10 @@ This module also holds the srm/v1 lift (srm_v1_threshold), the v2 emit
 (threshold_to_v2_entry), and duration_seconds(), which turns a Duration bound
 into seconds for evaluators.
 
+Threshold entries are closed (CORE §5.5, opensrm-7zpz): check_type_fields
+rejects any key a type does not define, from the one THRESHOLD_TYPE_FIELDS
+table, and a segments entry names the rate it compares (SEGMENTS_METRICS).
+
 The tables restate opensrm/spec/v2/schema.json's JudgmentThresholdSpec so the
 parsers can enforce it without a JSON-Schema dependency. They are pinned against
 the live schema in BOTH directions by
@@ -26,6 +30,7 @@ target_validation; except duration_seconds(), which is public and re-exported.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from typing import Any
 
 from nthlayer_common.manifest.models import JudgmentThreshold, ThresholdMeasurement
@@ -45,7 +50,7 @@ THRESHOLD_BOUNDS: dict[str, dict[str, str]] = {
 }
 
 THRESHOLD_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    "segments": ("segment_dimension", "segment_values"),
+    "segments": ("metric", "segment_dimension", "segment_values"),
     "stability": ("probe",),
     "calibration": ("measurement",),
     "audit_backlog": (),
@@ -60,6 +65,40 @@ FORBIDDEN_THRESHOLD_KEYS: tuple[str, ...] = (
     "judgment_type",
     "service",
 )
+
+# Every key each type defines besides `type` and `bounds` (CORE §5.5: entries
+# are closed, opensrm-7zpz). The value is the closed key set of an
+# object-valued key, or None for a non-object key. Closure is enforced from
+# this one table, and it is pinned against the schema's per-type branches in
+# both directions. calibration's measurement.method is absent on purpose: the
+# schema defines it only to forbid it.
+THRESHOLD_TYPE_FIELDS: dict[str, dict[str, tuple[str, ...] | None]] = {
+    "segments": {
+        "metric": None,
+        "segment_dimension": None,
+        "segment_values": None,
+        "measurement": ("window", "source", "confidence_threshold"),
+        "outcome_signal": ("source", "window"),
+    },
+    "stability": {"probe": ("frozen_input_set", "frequency")},
+    "calibration": {"measurement": ("bins", "window")},
+    "audit_backlog": {},
+    "feedback_latency": {},
+}
+
+# The rates a segments threshold may compare (CORE §5.5.1). audit_sampling is
+# a judgment SLO type but not a segments metric: it measures sampling.
+SEGMENTS_METRICS: tuple[str, ...] = (
+    "reversal_rate",
+    "high_confidence_failure",
+    "outcomes",
+    "escalation",
+)
+# measurement.source for metric reversal_rate, as on the reversal_rate SLO.
+SEGMENTS_SOURCES: tuple[str, ...] = ("lineage", "calibration_sample", "downstream_signal")
+# CORE §5.5.1: measurement.window is optional on segments; the parser stores
+# this default so every parsed segments threshold carries its window.
+SEGMENTS_DEFAULT_WINDOW = "30d"
 
 _PROBE_FREQUENCIES = ("hourly", "daily", "weekly")
 
@@ -116,18 +155,23 @@ def duration_seconds(value: str) -> float:
     raise AssertionError(f"unreachable: is_duration accepted {value!r}")  # pragma: no cover
 
 
-def _ratio(name: str, value: object) -> float:
+def _ratio(name: str, value: object, what: str = "bound") -> float:
+    """Validate a schema Ratio (``type: number``, 0..1); return it as a float.
+
+    A string spelling a number is rejected, unlike target_validation's
+    require_number(): the schema's ``type: number`` rejects it too.
+    """
     # bool first: it is an int subclass, and YAML 1.1 reads `yes` as True.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(
-            f"bound '{name}' must be a number, got {type(value).__name__}: {value!r}"
+            f"{what} '{name}' must be a number, got {type(value).__name__}: {value!r}"
         )
     # Only floats can be non-finite. math.isfinite on a huge YAML int raises
     # OverflowError, which is not a parse error, so ints go straight to range.
     if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(f"bound '{name}' must be a finite number, got {value!r}")
+        raise ValueError(f"{what} '{name}' must be a finite number, got {value!r}")
     if not 0.0 <= value <= 1.0:
-        raise ValueError(f"bound '{name}' must be in [0, 1], got {value!r}")
+        raise ValueError(f"{what} '{name}' must be in [0, 1], got {value!r}")
     return float(value)
 
 
@@ -183,10 +227,134 @@ def normalise_bins(value: int | float) -> int:
     return int(value)
 
 
-def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
-    """Enforce the non-``bounds`` fields schema.json requires per type.
+def _reject_undefined_keys(where: str, keys: Iterable[Any], allowed: tuple[str, ...]) -> None:
+    """Closure (CORE §5.5): raise naming every key of *keys* not in *allowed*.
 
-    Order: forbidden keys, then required fields, then type-specific shape.
+    Sorted by repr: YAML admits int and null keys beside strings.
+    """
+    unknown = sorted((k for k in keys if k not in allowed), key=repr)
+    if unknown:
+        raise ValueError(
+            f"{', '.join(repr(k) for k in unknown)} {'is' if len(unknown) == 1 else 'are'} "
+            f"not defined on {where} (OPENSRM-CORE-v2 §5.5: threshold entries are "
+            f"closed); its keys are {', '.join(allowed) or 'none'}"
+        )
+
+
+def _is_zero_duration(value: str) -> bool:
+    """Whether a valid Duration is zero: schema ``^0+(ms|s|m|h|d|w)$``."""
+    return set(value.rstrip("mshdw")) == {"0"}
+
+
+def _check_closed_objects(threshold_type: str, entry: dict[str, Any]) -> None:
+    """Every object-valued key present is a mapping holding only its keys.
+
+    calibration's measurement.method is reported first with its own message:
+    it is the one key a 3.x manifest is known to carry there.
+    """
+    for key, allowed in THRESHOLD_TYPE_FIELDS[threshold_type].items():
+        if allowed is None or key not in entry:
+            continue
+        value = entry[key]
+        if not isinstance(value, dict):
+            raise ValueError(f"'{key}' must be a mapping, got {type(value).__name__}: {value!r}")
+        if threshold_type == "calibration" and key == "measurement" and "method" in value:
+            raise ValueError(
+                "'measurement.method' is not part of a calibration threshold in "
+                "OpenSRM v2 (OPENSRM-CORE-v2 §5.5); the declared "
+                "bounds decide what is evaluated"
+            )
+        _reject_undefined_keys(f"a '{threshold_type}' threshold's '{key}'", value, allowed)
+
+
+# Each metric's parameter (CORE §5.5.1): required with that metric, rejected
+# with any other. (location, key) - location None is the entry itself.
+_SEGMENTS_METRIC_PARAMETER: dict[str, tuple[str | None, str]] = {
+    "reversal_rate": ("measurement", "source"),
+    "high_confidence_failure": ("measurement", "confidence_threshold"),
+    "outcomes": (None, "outcome_signal"),
+}
+
+
+def _check_segments(entry: dict[str, Any]) -> None:
+    """The segments-specific rules (CORE §5.5.1). Closure is already checked."""
+    # Emptiness is enforced by the required-field guard.
+    if not isinstance(entry["segment_dimension"], str):
+        raise ValueError("'segment_dimension' must be a non-empty string")
+    values = entry["segment_values"]
+    if not isinstance(values, list) or not all(isinstance(v, str) and v for v in values):
+        raise ValueError("'segment_values' must be a non-empty list of non-empty strings")
+
+    metric = entry["metric"]
+    if metric == "audit_sampling":
+        raise ValueError(
+            "'metric' cannot be 'audit_sampling': it measures how decisions are "
+            "sampled, not how they perform (OPENSRM-CORE-v2 §5.5.1); use one of "
+            f"{', '.join(SEGMENTS_METRICS)}"
+        )
+    if not isinstance(metric, str) or metric not in SEGMENTS_METRICS:
+        raise ValueError(
+            f"'metric' must be one of {', '.join(SEGMENTS_METRICS)} "
+            f"(OPENSRM-CORE-v2 §5.5.1), got {metric!r}"
+        )
+
+    measurement: dict[str, Any] = entry.get("measurement", {})
+    for owner, (location, key) in _SEGMENTS_METRIC_PARAMETER.items():
+        holder = entry if location is None else measurement
+        name = key if location is None else f"{location}.{key}"
+        if owner == metric and key not in holder:
+            raise ValueError(f"metric '{metric}' requires '{name}' (OPENSRM-CORE-v2 §5.5.1)")
+        if owner != metric and key in holder:
+            raise ValueError(
+                f"'{name}' parameterises metric '{owner}' only, not '{metric}' "
+                f"(OPENSRM-CORE-v2 §5.5.1)"
+            )
+
+    if "window" in measurement:
+        window = measurement["window"]
+        if not is_duration(window):
+            raise ValueError(
+                f"'measurement.window' must be a duration such as '30d', got {window!r}"
+            )
+        if _is_zero_duration(window):
+            raise ValueError(
+                f"'measurement.window' must be greater than zero: an empty population "
+                f"window could never be evaluated (OPENSRM-CORE-v2 §5.5.1), got {window!r}"
+            )
+    if "source" in measurement:
+        source = measurement["source"]
+        if not isinstance(source, str) or source not in SEGMENTS_SOURCES:
+            raise ValueError(
+                f"'measurement.source' must be one of {', '.join(SEGMENTS_SOURCES)}, "
+                f"got {source!r}"
+            )
+    if "confidence_threshold" in measurement:
+        _ratio("measurement.confidence_threshold", measurement["confidence_threshold"], "field")
+    if "outcome_signal" in entry:
+        signal = entry["outcome_signal"]
+        for key in ("source", "window"):
+            if key not in signal:
+                raise ValueError(f"'outcome_signal' requires '{key}' (OPENSRM-CORE-v2 §5.5.1)")
+        if not isinstance(signal["source"], str):
+            raise ValueError(
+                f"'outcome_signal.source' must be a string, got {signal['source']!r}"
+            )
+        # Unlike the population window, the outcome wait may be zero (as on
+        # the outcomes judgment SLO, whose Duration it shares).
+        if not is_duration(signal["window"]):
+            raise ValueError(
+                f"'outcome_signal.window' must be a duration such as '1h', got "
+                f"{signal['window']!r}"
+            )
+
+
+def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
+    """Enforce the non-``bounds`` fields schema.json defines per type.
+
+    Order: forbidden keys, then entry closure, then required fields, then the
+    closure of each object-valued key, then type-specific shape. ``type`` and
+    ``bounds`` are admitted but not validated here: the parser checks
+    ``type`` and ``parse_bounds`` checks ``bounds``.
     """
     for key in FORBIDDEN_THRESHOLD_KEYS:
         if key in entry:
@@ -194,20 +362,20 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
                 f"'{key}' is not allowed on a '{threshold_type}' threshold; "
                 f"thresholds do not carry it (OPENSRM-CORE-v2 §5.5)"
             )
+    fields = THRESHOLD_TYPE_FIELDS[threshold_type]
+    _reject_undefined_keys(
+        f"a '{threshold_type}' threshold", entry, ("type", "bounds", *fields)
+    )
     for name in THRESHOLD_REQUIRED_FIELDS.get(threshold_type, ()):
         if entry.get(name) in (None, "", [], {}):
             raise ValueError(f"'{threshold_type}' requires '{name}'")
+    _check_closed_objects(threshold_type, entry)
 
     if threshold_type == "segments":
-        # Emptiness is enforced by the required-field guard above.
-        if not isinstance(entry["segment_dimension"], str):
-            raise ValueError("'segment_dimension' must be a non-empty string")
-        values = entry["segment_values"]
-        if not isinstance(values, list) or not all(isinstance(v, str) and v for v in values):
-            raise ValueError("'segment_values' must be a non-empty list of non-empty strings")
+        _check_segments(entry)
     elif threshold_type == "stability":
         probe = entry["probe"]
-        if not isinstance(probe, dict) or not isinstance(probe.get("frozen_input_set"), str):
+        if not isinstance(probe.get("frozen_input_set"), str):
             raise ValueError("'probe' must be a mapping with a 'frozen_input_set' string")
         if probe.get("frequency") not in _PROBE_FREQUENCIES:
             raise ValueError(
@@ -216,14 +384,6 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             )
     elif threshold_type == "calibration":
         measurement = entry["measurement"]
-        if not isinstance(measurement, dict):
-            raise ValueError("'measurement' must be a mapping")
-        if "method" in measurement:
-            raise ValueError(
-                "'measurement.method' is not part of a calibration threshold in "
-                "OpenSRM v2 (OPENSRM-CORE-v2 §5.5); the declared "
-                "bounds decide what is evaluated"
-            )
         bins = measurement.get("bins")
         # schema.json: bins is `type: integer`, which draft-07 satisfies with an
         # integral float such as 10.0, so the parser accepts it too. This is a
@@ -325,6 +485,19 @@ def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
     elif threshold.type == "stability" and m.probe is not None:
         entry["probe"] = {"frozen_input_set": m.probe.frozen_input_set, "frequency": m.probe.frequency}
     elif threshold.type == "segments":
+        entry["metric"] = m.metric
+        # window always: the parser stores the 30d default when it is absent.
+        measurement: dict[str, Any] = {"window": m.window}
+        if m.source is not None:
+            measurement["source"] = m.source
+        if m.confidence_threshold is not None:
+            measurement["confidence_threshold"] = m.confidence_threshold
+        entry["measurement"] = measurement
+        if m.outcome_signal is not None:
+            entry["outcome_signal"] = {
+                "source": m.outcome_signal.source,
+                "window": m.outcome_signal.window,
+            }
         entry["segment_dimension"] = m.segment_dimension
         entry["segment_values"] = list(m.segment_values)
     return entry

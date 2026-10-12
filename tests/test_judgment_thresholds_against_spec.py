@@ -26,13 +26,21 @@ from nthlayer_common.manifest import (
     V2_JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
 )
-from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2, parse_opensrm_v2_file
+from nthlayer_common.manifest.parser.v2 import (
+    OpenSRMV2ParseError,
+    parse_opensrm_v2,
+    parse_opensrm_v2_file,
+)
 from nthlayer_common.manifest.thresholds import (
     DURATION,
     FORBIDDEN_THRESHOLD_KEYS,
     RATIO,
+    SEGMENTS_DEFAULT_WINDOW,
+    SEGMENTS_METRICS,
+    SEGMENTS_SOURCES,
     THRESHOLD_BOUNDS,
     THRESHOLD_REQUIRED_FIELDS,
+    THRESHOLD_TYPE_FIELDS,
     check_type_fields,
 )
 
@@ -40,6 +48,7 @@ from nthlayer_common.manifest.thresholds import (
 SPEC_V2_DIR = Path(__file__).resolve().parents[2] / "opensrm" / "spec" / "v2"
 SCHEMA_PATH = SPEC_V2_DIR / "schema.json"
 THRESHOLD_EXAMPLES_DIR = SPEC_V2_DIR / "examples" / "judgment-thresholds"
+INVALID_DIR = SPEC_V2_DIR / "tests" / "invalid"
 
 
 def _schema() -> dict[str, Any]:
@@ -113,6 +122,111 @@ def test_required_type_fields_match_the_schema():
         for t, then in _branches().items()
     }
     assert derived == THRESHOLD_REQUIRED_FIELDS
+
+
+def test_every_threshold_entry_is_closed_in_the_schema():
+    """CORE §5.5 (opensrm-7zpz): the entry, and every object it holds besides
+    bounds, rejects keys its type does not define."""
+    for t, then in _branches().items():
+        assert then.get("additionalProperties") is False, t
+        for key, prop in then["properties"].items():
+            if key != "bounds" and prop.get("type") == "object":
+                assert prop.get("additionalProperties") is False, (t, key)
+
+
+def _defined(props: dict[str, Any]) -> set[str]:
+    """Keys an object defines: its properties, less the ones no value
+    satisfies (calibration's measurement.method)."""
+    return {name for name, prop in props.items() if not _is_forbidden(prop)}
+
+
+def test_type_field_table_matches_the_schema_both_ways():
+    """THRESHOLD_TYPE_FIELDS is the one table closure is enforced from: per
+    type, the entry keys besides type/bounds, and for each object-valued key
+    the keys that object may hold (None for a non-object key)."""
+    derived: dict[str, dict[str, frozenset[str] | None]] = {}
+    for t, then in _branches().items():
+        props = then["properties"]
+        assert "type" in props and "bounds" in props, t
+        derived[t] = {
+            key: frozenset(_defined(prop["properties"])) if prop.get("type") == "object" else None
+            for key, prop in props.items()
+            if key not in ("type", "bounds")
+        }
+    table = {
+        t: {k: (frozenset(v) if v is not None else None) for k, v in fields.items()}
+        for t, fields in THRESHOLD_TYPE_FIELDS.items()
+    }
+    assert derived == table
+
+
+def test_segments_metric_and_source_vocabularies_match_the_schema():
+    props = _branches()["segments"]["properties"]
+    assert set(props["metric"]["enum"]) == set(SEGMENTS_METRICS)
+    assert len(props["metric"]["enum"]) == len(SEGMENTS_METRICS)
+    assert "audit_sampling" not in SEGMENTS_METRICS
+    assert set(props["measurement"]["properties"]["source"]["enum"]) == set(SEGMENTS_SOURCES)
+
+
+def test_segments_metric_parameters_match_the_schema_conditionals():
+    """The schema's allOf ties each parameter to one metric: required with it,
+    forbidden with any other. The parser enforces the same pairing."""
+    rules = _branches()["segments"]["allOf"]
+    pairing = {}
+    for rule in rules:
+        metric = rule["if"]["properties"]["metric"]["const"]
+        then = rule["then"]
+        if "outcome_signal" in then.get("required", []):
+            pairing[metric] = "outcome_signal"
+        else:
+            [param] = then["properties"]["measurement"]["required"]
+            assert then["required"] == ["measurement"]
+            pairing[metric] = f"measurement.{param}"
+    assert pairing == {
+        "reversal_rate": "measurement.source",
+        "high_confidence_failure": "measurement.confidence_threshold",
+        "outcomes": "outcome_signal",
+    }
+
+
+def _7zpz_negatives() -> list[Path]:
+    """opensrm-7zpz's negatives, n67-n92, one defect each. Read at import:
+    a missing spec is caught by test_the_7zpz_negatives_are_present rather
+    than collapsing the parametrize list into a silent skip."""
+    found = []
+    for path in sorted(INVALID_DIR.glob("n*.yaml")):
+        number = path.name[1:].split("-", 1)[0]
+        if number.isdigit() and 67 <= int(number) <= 92:
+            found.append(path)
+    return found
+
+
+_NEGATIVES = _7zpz_negatives()
+
+
+def test_the_7zpz_negatives_are_present():
+    assert len(_NEGATIVES) >= 26, f"expected n67-n92 in {INVALID_DIR}, found {len(_NEGATIVES)}"
+
+
+@pytest.mark.parametrize("fixture", _NEGATIVES, ids=lambda p: p.name)
+def test_7zpz_negatives_are_rejected_by_the_schema_and_the_parser(fixture: Path):
+    """Both halves of the seam reject the same bytes, and the parser rejects
+    them for the threshold: the same document without its judgment_threshold
+    block parses (the control), so the rejection is not some other field's.
+
+    metadata.labels.tier is added because the parser requires it and the
+    schema does not (opensrm-9bil); that is unrelated to the defect under test.
+    """
+    doc = yaml.safe_load(fixture.read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(doc, _schema())
+
+    doc["metadata"].setdefault("labels", {})["tier"] = "critical"
+    with pytest.raises(OpenSRMV2ParseError, match=r"judgment_threshold\[0\]"):
+        parse_opensrm_v2(doc, base_dir=fixture.parent)
+
+    control = {**doc, "spec": {k: v for k, v in doc["spec"].items() if k != "judgment_threshold"}}
+    parse_opensrm_v2(control, base_dir=fixture.parent)
 
 
 @pytest.mark.parametrize(
@@ -237,3 +351,28 @@ def test_threshold_examples_parse_to_the_declared_bounds(example: Path, tmp_path
         elif entry["type"] == "segments":
             assert m.segment_dimension == entry["segment_dimension"]
             assert m.segment_values == entry["segment_values"]
+            # CORE §5.5.1: the metric and its parameter, and the population
+            # window with its 30d default.
+            declared_m = entry.get("measurement", {})
+            assert m.metric == entry["metric"]
+            assert m.window == declared_m.get("window", SEGMENTS_DEFAULT_WINDOW)
+            assert m.source == declared_m.get("source")
+            assert m.confidence_threshold == declared_m.get("confidence_threshold")
+            signal = entry.get("outcome_signal")
+            if signal is None:
+                assert m.outcome_signal is None
+            else:
+                assert m.outcome_signal is not None
+                assert (m.outcome_signal.source, m.outcome_signal.window) == (
+                    signal["source"], signal["window"],
+                )
+        # Every field the type does not set stays at its default.
+        unset = {
+            "stability": ("bins", "window", "segment_dimension", "metric", "source",
+                          "confidence_threshold", "outcome_signal"),
+            "calibration": ("probe", "segment_dimension", "metric", "source",
+                            "confidence_threshold", "outcome_signal"),
+            "segments": ("bins", "probe"),
+        }.get(entry["type"], ())
+        for name in unset:
+            assert getattr(m, name) is None, (entry["type"], name)

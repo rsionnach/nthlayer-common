@@ -118,7 +118,6 @@ def _suggested_entry(message: str) -> dict[str, Any]:
 @pytest.mark.parametrize(
     "fixture",
     [
-        "n20-segments-as-judgment-slo.yaml",
         "n21-stability-as-judgment-slo.yaml",
         "n22-calibration-as-judgment-slo.yaml",
     ],
@@ -136,6 +135,60 @@ def test_suggested_threshold_entry_loads_unchanged(fixture, shape):
 
     assert [t.type for t in manifest.judgment_thresholds] == [doc["spec"]["judgment_type"]]
     assert manifest.judgment_thresholds[0].bounds == doc["spec"]["target"]
+
+
+@pytest.mark.parametrize("shape", ["wrapped", "flat"])
+def test_suggested_segments_entry_asks_for_a_metric_and_loads_once_chosen(shape):
+    """A pre-3c segments item names no rate, and the fix-it cannot guess one
+    (CORE §5.5.1, opensrm-7zpz): the suggestion carries a `metric` the author
+    must replace. Filled in with escalation (which takes no parameter), it
+    loads; left as suggested, it does not."""
+    doc = yaml.safe_load(
+        (INVALID_DIR / "n20-segments-as-judgment-slo.yaml").read_text(encoding="utf-8")
+    )
+    item = {"metadata": doc["metadata"], "spec": doc["spec"]} if shape == "wrapped" else doc["spec"]
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
+
+    entry = _suggested_entry(str(exc_info.value))
+    assert "metric" in entry
+    assert "metric" in str(exc_info.value).split(":\n\n", 1)[1].split("\n\n", 1)[1]
+    with pytest.raises(OpenSRMV2ParseError, match="metric"):
+        parse_opensrm_v2(_manifest(judgment_threshold=[entry]))
+
+    manifest = parse_opensrm_v2(_manifest(judgment_threshold=[{**entry, "metric": "escalation"}]))
+    [threshold] = manifest.judgment_thresholds
+    assert threshold.type == "segments"
+    assert threshold.bounds == doc["spec"]["target"]
+    assert threshold.measurement.segment_values == doc["spec"]["segment_values"]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"judgment_type": "segments", "segment_dimension": "tier", "segment_values": ["a"],
+         "measurement": {"source": "lineage", "window": "7d"}, "window": "7d",
+         "target": {"maximum_variance_from_overall": 0.05}},
+        {"judgment_type": "stability", "measurement": {"window": "7d"},
+         "probe": {"frozen_input_set": "s3://x", "frequency": "daily", "stray": 1},
+         "target": {"maximum_drift": 0.02}},
+        {"judgment_type": "calibration", "probe": {"frozen_input_set": "s3://x"},
+         "measurement": {"bins": 10, "window": "30d", "method": "brier_score", "stray": 1},
+         "target": {"maximum_brier_score": 0.05}},
+    ],
+    ids=["segments", "stability", "calibration"],
+)
+def test_suggestion_never_carries_keys_the_closed_entry_rejects(item):
+    """Closed entries (CORE §5.5): a key carried over from the judgment_slo
+    item that the threshold type does not define would make the suggestion
+    itself fail to load."""
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2(_manifest(judgment_slo=[item]))
+    entry = _suggested_entry(str(exc_info.value))
+    if entry["type"] == "segments":
+        entry = {**entry, "metric": "escalation"}
+    [threshold] = parse_opensrm_v2(_manifest(judgment_threshold=[entry])).judgment_thresholds
+    assert threshold.type == item["judgment_type"]
 
 
 def test_suggested_calibration_entry_drops_measurement_method():
