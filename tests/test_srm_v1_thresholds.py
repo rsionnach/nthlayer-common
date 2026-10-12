@@ -199,3 +199,17 @@ def test_calibration_window_defaults_to_30d_when_absent():
 def test_calibration_rejects_a_non_duration_window(window):
     with pytest.raises(OpenSRMParseError, match="window"):
         parse_srm_v1(_srm_v1({"calibration": {"target": 0.05, "window": window}}))
+
+
+@pytest.mark.parametrize("target", [2**53 + 1, float(2**54), 1e300], ids=repr)
+def test_feedback_latency_target_beyond_two_to_the_53_is_rejected(target):
+    """Past 2**53 a float no longer holds every whole number, and 1e300 would
+    emit a 300-digit bound; neither is a latency anyone means."""
+    with pytest.raises(OpenSRMParseError, match="target"):
+        parse_srm_v1(_srm_v1({"feedback_latency": {"target": target}}))
+
+
+@pytest.mark.parametrize("target", [2**53, float(2**53)], ids=repr)
+def test_feedback_latency_target_up_to_two_to_the_53_is_accepted(target):
+    [threshold] = parse_srm_v1(_srm_v1({"feedback_latency": {"target": target}})).judgment_thresholds
+    assert threshold.bounds == {"maximum_p50": f"{2**53}s"}

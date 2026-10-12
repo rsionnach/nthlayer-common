@@ -438,6 +438,9 @@ _SRM_V1_THRESHOLD_KEYS = ("target", "window", "unit", "description", "labels")
 _FEEDBACK_LATENCY_WINDOW = "30d"
 
 
+_SRM_V1_MAX_WHOLE_TARGET = 2**53
+
+
 def _srm_v1_feedback_latency_bound(config: dict[str, Any]) -> str:
     """The maximum_p50 Duration for an srm/v1 feedback_latency entry.
 
@@ -465,6 +468,14 @@ def _srm_v1_feedback_latency_bound(config: dict[str, Any]) -> str:
         raise ValueError(
             f"srm/v1 'feedback_latency' target must be a non-negative whole "
             f"number of {units}, got {target!r}"
+        )
+    # Past 2**53 a float no longer holds every whole number, and 1e300 would
+    # emit a 300-digit bound: no latency anyone means. The cap applies to ints
+    # too, so the two spellings of one number get one verdict.
+    if target > _SRM_V1_MAX_WHOLE_TARGET:
+        raise ValueError(
+            f"srm/v1 'feedback_latency' target must be at most "
+            f"{_SRM_V1_MAX_WHOLE_TARGET} (2**53), got {target!r}"
         )
     return f"{int(target)}{unit}"
 
@@ -546,6 +557,11 @@ def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
 
     Inverse of parser/v2.py::_parse_judgment_threshold for every type, so that
     convert_v1_to_v2's output re-parses to an equal JudgmentThreshold.
+
+    The built entry is checked with the parser's own rules before it is
+    returned: a hand-built threshold the parser could never produce (segments
+    with no metric or window, an outcome_signal on escalation, calibration
+    without bins) raises ValueError instead of emitting a schema-invalid entry.
     """
     entry: dict[str, Any] = {"type": threshold.type, "bounds": dict(threshold.bounds)}
     m = threshold.measurement
@@ -557,11 +573,6 @@ def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
         entry["metric"] = m.metric
         # window always: the parser stores the 30d default when it is absent.
         measurement: dict[str, Any] = {"window": m.window}
-
-    The built entry is checked with the parser's own rules before it is
-    returned: a hand-built threshold the parser could never produce (segments
-    with no metric or window, an outcome_signal on escalation, calibration
-    without bins) raises ValueError instead of emitting a schema-invalid entry.
         if m.source is not None:
             measurement["source"] = m.source
         if m.confidence_threshold is not None:
@@ -574,6 +585,6 @@ def threshold_to_v2_entry(threshold: JudgmentThreshold) -> dict[str, Any]:
             }
         entry["segment_dimension"] = m.segment_dimension
         entry["segment_values"] = list(m.segment_values)
-    return entry
     check_type_fields(threshold.type, entry)
     parse_bounds(threshold.type, entry["bounds"])
+    return entry
