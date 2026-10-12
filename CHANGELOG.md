@@ -4,6 +4,20 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.1.0](https://github.com/rsionnach/nthlayer-common/compare/v5.0.0...v5.1.0) (2026-10-12)
+
+
+### Features
+
+* **manifest:** threshold_from_v2_entry, the public inverse of threshold_to_v2_entry ([510736f](https://github.com/rsionnach/nthlayer-common/commit/510736f5bcf8f66d0997ec21aa9255e53edf445e))
+* **manifest:** threshold_from_v2_entry, the public inverse of threshold_to_v2_entry (opensrm-908x) ([02faf08](https://github.com/rsionnach/nthlayer-common/commit/02faf087077e2478c567f61dc71b1d2abb3e953a))
+
+
+### Documentation
+
+* **manifest:** say what to pass as where; file threshold_from_v2_entry as new in 5.1 (opensrm-908x) ([ca97b5f](https://github.com/rsionnach/nthlayer-common/commit/ca97b5f0349ab0c50f62650a1b8011532d5f8fcd))
+* **manifest:** threshold_from_v2_entry checks per-entry rules only; catch both error types ([9b2af1b](https://github.com/rsionnach/nthlayer-common/commit/9b2af1b296afed75a6463b2a455fe51d23eb234a))
+
 ## [5.0.0](https://github.com/rsionnach/nthlayer-common/compare/v4.0.0...v5.0.0) (2026-10-12)
 
 
