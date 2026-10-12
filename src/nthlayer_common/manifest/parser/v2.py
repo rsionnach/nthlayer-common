@@ -235,14 +235,10 @@ def parse_opensrm_v2(
             f"spec.judgment_threshold must be a list, got "
             f"{type(thresholds_block).__name__}."
         )
-    judgment_thresholds: list[JudgmentThreshold] = []
-    for index, th_data in enumerate(thresholds_block):
-        if not isinstance(th_data, dict):
-            raise OpenSRMV2ParseError(
-                f"spec.judgment_threshold[{index}] must be a mapping, got "
-                f"{type(th_data).__name__}."
-            )
-        judgment_thresholds.append(_parse_judgment_threshold(index, th_data))
+    # A manifest that extends a template has already had each entry parsed
+    # against its own source by resolve_v2_template, so an error there names
+    # the template or override; here every entry is located in the merged list.
+    judgment_thresholds = _parse_threshold_entries("spec.judgment_threshold", thresholds_block)
 
     # Parse contracts (§6)
     contracts = _parse_contracts(spec.get("contracts", []))
@@ -624,9 +620,22 @@ def _parse_judgment_measurement(
     return measurement
 
 
-def _parse_judgment_threshold(index: int, data: dict[str, Any]) -> JudgmentThreshold:
-    """Parse one flat ``spec.judgment_threshold`` entry (§5.5, opensrm-l33e)."""
-    where = f"spec.judgment_threshold[{index}]"
+def _parse_threshold_entries(prefix: str, entries: list[Any]) -> list[JudgmentThreshold]:
+    """Parse a list of threshold entries, locating each as ``<prefix>[i]``."""
+    parsed: list[JudgmentThreshold] = []
+    for index, th_data in enumerate(entries):
+        where = f"{prefix}[{index}]"
+        if not isinstance(th_data, dict):
+            raise OpenSRMV2ParseError(
+                f"{where} must be a mapping, got {type(th_data).__name__}."
+            )
+        parsed.append(_parse_judgment_threshold(where, th_data))
+    return parsed
+
+
+def _parse_judgment_threshold(where: str, data: dict[str, Any]) -> JudgmentThreshold:
+    """Parse one flat threshold entry (§5.5, opensrm-l33e); *where* locates it
+    in the document that declares it, for errors."""
     threshold_type = data.get("type")
     # The schema's `type` is an enum of strings. Checked first: a list or
     # mapping here would otherwise raise TypeError (unhashable) at the set
@@ -1167,6 +1176,7 @@ def resolve_v2_template(
             )
 
     merged_spec = _merge_template_spec(template_spec, spec, overrides)
+    _check_threshold_sources(extends, template_spec, spec, overrides)
 
     result = dict(manifest_data)
     result["spec"] = merged_spec
@@ -1231,6 +1241,34 @@ def _merge_template_spec(
             result[key] = directive["replace"]
 
     return result
+
+
+def _check_threshold_sources(
+    extends: str,
+    template_spec: dict[str, Any],
+    manifest_spec: dict[str, Any],
+    overrides: dict[str, Any],
+) -> None:
+    """Parse each source's threshold entries before they are concatenated.
+
+    The merged list puts template entries first, so an error located by its
+    merged index named the wrong entry, in the wrong document: a template's
+    entry 0 was reported as the manifest's spec.judgment_threshold[0]. Each
+    entry is located in the document that declares it instead. Runs after
+    _merge_template_spec, whose guards have already rejected non-list blocks.
+    """
+    directive = overrides.get(_THRESHOLD_KEY)
+    sources = (
+        (f"template '{extends}' judgment_threshold", template_spec.get(_THRESHOLD_KEY)),
+        ("spec.judgment_threshold", manifest_spec.get(_THRESHOLD_KEY)),
+        (
+            "spec.template.overrides.judgment_threshold.append",
+            directive.get("append") if isinstance(directive, dict) else None,
+        ),
+    )
+    for prefix, entries in sources:
+        if isinstance(entries, list):
+            _parse_threshold_entries(prefix, entries)
 
 
 def _concatenate_thresholds(template_value: Any, manifest_value: Any) -> list[Any]:

@@ -405,11 +405,22 @@ def test_override_append_lands_after_the_concatenation(tmp_path):
     assert _types(path) == ["stability", "audit_backlog", "feedback_latency"]
 
 
-@pytest.mark.parametrize("via", ["template", "manifest", "override"])
-def test_closure_applies_to_every_source_of_an_entry(tmp_path, via):
+_TEMPLATE_REF = "template:default/base"
+
+
+@pytest.mark.parametrize(
+    ("via", "location"),
+    [
+        ("template", rf"^template '{_TEMPLATE_REF}' judgment_threshold\[1\] "),
+        ("manifest", r"^spec\.judgment_threshold\[0\] "),
+        ("override", r"^spec\.template\.overrides\.judgment_threshold\.append\[0\] "),
+    ],
+)
+def test_closure_applies_to_every_source_of_an_entry(tmp_path, via, location):
     """The schema checks closure only on judgment_threshold itself, not on
-    template.overrides (AUTHORING §9, opensrm-0myj); the parser checks the
-    resolved list, so an appended entry is closed too."""
+    template.overrides (AUTHORING §9, opensrm-0myj); the parser checks every
+    source, so an appended entry is closed too. The error locates the entry
+    in the document that declares it, not in the merged list."""
     stray = {**AUDIT_BACKLOG, "window": "7d"}
     kwargs: dict[str, Any] = {}
     template_spec: dict[str, Any] = {"judgment_threshold": [STABILITY]}
@@ -420,7 +431,50 @@ def test_closure_applies_to_every_source_of_an_entry(tmp_path, via):
     else:
         kwargs["overrides"] = {"judgment_threshold": {"append": [stray]}}
     path = _write_pair(tmp_path, template_spec, **kwargs)
-    with pytest.raises(OpenSRMV2ParseError, match=r"judgment_threshold\[1\].*'window'"):
+    with pytest.raises(OpenSRMV2ParseError, match=location + r".*'window'"):
+        parse_opensrm_v2_file(path)
+
+
+def test_a_template_entry_error_names_the_template_not_the_manifest_entry(tmp_path):
+    """The merged list puts template entries first, so merged index 0 is the
+    template's. Reported as spec.judgment_threshold[0] it named the
+    manifest's own, valid, entry and never mentioned the template."""
+    metricless = {
+        "type": "segments", "segment_dimension": "tier", "segment_values": ["a"],
+        "bounds": {"maximum_variance_from_overall": 0.05},
+    }
+    path = _write_pair(
+        tmp_path, {"judgment_threshold": [metricless]}, judgment_threshold=[FEEDBACK_LATENCY]
+    )
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2_file(path)
+    location = str(exc_info.value).split(" (", 1)[0]
+    assert location == f"template '{_TEMPLATE_REF}' judgment_threshold[0]"
+
+
+def test_manifest_entries_are_indexed_within_the_manifest(tmp_path):
+    path = _write_pair(
+        tmp_path,
+        {"judgment_threshold": [STABILITY, AUDIT_BACKLOG]},
+        judgment_threshold=[FEEDBACK_LATENCY, {**AUDIT_BACKLOG, "probe": {}}],
+    )
+    with pytest.raises(OpenSRMV2ParseError) as exc_info:
+        parse_opensrm_v2_file(path)
+    assert str(exc_info.value).split(" (", 1)[0] == "spec.judgment_threshold[1]"
+
+
+@pytest.mark.parametrize("via", ["template", "override"])
+def test_a_non_mapping_entry_is_located_in_its_source(tmp_path, via):
+    kwargs: dict[str, Any] = {}
+    template_spec: dict[str, Any] = {"judgment_threshold": [STABILITY]}
+    if via == "template":
+        template_spec = {"judgment_threshold": [STABILITY, "x"]}
+        expected = rf"^template '{_TEMPLATE_REF}' judgment_threshold\[1\] must be a mapping"
+    else:
+        kwargs["overrides"] = {"judgment_threshold": {"append": ["x"]}}
+        expected = r"^spec\.template\.overrides\.judgment_threshold\.append\[0\] must be a mapping"
+    path = _write_pair(tmp_path, template_spec, **kwargs)
+    with pytest.raises(OpenSRMV2ParseError, match=expected):
         parse_opensrm_v2_file(path)
 
 
