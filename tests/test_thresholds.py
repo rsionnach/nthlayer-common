@@ -508,3 +508,14 @@ def test_threshold_to_v2_entry_rejects_a_threshold_the_parser_could_not_produce(
 ):
     with pytest.raises(ValueError, match=match):
         threshold_to_v2_entry(_hand_built(threshold_type, bounds, **fields))
+
+
+def test_threshold_to_v2_entry_is_public_and_is_the_internal_emitter():
+    # opensrm-7zpz: consumers (nthlayer-core /manifests) serialise through the
+    # one validated emitter, so the public name must BE the internal function,
+    # not a copy that could drift.
+    import nthlayer_common.manifest as manifest
+    from nthlayer_common.manifest import thresholds
+
+    assert "threshold_to_v2_entry" in manifest.__all__
+    assert manifest.threshold_to_v2_entry is thresholds.threshold_to_v2_entry

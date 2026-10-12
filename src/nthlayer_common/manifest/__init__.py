@@ -87,7 +87,7 @@ from nthlayer_common.manifest.scan import (
     iter_manifest_files,
     scan_manifest_files,
 )
-from nthlayer_common.manifest.thresholds import duration_seconds
+from nthlayer_common.manifest.thresholds import duration_seconds, threshold_to_v2_entry
 
 __all__ = [
     # Loader
@@ -131,6 +131,7 @@ __all__ = [
     "JudgmentThreshold",
     "ThresholdMeasurement",
     "duration_seconds",
+    "threshold_to_v2_entry",
     "BreachAction",
     "StatisticalRequirements",
     "ProbeConfig",

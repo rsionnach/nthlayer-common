@@ -107,10 +107,12 @@ no `method`, `frequency` or `sampling`.
 - Add `metric` (and its parameter) to every `segments` threshold in manifests,
   templates and test fixtures, and remove any key a threshold's type does not
   define.
-- nthlayer-core must serialise the new fields (`metric`, `source`,
-  `confidence_threshold`, `outcome_signal`, and `window` on `segments`)
-  wherever it serialises a `ThresholdMeasurement`, and update its inline
-  `segments` fixtures.
+- Serialise a threshold with `nthlayer_common.manifest.threshold_to_v2_entry`
+  (public from 5.0.0) rather than copying `ThresholdMeasurement` fields: it
+  emits the exact `spec.judgment_threshold` entry shape, validates what it
+  emits, and picks up future fields without a consumer change. nthlayer-core's
+  `/manifests` serialiser must move to it (and its inline `segments` fixtures
+  gain `metric`).
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
   today, so they need only the version bump and any `segments` fixtures; an
   evaluator added to workers later must read `metric` and its parameters.
