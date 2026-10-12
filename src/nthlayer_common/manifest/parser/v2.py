@@ -63,6 +63,7 @@ from nthlayer_common.manifest.target_validation import (
 )
 from nthlayer_common.manifest.thresholds import (
     SEGMENTS_DEFAULT_WINDOW,
+    SEGMENTS_METRIC_HINT,
     SEGMENTS_METRICS,
     THRESHOLD_REQUIRED_FIELDS,
     THRESHOLD_TYPE_FIELDS,
@@ -438,13 +439,11 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
     where = f"spec.judgment_slo[{index}]"
 
     if judgment_type in V2_JUDGMENT_THRESHOLD_TYPES:
-        # A loadable judgment_threshold entry: the type's own fields carry
-        # over (schema JudgmentThresholdSpec requires them), `target` becomes
-        # `bounds`, and measurement.method is dropped (the schema forbids it).
-        # Only the type's required fields carry over, and an object-valued
-        # one only with the keys the closed entry defines (CORE §5.5), so the
-        # suggestion never carries a key the threshold would reject - neither
-        # measurement.method nor a stray measurement on segments.
+        # A loadable judgment_threshold entry. Only the type's required fields
+        # carry over, each object filtered to the keys the closed entry defines
+        # (CORE §5.5), so the suggestion never carries a key the threshold would
+        # reject (measurement.method, a stray measurement on segments); `target`
+        # becomes `bounds`.
         entry: dict[str, Any] = {"type": judgment_type}
         for field in _THRESHOLD_OWN_FIELDS.get(judgment_type, ()):
             if field == "metric":
@@ -458,26 +457,24 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
                 value = {k: v for k, v in value.items() if k in allowed}
             entry[field] = value
         entry["bounds"] = target
-        dropped = ""
+        fix_it_notes = ""
         if judgment_type == "segments":
-            dropped = (
-                "\n\nA segments threshold must name the rate it compares "
-                "(OPENSRM-CORE-v2 §5.5.1): replace the `metric` placeholder with "
-                f"one of {', '.join(SEGMENTS_METRICS)}. reversal_rate also needs "
-                "`measurement.source`, high_confidence_failure "
-                "`measurement.confidence_threshold`, and outcomes an "
-                "`outcome_signal`; escalation takes none."
+            fix_it_notes = (
+                "\n\nA segments threshold must name the rate it compares: "
+                "replace the `metric` placeholder with "
+                + SEGMENTS_METRIC_HINT
+                + "."
             )
         measurement = entry.get("measurement")
         if judgment_type == "calibration" and not (
             isinstance(measurement, dict) and "bins" in measurement and "window" in measurement
         ):
-            dropped += (
+            fix_it_notes += (
                 "\n\nA calibration threshold requires `measurement` with `bins` "
                 "and `window`; add one."
             )
         if "breach_actions" in body or "service" in body:
-            dropped += (
+            fix_it_notes += (
                 "\n\n`breach_actions` and `service` do not carry over: "
                 "thresholds do not declare them."
             )
@@ -487,7 +484,7 @@ def _reject_pre_3c_placement(index: int, js_data: dict[str, Any]) -> None:
             f"no error budget. Move it to spec.judgment_threshold, renaming "
             f"'target' to 'bounds':\n\n"
             + _render_threshold_block(entry)
-            + dropped
+            + fix_it_notes
         )
     if judgment_type == "audit_sampling" and "audit_backlog_maximum_age" in target:
         suggested = {

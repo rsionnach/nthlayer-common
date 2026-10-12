@@ -94,6 +94,15 @@ SEGMENTS_METRICS: tuple[str, ...] = (
     "outcomes",
     "escalation",
 )
+
+# How to choose a segments metric, shared by the missing-metric error and the
+# pre-3c fix-it note so the two cannot drift.
+SEGMENTS_METRIC_HINT = (
+    f"one of {', '.join(SEGMENTS_METRICS)} (OPENSRM-CORE-v2 §5.5.1). "
+    "reversal_rate also needs `measurement.source`, high_confidence_failure "
+    "`measurement.confidence_threshold`, and outcomes an `outcome_signal`; "
+    "escalation takes none"
+)
 # measurement.source for metric reversal_rate, as on the reversal_rate SLO.
 SEGMENTS_SOURCES: tuple[str, ...] = ("lineage", "calibration_sample", "downstream_signal")
 # CORE §5.5.1: measurement.window is optional on segments; the parser stores
@@ -364,10 +373,15 @@ def check_type_fields(threshold_type: str, entry: dict[str, Any]) -> None:
             )
     fields = THRESHOLD_TYPE_FIELDS[threshold_type]
     _reject_undefined_keys(
-        f"a '{threshold_type}' threshold", entry, ("type", "bounds", *fields)
+        f"threshold type '{threshold_type}'", entry, ("type", "bounds", *fields)
     )
     for name in THRESHOLD_REQUIRED_FIELDS.get(threshold_type, ()):
         if entry.get(name) in (None, "", [], {}):
+            if threshold_type == "segments" and name == "metric":
+                raise ValueError(
+                    "'segments' requires 'metric', the rate it compares: "
+                    + SEGMENTS_METRIC_HINT
+                )
             raise ValueError(f"'{threshold_type}' requires '{name}'")
     _check_closed_objects(threshold_type, entry)
 
@@ -488,7 +502,7 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
         if lost:
             raise ValueError(
                 f"srm/v1 '{name}' cannot express {', '.join(map(str, lost))}: the "
-                f"lift would drop it silently. Declare the threshold in an "
+                f"lift would drop {'them' if len(lost) > 1 else 'it'} silently. Declare the threshold in an "
                 f"opensrm.nthlayer.io/v2 manifest under spec.judgment_threshold "
                 f"(OPENSRM-CORE-v2 §5.5)."
             )
@@ -501,7 +515,8 @@ def srm_v1_threshold(name: str, config: dict[str, Any]) -> JudgmentThreshold:
     if unknown:
         raise ValueError(
             f"srm/v1 '{name}' does not take {', '.join(map(repr, unknown))}: the lift "
-            f"accepts only {', '.join(accepted)} and would otherwise drop it "
+            f"accepts only {', '.join(accepted)} and would otherwise drop "
+            f"{'them' if len(unknown) > 1 else 'it'} "
             f"silently. Declare the threshold in an opensrm.nthlayer.io/v2 manifest "
             f"under spec.judgment_threshold (OPENSRM-CORE-v2 §5.5)."
         )

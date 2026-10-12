@@ -399,7 +399,7 @@ class ThresholdMeasurement:
     """
 
     bins: int | None = None
-    window: str | None = None
+    window: str | None = None  # calibration: ECE window; segments: population window (parser stores 30d)
     probe: ProbeConfig | None = None
     segment_dimension: str | None = None
     segment_values: list[str] = field(default_factory=list)

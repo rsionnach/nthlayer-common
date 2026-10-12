@@ -103,7 +103,7 @@ no `method`, `frequency` or `sampling`.
 
 ## What consumers must change
 
-- Widen the nthlayer-common requirement to `>=5.0.0,<6.0.0`.
+- Raise the nthlayer-common requirement to `>=5.0.0,<6.0.0`.
 - Add `metric` (and its parameter) to every `segments` threshold in manifests,
   templates and test fixtures, and remove any key a threshold's type does not
   define.
@@ -111,6 +111,9 @@ no `method`, `frequency` or `sampling`.
   `confidence_threshold`, `outcome_signal`, and `window` on `segments`)
   wherever it serialises a `ThresholdMeasurement`, and update its inline
   `segments` fixtures.
+- nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
+  today, so they need only the version bump and any `segments` fixtures; an
+  evaluator added to workers later must read `metric` and its parameters.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).
