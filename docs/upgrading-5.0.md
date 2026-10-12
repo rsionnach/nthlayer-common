@@ -22,7 +22,7 @@ The release notes link here for detail. 4.0's changes are in
 | `segments` `measurement` | ignored | `window` (Duration, > 0, default `30d`), `source` (required iff `reversal_rate`; `lineage` / `calibration_sample` / `downstream_signal`), `confidence_threshold` (Ratio, required iff `high_confidence_failure`); each rejected with any other metric |
 | `segments` `outcome_signal` | ignored | `{source, window}`, required iff `metric: outcomes`, rejected otherwise; `window` is a Duration and may be zero |
 | pre-3c `segments` under `judgment_slo` | fix-it block loaded unchanged | fix-it block carries a `metric` placeholder and says how to choose; it loads once a metric is filled in |
-| srm/v1 `calibration` / `feedback_latency` keys other than `target`, `window`, `unit`, `description`, `labels` | ignored (dropped) | `ValueError` (`OpenSRMParseError` from the parser) naming the key |
+| srm/v1 `calibration` / `feedback_latency` keys other than `target`, `window`, `unit` (`feedback_latency` only), `description`, `labels` | ignored (dropped) | `ValueError` (`OpenSRMParseError` from the parser) naming the key |
 | srm/v1 `feedback_latency` `unit` | ignored: the target was always read as seconds | honoured: absent or `s` → `"<n>s"`; `ms`, `m`, `h`, `d`, `w` → `"<n><unit>"`; anything else rejected |
 | srm/v1 `feedback_latency` `window` | ignored | absent or `30d` accepted (v2 fixes the window at 30d, CORE §5.5.5); anything else rejected |
 | srm/v1 `calibration` `unit` | ignored | rejected (the target is an ECE ratio) |
