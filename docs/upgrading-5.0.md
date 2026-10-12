@@ -110,7 +110,7 @@ no `method`, `frequency` or `sampling`.
 - Serialise a threshold with `nthlayer_common.manifest.threshold_to_v2_entry`
   (public from 5.0.0) rather than copying `ThresholdMeasurement` fields: it
   emits the exact `spec.judgment_threshold` entry shape, validates what it
-  emits, and picks up future fields without a consumer change. nthlayer-core's
+  emits (raising `ValueError` for a threshold the parser could never produce), and picks up future fields without a consumer change. nthlayer-core's
   `/manifests` serialiser must move to it (and its inline `segments` fixtures
   gain `metric`).
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
