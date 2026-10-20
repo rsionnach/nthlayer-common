@@ -9,12 +9,13 @@ assessment payload.
 from __future__ import annotations
 
 import math
+import numbers
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, get_args
 
 from nthlayer_common.manifest.models import JudgmentThreshold
-from nthlayer_common.manifest.thresholds import DURATION, THRESHOLD_BOUNDS, duration_seconds
+from nthlayer_common.manifest.thresholds import DURATION, THRESHOLD_BOUNDS, _ratio, duration_seconds
 
 Status = Literal["within", "breach", "not_evaluable"]
 MissingReason = Literal["no_data_source", "no_data", "insufficient_window"]
@@ -22,6 +23,7 @@ ResultReason = MissingReason | Literal["lower_bound"]
 
 _STATUSES: tuple[str, ...] = get_args(Status)
 _REASONS: tuple[str, ...] = get_args(MissingReason)
+_RESULT_REASONS: tuple[str, ...] = (*_REASONS, "lower_bound")
 # E4: breach > not_evaluable > within.
 _PRECEDENCE = {"within": 0, "not_evaluable": 1, "breach": 2}
 
@@ -56,6 +58,8 @@ class AtLeast:
     value: float
 
     def __post_init__(self) -> None:
+        if isinstance(self.value, bool) or not isinstance(self.value, numbers.Real):
+            raise ValueError(f"AtLeast.value must be a real number, got {self.value!r}")
         if not math.isfinite(self.value):
             raise ValueError(f"AtLeast.value must be finite, got {self.value!r}")
 
@@ -66,7 +70,11 @@ class Samples:
 
     A bound omitted from ``bounds`` is reported as ``no_data``. A bool is not
     data (True == 1.0 would otherwise pass as a rate) and is treated the same.
-    Segments carry rates; the evaluator computes |segment - overall| itself.
+    Anything that is not a real, finite number (a str, an object) is no_data
+    too, never a TypeError. Segments carry rates; the evaluator computes
+    |segment - overall| itself.
+
+    The mappings are not copied: callers must not mutate them after construction.
 
     ``bounds`` maps a bound name to its measured value for every type except
     segments; a value may be a lower bound (``AtLeast``). For segments,
@@ -158,12 +166,41 @@ class ThresholdOutcome:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> ThresholdOutcome:
+        """Inverse of to_dict. Forward-compatible (unknown keys in nested
+        results are ignored; ``segments`` may be absent or None) and validating
+        (an unknown status or reason raises ValueError)."""
+        _check_status(d["status"])
         return cls(
             type=d["type"],
             status=d["status"],
-            bounds=tuple(BoundResult(**b) for b in d["bounds"]),
-            segments=tuple(SegmentResult(**s) for s in d.get("segments", ())),
+            bounds=tuple(
+                BoundResult(
+                    **_known(b, ("bound", "status", "measured", "limit", "reason"), BoundResult)
+                )
+                for b in d["bounds"]
+            ),
+            segments=tuple(
+                SegmentResult(**_known(x, ("segment", "status", "measured", "reason"), SegmentResult))
+                for x in (d.get("segments") or ())
+            ),
         )
+
+
+def _check_status(status: object) -> None:
+    if status not in _STATUSES:
+        raise ValueError(f"status must be one of {_STATUSES}, got {status!r}")
+
+
+def _known(raw: Mapping[str, Any], keys: tuple[str, ...], kind: type) -> dict[str, Any]:
+    """The known keys of one nested result, validated; unknown keys dropped."""
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{kind.__name__} must be a mapping, got {raw!r}")
+    out = {k: raw.get(k) for k in keys if k in raw}
+    _check_status(out.get("status"))
+    reason = out.get("reason")
+    if reason is not None and reason not in _RESULT_REASONS:
+        raise ValueError(f"reason must be one of {_RESULT_REASONS} or None, got {reason!r}")
+    return out
 
 
 def _limit_value(threshold_type: str, bound: str, limit: float | str) -> float:
@@ -174,7 +211,19 @@ def _limit_value(threshold_type: str, bound: str, limit: float | str) -> float:
         raise ValueError(f"{threshold_type} has no bound {bound!r}; expected one of {sorted(kinds)}")
     if kinds[bound] == DURATION:
         return duration_seconds(limit)  # type: ignore[arg-type]
-    return float(limit)
+    return _ratio(bound, limit)  # bool/None/str/NaN/inf/outside [0, 1] -> ValueError
+
+
+def _as_number(value: object) -> float | None:
+    """*value* as a finite float, or None when it is not a measurement: a bool,
+    a str, an object, NaN or infinity."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:  # an int beyond float range
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _decide(
@@ -187,17 +236,16 @@ def _decide(
     limit. AtLeast below the limit is reported not_evaluable/no_data: the true
     value is above a boundary that is itself within the bound, so neither
     breach nor within can be decided."""
-    if measured is None or isinstance(measured, bool):  # a bool is not a measurement
-        return "not_evaluable", None, "no_data"
     if isinstance(measured, Missing):
         return "not_evaluable", None, measured.reason
     if isinstance(measured, AtLeast):
         if measured.value >= limit:
             return "breach", measured.value, "lower_bound"
         return "not_evaluable", None, "no_data"
-    if not math.isfinite(measured):
+    number = _as_number(measured)  # None, bool, str, NaN, inf: not data
+    if number is None:
         return "not_evaluable", None, "no_data"
-    return ("breach" if measured > limit else "within"), measured, None
+    return ("breach" if number > limit else "within"), number, None
 
 
 def evaluate_threshold(threshold: JudgmentThreshold, samples: Samples) -> ThresholdOutcome:
@@ -224,21 +272,27 @@ def _evaluate_segments(threshold: JudgmentThreshold, samples: Samples) -> Thresh
     ((bound, limit),) = threshold.bounds.items()
     limit_v = _limit_value("segments", bound, limit)
     overall = samples.overall
+    if overall is None and isinstance(samples.bounds.get(bound), Missing):
+        overall = samples.bounds[bound]  # a bounds-level Missing is honoured too
     results: list[SegmentResult] = []
     for value in dict.fromkeys(threshold.measurement.segment_values):  # distinct, in order
-        if overall is None or isinstance(overall, (Missing, bool)) or not math.isfinite(overall):
+        overall_v = None if isinstance(overall, Missing) else _as_number(overall)
+        if overall_v is None:
             reason = overall.reason if isinstance(overall, Missing) else "no_data"
             results.append(SegmentResult(value, "not_evaluable", None, reason))
             continue
         rate = samples.segments.get(value)
-        if rate is None or isinstance(rate, (Missing, bool)):
-            variance = rate
+        rate_v = None if isinstance(rate, Missing) else _as_number(rate)
+        if rate_v is None:
+            variance = rate if isinstance(rate, Missing) else None
         else:
             # `measured` is this rounded variance. Bounds are decimal and binary
             # subtraction is noisy (0.9 - 0.7 > 0.2), which would breach an exact
             # equality (E1). Differences under 1e-12 are below any rate
-            # resolution, so a variance within 1e-12 of the bound counts as equal.
-            variance = round(abs(rate - overall), 12)
+            # resolution, so a variance within 1e-12 of the bound counts as equal
+            # (for a bound of exactly 0, a variance under 1e-12 reads as within:
+            # acceptable under E1 at rate resolution).
+            variance = round(abs(rate_v - overall_v), 12)
         status, measured, reason = _decide(variance, limit_v)
         results.append(SegmentResult(value, status, measured, reason))
     status = combine(s.status for s in results)

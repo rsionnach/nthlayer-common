@@ -143,3 +143,47 @@ def test_bool_bound_sample_is_not_data(bad):
                           ThresholdMeasurement(metric="m", window="30d"))
     o = evaluate_threshold(t, Samples(bounds={"maximum_drift": bad}))
     assert (o.status, o.bounds[0].reason) == ("not_evaluable", "no_data")
+
+
+@pytest.mark.parametrize("form", ["overall", "bounds"])
+def test_no_data_source_propagates_from_overall_or_bounds_level_missing(form):
+    m = Missing("no_data_source")
+    s = (Samples(overall=m) if form == "overall"
+         else Samples(bounds={"maximum_variance_from_overall": m}))
+    o = evaluate_threshold(_seg(), s)
+    assert {x.reason for x in o.segments} == {"no_data_source"}
+    assert o.bounds[0].reason == "no_data_source"
+    assert o.status == "not_evaluable"
+
+
+@pytest.mark.parametrize("bad", ["0.1", object(), [0.1], {"a": 1}])
+def test_non_numeric_segment_samples_are_no_data_not_type_error(bad):
+    o = evaluate_threshold(_seg(values=("eu",)), Samples(overall=0.1, segments={"eu": bad}))
+    assert (o.segments[0].status, o.segments[0].reason) == ("not_evaluable", "no_data")
+    o = evaluate_threshold(_seg(values=("eu",)), Samples(overall=bad, segments={"eu": 0.1}))
+    assert (o.segments[0].status, o.segments[0].reason) == ("not_evaluable", "no_data")
+
+
+@pytest.mark.parametrize("bad", ["0.1", object(), None, float("nan")])
+def test_non_numeric_bound_samples_are_no_data_not_type_error(bad):
+    t = JudgmentThreshold("stability", {"maximum_drift": 1.0},
+                          ThresholdMeasurement(metric="m", window="30d"))
+    o = evaluate_threshold(t, Samples(bounds={"maximum_drift": bad}))
+    assert (o.status, o.bounds[0].reason) == ("not_evaluable", "no_data")
+
+
+@pytest.mark.parametrize("bad_limit", [True, None, "0.05", float("nan"), float("inf"), -0.1, 1.5])
+def test_bad_ratio_limit_is_value_error(bad_limit):
+    t = JudgmentThreshold("stability", {"maximum_drift": bad_limit},
+                          ThresholdMeasurement(metric="m", window="30d"))
+    with pytest.raises(ValueError):
+        evaluate_threshold(t, Samples(bounds={"maximum_drift": 0.1}))
+    with pytest.raises(ValueError):
+        evaluate_threshold(_seg(limit=bad_limit), Samples(overall=0.1, segments={"eu": 0.1}))
+
+
+@pytest.mark.parametrize("bad_limit", [24.0, 3600, True, None, "24"])
+def test_bad_duration_limit_is_value_error(bad_limit):
+    t = JudgmentThreshold("audit_backlog", {"maximum_age": bad_limit})
+    with pytest.raises(ValueError):
+        evaluate_threshold(t, Samples(bounds={"maximum_age": 1.0}))

@@ -351,7 +351,8 @@ env sets default deployment ID (default `"default"`).
   (delegates to `VALID_VERDICT_TYPES`); unknown →
   `io.nthlayer.verdict.unknown.v1`.
 - `wrap_assessment(...)` — same shape; kind from `ASSESSMENT_KINDS`
-  (12 values: slo_status, judgment_slo_evaluation, burn_rate,
+  (13 values: slo_status, judgment_slo_evaluation,
+  judgment_threshold_evaluation, burn_rate,
   drift_signal, portfolio_status, deploy_gate, dependency_graph,
   correlation_snapshot, topology_drift, contract_divergence,
   retrospective, calibration_signal). Unknown →

@@ -1,5 +1,7 @@
 """THRESHOLD_SERIES: the bound -> metric contract (opensrm-g32d)."""
 
+import pytest
+
 from nthlayer_common.manifest.threshold_series import (
     FEEDBACK_LATENCY_WINDOW,
     THRESHOLD_SERIES,
@@ -51,3 +53,12 @@ def test_quantile_set_only_for_histograms():
         for s in series.values():
             assert isinstance(s, ThresholdSeries)
             assert (s.quantile is not None) == (s.kind == "histogram_quantile")
+
+
+def test_threshold_series_is_read_only():
+    with pytest.raises(TypeError):
+        THRESHOLD_SERIES["x"] = {}
+    with pytest.raises(TypeError):
+        THRESHOLD_SERIES["calibration"]["x"] = None
+    with pytest.raises(TypeError):
+        THRESHOLD_SERIES["segments"]["x"] = None

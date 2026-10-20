@@ -77,3 +77,43 @@ def test_missing_rejects_an_unknown_reason():
 def test_lower_bound_must_be_finite(bad):
     with pytest.raises(ValueError):
         AtLeast(bad)
+
+
+def test_from_dict_ignores_unknown_nested_keys_and_missing_segments():
+    d = _outcome().to_dict()
+    d["bounds"][0]["future_field"] = 1
+    d["segments"][0]["future_field"] = 2
+    assert ThresholdOutcome.from_dict(d) == _outcome()
+    for absent in (None, "missing"):
+        d = _outcome().to_dict()
+        d["segments"] = None
+        if absent == "missing":
+            del d["segments"]
+        assert ThresholdOutcome.from_dict(d).segments == ()
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d.update(status="fine"),
+    lambda d: d["bounds"][0].update(status="fine"),
+    lambda d: d["segments"][0].update(status="fine"),
+    lambda d: d["bounds"][0].update(reason="because"),
+    lambda d: d["segments"][1].update(reason="because"),
+])
+def test_from_dict_rejects_invalid_status_or_reason(mutate):
+    d = _outcome().to_dict()
+    mutate(d)
+    with pytest.raises(ValueError):
+        ThresholdOutcome.from_dict(d)
+
+
+def test_from_dict_accepts_every_documented_reason():
+    for reason in ("no_data_source", "no_data", "insufficient_window", "lower_bound", None):
+        d = _outcome().to_dict()
+        d["bounds"][0]["reason"] = reason
+        assert ThresholdOutcome.from_dict(d).bounds[0].reason == reason
+
+
+@pytest.mark.parametrize("bad", [True, "1", None])
+def test_at_least_rejects_non_numbers(bad):
+    with pytest.raises(ValueError):
+        AtLeast(bad)

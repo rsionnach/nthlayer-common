@@ -9,6 +9,7 @@ in tests/test_threshold_series.py.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal
 
 # CORE §5.5.5: feedback latency is computed over the last 30 days, anchored on
@@ -34,7 +35,7 @@ class ThresholdSeries:
 
 _CALIBRATION_LABELS = ("service", "bins", "window")
 
-THRESHOLD_SERIES: dict[str, dict[str, ThresholdSeries]] = {
+_SERIES: dict[str, dict[str, ThresholdSeries]] = {
     "calibration": {
         "maximum_expected_calibration_error": ThresholdSeries(
             "gen_ai_calibration_ece", "gauge", _CALIBRATION_LABELS
@@ -53,8 +54,10 @@ THRESHOLD_SERIES: dict[str, dict[str, ThresholdSeries]] = {
     },
     # No data source yet (opensrm-g32d follow-up beads): a sampler must supply
     # Missing("no_data_source") for these bounds (an absent sample is reported
-    # as no_data).
+    # as no_data). For segments that is `Samples(overall=Missing("no_data_source"))`;
+    # a bounds-level Missing for the segments bound is also honoured.
     "segments": {},
     "stability": {},
     "audit_backlog": {},
 }
+THRESHOLD_SERIES = MappingProxyType({t: MappingProxyType(b) for t, b in _SERIES.items()})
