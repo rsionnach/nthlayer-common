@@ -168,3 +168,24 @@ def test_from_dict_accepts_beyond_top_bucket_and_none_stays_none():
     assert ThresholdOutcome.from_dict(d).bounds[0].reason == "beyond_top_bucket"
     d["bounds"][0]["reason"] = None
     assert ThresholdOutcome.from_dict(d).bounds[0].reason is None
+
+
+@pytest.mark.parametrize("bad", [True, "", "  "])
+def test_from_dict_rejects_bool_empty_and_blank_reasons(bad):
+    for path in (("bounds", 0), ("segments", 1)):
+        d = _outcome().to_dict()
+        d[path[0]][path[1]]["reason"] = bad
+        with pytest.raises(ValueError):
+            ThresholdOutcome.from_dict(d)
+
+
+def test_from_dict_normalises_a_str_subclass_to_str():
+    class Tagged(str):
+        pass
+
+    d = _outcome().to_dict()
+    d["bounds"][0]["reason"] = Tagged("future_reason")
+    d["segments"][1]["reason"] = Tagged("future_reason")
+    o = ThresholdOutcome.from_dict(d)
+    assert type(o.bounds[0].reason) is str and o.bounds[0].reason == "future_reason"
+    assert type(o.segments[1].reason) is str

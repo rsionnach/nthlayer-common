@@ -94,26 +94,27 @@ class BoundResult:
     ``"beyond_top_bucket"`` when an AtLeast below the limit left it undecidable,
     ``"lower_bound"`` when a breach was decided from an AtLeast, else None.
     For a segments threshold, ``measured`` is the largest evaluated variance
-    and ``reason`` the first segment reason."""
+    and ``reason`` the first segment reason. Readers must tolerate reasons not
+    in ResultReason (written by a newer 5.x)."""
 
     bound: str
     status: Status
     measured: float | None
     limit: float | str
-    reason: ResultReason | None
+    reason: ResultReason | str | None
 
 
 @dataclass(frozen=True)
 class SegmentResult:
     """The outcome for one segment value. ``measured`` is |segment rate -
     overall rate|, rounded to 12 places. ``reason`` is a MissingReason when
-    not_evaluable, else None. Readers must tolerate reason strings they do not
-    know (``from_dict`` preserves them)."""
+    not_evaluable, else None. Readers must tolerate reasons not in ResultReason
+    (written by a newer 5.x)."""
 
     segment: str
     status: Status
     measured: float | None
-    reason: ResultReason | None
+    reason: ResultReason | str | None
 
 
 def combine(statuses: Iterable[str]) -> Status:
@@ -209,8 +210,10 @@ def _known(raw: Mapping[str, Any], keys: tuple[str, ...], kind: type) -> dict[st
     reason = out.get("reason")
     # An unknown reason string is preserved (a newer writer may add reasons);
     # only a non-string is malformed. Status, by contrast, is never guessed.
-    if reason is not None and not isinstance(reason, str):
-        raise ValueError(f"reason must be a string or None, got {reason!r}")
+    if reason is not None:
+        if not isinstance(reason, str) or not reason.strip():  # bool is not a str
+            raise ValueError(f"reason must be a non-empty string or None, got {reason!r}")
+        out["reason"] = str(reason)  # a str subclass becomes a plain str
     return out
 
 
