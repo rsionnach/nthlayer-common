@@ -4,6 +4,29 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.2.0](https://github.com/rsionnach/nthlayer-common/compare/v5.1.0...v5.2.0) (2026-10-20)
+
+
+### Features
+
+* **manifest:** accept Decimal samples and reject malformed outcome payloads (opensrm-g32d) ([232e5cb](https://github.com/rsionnach/nthlayer-common/commit/232e5cbc931f3475e2acb0d72281c9e31c0f7731))
+* **manifest:** evaluate segments thresholds per segment (opensrm-g32d) ([a998cba](https://github.com/rsionnach/nthlayer-common/commit/a998cba8ec09fe8c6f79cffaeebc16bbaf687ea8))
+* **manifest:** evaluate_threshold E1-E4 for bound-valued thresholds (opensrm-g32d) ([9475ab6](https://github.com/rsionnach/nthlayer-common/commit/9475ab6835612dfec1c8c028b0a23f842fdbd7bb))
+* **manifest:** harden threshold evaluation inputs and payload reading (opensrm-g32d) ([e2df72e](https://github.com/rsionnach/nthlayer-common/commit/e2df72e2d0e01428a74d952b67db3ee469c94cbe))
+* **manifest:** judgment threshold evaluation (opensrm-g32d) ([bbc6f8c](https://github.com/rsionnach/nthlayer-common/commit/bbc6f8c5e7c95e7f8a6ec077a538c75d4ab0431f))
+* **manifest:** make threshold outcome reasons forward-compatible and name the capped-histogram case (opensrm-g32d) ([dc8c0fe](https://github.com/rsionnach/nthlayer-common/commit/dc8c0fee76c911e10354128fe09ea58911f55c4c))
+* **manifest:** public threshold evaluation API and judgment_threshold_evaluation assessment kind (opensrm-g32d) ([a0590c2](https://github.com/rsionnach/nthlayer-common/commit/a0590c230e477f797644196040aaac797521ff21))
+* **manifest:** segment variance equal to its bound is within; bool samples are not data (opensrm-g32d) ([4e0cc10](https://github.com/rsionnach/nthlayer-common/commit/4e0cc10351634a4fe3073a87fed93eb0868db9b2))
+* **manifest:** threshold outcome model and assessment payload (opensrm-g32d) ([0ebc8e5](https://github.com/rsionnach/nthlayer-common/commit/0ebc8e5e705bf237852752396ecb93b6675240d0))
+* **manifest:** THRESHOLD_SERIES, the judgment-threshold metric contract (opensrm-g32d) ([48d1c77](https://github.com/rsionnach/nthlayer-common/commit/48d1c77f19148b7e4d8463c5e69c9803e7f83eb4))
+* **manifest:** type outcome reasons as open strings for readers (opensrm-g32d) ([0189d25](https://github.com/rsionnach/nthlayer-common/commit/0189d2529298a9a8aa11f1b9ebd7f88eacfb0c3a))
+
+
+### Documentation
+
+* **manifest:** document threshold evaluation reasons and lower bounds (opensrm-g32d) ([8193ed5](https://github.com/rsionnach/nthlayer-common/commit/8193ed5264d6ac540e85892ec032d7258b4ac0d2))
+* threshold evaluation is public API (opensrm-g32d) ([470f54d](https://github.com/rsionnach/nthlayer-common/commit/470f54d1d41f8b293b5b12f54b78f4adc0a958d1))
+
 ## [5.1.0](https://github.com/rsionnach/nthlayer-common/compare/v5.0.0...v5.1.0) (2026-10-12)
 
 
