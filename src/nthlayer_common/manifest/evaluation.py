@@ -20,11 +20,10 @@ from nthlayer_common.manifest.thresholds import DURATION, THRESHOLD_BOUNDS, _rat
 
 Status = Literal["within", "breach", "not_evaluable"]
 MissingReason = Literal["no_data_source", "no_data", "insufficient_window"]
-ResultReason = MissingReason | Literal["lower_bound"]
+ResultReason = MissingReason | Literal["lower_bound", "beyond_top_bucket"]
 
 _STATUSES: tuple[str, ...] = get_args(Status)
 _REASONS: tuple[str, ...] = get_args(MissingReason)
-_RESULT_REASONS: tuple[str, ...] = (*_REASONS, "lower_bound")
 # E4: breach > not_evaluable > within.
 _PRECEDENCE = {"within": 0, "not_evaluable": 1, "breach": 2}
 
@@ -92,6 +91,7 @@ class Samples:
 class BoundResult:
     """The outcome for one bound. ``limit`` is as declared (a ratio float or a
     Duration string). ``reason`` is a MissingReason when not_evaluable,
+    ``"beyond_top_bucket"`` when an AtLeast below the limit left it undecidable,
     ``"lower_bound"`` when a breach was decided from an AtLeast, else None.
     For a segments threshold, ``measured`` is the largest evaluated variance
     and ``reason`` the first segment reason."""
@@ -107,7 +107,8 @@ class BoundResult:
 class SegmentResult:
     """The outcome for one segment value. ``measured`` is |segment rate -
     overall rate|, rounded to 12 places. ``reason`` is a MissingReason when
-    not_evaluable, else None."""
+    not_evaluable, else None. Readers must tolerate reason strings they do not
+    know (``from_dict`` preserves them)."""
 
     segment: str
     status: Status
@@ -167,9 +168,10 @@ class ThresholdOutcome:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> ThresholdOutcome:
-        """Inverse of to_dict. Forward-compatible (unknown keys in nested
-        results are ignored; ``segments`` may be absent or None) and validating
-        (an unknown status or reason raises ValueError)."""
+        """Inverse of to_dict. Unknown keys ignored; unknown reason strings
+        preserved; unknown status rejected (ValueError). ``bounds`` and
+        ``segments`` may be absent or None; a malformed entry, or a non-string
+        non-None reason, raises ValueError."""
         _require(d, ("type", "status"), "outcome")
         _check_status(d["status"])
         return cls(
@@ -205,8 +207,10 @@ def _known(raw: Mapping[str, Any], keys: tuple[str, ...], kind: type) -> dict[st
     out = {k: raw[k] for k in keys}
     _check_status(out.get("status"))
     reason = out.get("reason")
-    if reason is not None and reason not in _RESULT_REASONS:
-        raise ValueError(f"reason must be one of {_RESULT_REASONS} or None, got {reason!r}")
+    # An unknown reason string is preserved (a newer writer may add reasons);
+    # only a non-string is malformed. Status, by contrast, is never guessed.
+    if reason is not None and not isinstance(reason, str):
+        raise ValueError(f"reason must be a string or None, got {reason!r}")
     return out
 
 
@@ -241,15 +245,15 @@ def _decide(
 
     A lower bound (AtLeast) breaches when it already reaches the limit: the
     true value is strictly greater than it, so strictly greater than the
-    limit. AtLeast below the limit is reported not_evaluable/no_data: the true
-    value is above a boundary that is itself within the bound, so neither
-    breach nor within can be decided."""
+    limit. AtLeast below the limit is reported not_evaluable/beyond_top_bucket:
+    the true value is above a boundary that is itself within the bound, so
+    neither breach nor within can be decided."""
     if isinstance(measured, Missing):
         return "not_evaluable", None, measured.reason
     if isinstance(measured, AtLeast):
         if measured.value >= limit:
             return "breach", measured.value, "lower_bound"
-        return "not_evaluable", None, "no_data"
+        return "not_evaluable", None, "beyond_top_bucket"
     number = _as_number(measured)  # None, bool, str, NaN, inf: not data
     if number is None:
         return "not_evaluable", None, "no_data"

@@ -48,7 +48,10 @@ src/nthlayer_common/
                          #   + scan.py: walking a directory that holds
                          #     manifests alongside other YAML
                          #   + evaluation.py: pure threshold evaluation (E1-E4);
-                         #     public, re-exported
+                         #     public, re-exported (with the Status,
+                         #     MissingReason, ResultReason types; reasons:
+                         #     no_data_source, no_data, insufficient_window,
+                         #     lower_bound, beyond_top_bucket)
                          #   + threshold_series.py: threshold metric contract
                          #     (public, re-exported)
                          #   + thresholds.py: judgment-threshold bound tables,

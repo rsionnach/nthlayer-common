@@ -111,10 +111,17 @@ def test_unknown_bound_for_the_type_raises_value_error():
     (3600.0, "1h", ("breach", 3600.0, "lower_bound")),
     # > 10000 (the top finite boundary of the OTel SDK's default explicit-bucket
     # histogram: 0, 5, 10, 25, ... 7500, 10000) says nothing about a 1d limit.
-    (10000.0, "1d", ("not_evaluable", None, "no_data")),
+    (10000.0, "1d", ("not_evaluable", None, "beyond_top_bucket")),
 ])
 def test_lower_bound_breaches_only_when_it_reaches_the_limit(lower, limit, expected):
     o = evaluate_threshold(_lat(maximum_p90=limit), Samples(bounds={"maximum_p90": AtLeast(lower)}))
     b = o.bounds[0]
     assert (b.status, b.measured, b.reason) == expected
     assert o.status == expected[0]
+
+
+def test_lower_bound_equal_to_the_limit_is_a_breach_not_beyond_top_bucket():
+    o = evaluate_threshold(_lat(maximum_p90="10s"), Samples(bounds={"maximum_p90": AtLeast(10.0)}))
+    assert (o.status, o.bounds[0].reason) == ("breach", "lower_bound")
+    o = evaluate_threshold(_lat(maximum_p90="10s"), Samples(bounds={"maximum_p90": AtLeast(5.0)}))
+    assert (o.status, o.bounds[0].reason) == ("not_evaluable", "beyond_top_bucket")

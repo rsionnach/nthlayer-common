@@ -133,7 +133,12 @@ no `method`, `frequency` or `sampling`.
   measurements per `THRESHOLD_SERIES`) and emit `ThresholdOutcome.to_dict()` as
   a `judgment_threshold_evaluation` assessment. A sampler that can only bound a
   value from below (a histogram quantile in the `+Inf` bucket) supplies
-  `AtLeast(v)`, which breaches iff `v >= limit`.
+  `AtLeast(v)`, which breaches iff `v >= limit` (reason `lower_bound`) and is
+  otherwise not evaluable with reason `beyond_top_bucket`. Result reasons are
+  `no_data_source`, `no_data`, `insufficient_window`, `lower_bound` and
+  `beyond_top_bucket`; `ThresholdOutcome.from_dict` preserves reason strings it
+  does not know, so a reader survives a newer writer. `Status`, `MissingReason`
+  and `ResultReason` are exported for typing.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).

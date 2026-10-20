@@ -56,7 +56,8 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          `_parse_judgment_threshold`) is its inverse.
        - threshold evaluation (the exception to the list's "not
          re-exported") — `manifest/evaluation.py` (E1-E4 evaluator,
-         outcome model) and `manifest/threshold_series.py` (metric
+         outcome model, and the `Status`/`MissingReason`/`ResultReason`
+         types) and `manifest/threshold_series.py` (metric
          contract) are public, re-exported from `manifest/__init__.py`,
          and sit beside `manifest/thresholds.py`.
        - domain guards, used on the CLASSICAL writers too, not just

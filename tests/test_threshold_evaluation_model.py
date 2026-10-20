@@ -96,8 +96,8 @@ def test_from_dict_ignores_unknown_nested_keys_and_missing_segments():
     lambda d: d.update(status="fine"),
     lambda d: d["bounds"][0].update(status="fine"),
     lambda d: d["segments"][0].update(status="fine"),
-    lambda d: d["bounds"][0].update(reason="because"),
-    lambda d: d["segments"][1].update(reason="because"),
+    lambda d: d["bounds"][0].update(reason=7),
+    lambda d: d["segments"][1].update(reason=["no_data"]),
 ])
 def test_from_dict_rejects_invalid_status_or_reason(mutate):
     d = _outcome().to_dict()
@@ -150,3 +150,21 @@ def test_from_dict_names_the_missing_key():
     del d["bounds"][0]["limit"]
     with pytest.raises(ValueError, match="limit"):
         ThresholdOutcome.from_dict(d)
+
+
+def test_from_dict_preserves_unknown_reason_strings():
+    d = _outcome().to_dict()
+    d["bounds"][0]["reason"] = "reason_from_a_newer_writer"
+    d["segments"][1]["reason"] = "another_new_one"
+    o = ThresholdOutcome.from_dict(d)
+    assert o.bounds[0].reason == "reason_from_a_newer_writer"
+    assert o.segments[1].reason == "another_new_one"
+    assert ThresholdOutcome.from_dict(o.to_dict()) == o
+
+
+def test_from_dict_accepts_beyond_top_bucket_and_none_stays_none():
+    d = _outcome().to_dict()
+    d["bounds"][0]["reason"] = "beyond_top_bucket"
+    assert ThresholdOutcome.from_dict(d).bounds[0].reason == "beyond_top_bucket"
+    d["bounds"][0]["reason"] = None
+    assert ThresholdOutcome.from_dict(d).bounds[0].reason is None

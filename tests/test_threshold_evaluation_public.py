@@ -3,7 +3,8 @@ from nthlayer_common.cloudevents import ASSESSMENT_KINDS, _ce_type_for_assessmen
 
 _PUBLIC = ["evaluate_threshold", "ThresholdOutcome", "BoundResult", "SegmentResult",
            "Samples", "Missing", "AtLeast", "THRESHOLD_SERIES", "ThresholdSeries",
-           "FEEDBACK_LATENCY_WINDOW", "combine"]
+           "FEEDBACK_LATENCY_WINDOW", "combine",
+           "Status", "MissingReason", "ResultReason"]
 
 
 def test_evaluation_api_is_public():
