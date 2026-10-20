@@ -13,7 +13,6 @@ Apache-2.0.
 * **manifest:** evaluate segments thresholds per segment (opensrm-g32d) ([a998cba](https://github.com/rsionnach/nthlayer-common/commit/a998cba8ec09fe8c6f79cffaeebc16bbaf687ea8))
 * **manifest:** evaluate_threshold E1-E4 for bound-valued thresholds (opensrm-g32d) ([9475ab6](https://github.com/rsionnach/nthlayer-common/commit/9475ab6835612dfec1c8c028b0a23f842fdbd7bb))
 * **manifest:** harden threshold evaluation inputs and payload reading (opensrm-g32d) ([e2df72e](https://github.com/rsionnach/nthlayer-common/commit/e2df72e2d0e01428a74d952b67db3ee469c94cbe))
-* **manifest:** judgment threshold evaluation (opensrm-g32d) ([bbc6f8c](https://github.com/rsionnach/nthlayer-common/commit/bbc6f8c5e7c95e7f8a6ec077a538c75d4ab0431f))
 * **manifest:** make threshold outcome reasons forward-compatible and name the capped-histogram case (opensrm-g32d) ([dc8c0fe](https://github.com/rsionnach/nthlayer-common/commit/dc8c0fee76c911e10354128fe09ea58911f55c4c))
 * **manifest:** public threshold evaluation API and judgment_threshold_evaluation assessment kind (opensrm-g32d) ([a0590c2](https://github.com/rsionnach/nthlayer-common/commit/a0590c230e477f797644196040aaac797521ff21))
 * **manifest:** segment variance equal to its bound is within; bool samples are not data (opensrm-g32d) ([4e0cc10](https://github.com/rsionnach/nthlayer-common/commit/4e0cc10351634a4fe3073a87fed93eb0868db9b2))
