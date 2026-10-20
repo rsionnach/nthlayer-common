@@ -157,7 +157,7 @@ def _decide(
     A lower bound (AtLeast) breaches when it already reaches the limit: the
     true value is strictly greater than it, so strictly greater than the
     limit. Below the limit it decides nothing, so it is not evaluable."""
-    if measured is None:
+    if measured is None or isinstance(measured, bool):  # a bool is not a measurement
         return "not_evaluable", None, "no_data"
     if isinstance(measured, Missing):
         return "not_evaluable", None, measured.reason
@@ -196,12 +196,17 @@ def _evaluate_segments(threshold: JudgmentThreshold, samples: Samples) -> Thresh
     overall = samples.overall
     results: list[SegmentResult] = []
     for value in dict.fromkeys(threshold.measurement.segment_values):  # distinct, in order
-        if overall is None or isinstance(overall, Missing) or not math.isfinite(overall):
+        if overall is None or isinstance(overall, (Missing, bool)) or not math.isfinite(overall):
             reason = overall.reason if isinstance(overall, Missing) else "no_data"
             results.append(SegmentResult(value, "not_evaluable", None, reason))
             continue
         rate = samples.segments.get(value)
-        variance = rate if rate is None or isinstance(rate, Missing) else abs(rate - overall)
+        if rate is None or isinstance(rate, (Missing, bool)):
+            variance = rate
+        else:
+            # Bounds are decimal; binary subtraction noise (0.9 - 0.7 > 0.2) must
+            # not breach an exact equality (E1). 1e-12 is far below any rate that matters.
+            variance = round(abs(rate - overall), 12)
         status, measured, reason = _decide(variance, limit_v)
         results.append(SegmentResult(value, status, measured, reason))
     status = combine(s.status for s in results)

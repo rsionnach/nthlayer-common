@@ -13,6 +13,7 @@ from nthlayer_common.manifest.evaluation import (
     Samples,
     SegmentResult,
     ThresholdOutcome,
+    combine,
     evaluate_threshold,
 )
 from nthlayer_common.manifest.models import (
@@ -149,6 +150,7 @@ __all__ = [
     "threshold_to_v2_entry",
     # Threshold evaluation (pure; consumers supply measurements)
     "evaluate_threshold",
+    "combine",
     "ThresholdOutcome",
     "BoundResult",
     "SegmentResult",

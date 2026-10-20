@@ -113,3 +113,33 @@ def _samples_at(t, delta):
         base = duration_seconds(limit) if THRESHOLD_BOUNDS[t.type][bound] == DURATION else float(limit)
         vals[bound] = base + delta
     return Samples(bounds=vals)
+
+
+@pytest.mark.parametrize("overall,segment,bound", [
+    (0.7, 0.9, 0.2), (0.9, 0.7, 0.2), (0.1, 0.3, 0.2), (0.33, 0.38, 0.05), (0.6, 0.65, 0.05),
+])
+def test_decimal_equality_with_the_bound_is_within(overall, segment, bound):
+    # E1: equal is within. The bounds are decimal; binary subtraction noise must not breach.
+    o = evaluate_threshold(_seg(limit=bound, values=("eu",)),
+                           Samples(overall=overall, segments={"eu": segment}))
+    assert o.status == "within"
+    beyond = segment + 1e-9 if segment > overall else segment - 1e-9
+    o = evaluate_threshold(_seg(limit=bound, values=("eu",)),
+                           Samples(overall=overall, segments={"eu": beyond}))
+    assert o.status == "breach"
+
+
+@pytest.mark.parametrize("bad", [True, False])
+def test_bool_samples_are_not_data(bad):
+    o = evaluate_threshold(_seg(values=("eu",)), Samples(overall=0.1, segments={"eu": bad}))
+    assert o.segments[0].status == "not_evaluable" and o.segments[0].reason == "no_data"
+    o = evaluate_threshold(_seg(values=("eu",)), Samples(overall=bad, segments={"eu": 0.1}))
+    assert o.status == "not_evaluable"
+
+
+@pytest.mark.parametrize("bad", [True, False])
+def test_bool_bound_sample_is_not_data(bad):
+    t = JudgmentThreshold("stability", {"maximum_drift": 1.0},
+                          ThresholdMeasurement(metric="m", window="30d"))
+    o = evaluate_threshold(t, Samples(bounds={"maximum_drift": bad}))
+    assert (o.status, o.bounds[0].reason) == ("not_evaluable", "no_data")
