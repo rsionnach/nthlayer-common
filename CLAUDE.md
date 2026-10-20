@@ -41,9 +41,6 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          converted at all"), `judgment_target_percent()` [inbound],
          `judgment_target_ratio()` [outbound],
          `judgment_promise_direction()`, `judgment_promise()` [factory].
-       - threshold evaluation — `manifest/evaluation.py` (E1-E4) and
-         `manifest/threshold_series.py` (metric contract), beside
-         `manifest/thresholds.py`.
        - thresholds — `manifest/thresholds.py` (bound tables, the
          closure table `THRESHOLD_TYPE_FIELDS` and `SEGMENTS_METRICS`
          (opensrm-7zpz), `FORBIDDEN_THRESHOLD_KEYS`, `srm_v1_threshold()`,
@@ -57,6 +54,11 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          `threshold_from_v2_entry()` (opensrm-908x; public, re-exported;
          defined in `parser/v2.py` because it wraps
          `_parse_judgment_threshold`) is its inverse.
+       - threshold evaluation (the exception to the list's "not
+         re-exported") — `manifest/evaluation.py` (E1-E4 evaluator,
+         outcome model) and `manifest/threshold_series.py` (metric
+         contract) are public, re-exported from `manifest/__init__.py`,
+         and sit beside `manifest/thresholds.py`.
        - domain guards, used on the CLASSICAL writers too, not just
          judgment — `require_number()` (numeric or a string spelling
          one; raises ValueError where a bare `float()` raised an

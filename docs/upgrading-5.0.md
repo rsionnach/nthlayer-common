@@ -126,9 +126,8 @@ no `method`, `frequency` or `sampling`.
   upgrade nthlayer-common no later than the service serving the entries.
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
   today, so they need only the version bump and any `segments` fixtures; an
-  evaluator added to workers later should get its thresholds through
-  `threshold_from_v2_entry` and read `metric` and its parameters from the
-  result.
+  evaluator in workers should get its thresholds through
+  `threshold_from_v2_entry` and evaluate them as in the 5.2.0 bullet below.
 - **New in 5.2.0:** evaluate thresholds with
   `evaluate_threshold(threshold, Samples(...))` (pure; consumers supply
   measurements per `THRESHOLD_SERIES`) and emit `ThresholdOutcome.to_dict()` as
