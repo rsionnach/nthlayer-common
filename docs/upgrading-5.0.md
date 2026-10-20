@@ -129,6 +129,12 @@ no `method`, `frequency` or `sampling`.
   evaluator added to workers later should get its thresholds through
   `threshold_from_v2_entry` and read `metric` and its parameters from the
   result.
+- **New in 5.2.0:** evaluate thresholds with
+  `evaluate_threshold(threshold, Samples(...))` (pure; consumers supply
+  measurements per `THRESHOLD_SERIES`) and emit `ThresholdOutcome.to_dict()` as
+  a `judgment_threshold_evaluation` assessment. A sampler that can only bound a
+  value from below (a histogram quantile in the `+Inf` bucket) supplies
+  `AtLeast(v)`, which breaches iff `v >= limit`.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).

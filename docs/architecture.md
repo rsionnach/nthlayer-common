@@ -47,6 +47,8 @@ src/nthlayer_common/
     manifest/            # Unified OpenSRM manifest parsing (v1, v2, OpenSLO, legacy)
                          #   + scan.py: walking a directory that holds
                          #     manifests alongside other YAML
+                         #   + evaluation.py: pure threshold evaluation (E1-E4)
+                         #   + threshold_series.py: threshold metric contract
                          #   + thresholds.py: judgment-threshold bound tables,
                          #     FORBIDDEN_THRESHOLD_KEYS, srm_v1_threshold,
                          #     threshold_to_v2_entry, check_type_fields,

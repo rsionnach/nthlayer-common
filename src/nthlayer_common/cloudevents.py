@@ -35,6 +35,7 @@ _VERDICT_TYPES = VALID_VERDICT_TYPES
 ASSESSMENT_KINDS = frozenset({
     "slo_status",
     "judgment_slo_evaluation",
+    "judgment_threshold_evaluation",
     "burn_rate",
     "drift_signal",
     "portfolio_status",
