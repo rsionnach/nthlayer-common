@@ -214,3 +214,51 @@ def test_at_least_accepts_a_finite_decimal():
     assert AtLeast(Decimal("2.5")).value == 2.5
     with pytest.raises(ValueError):
         AtLeast(Decimal("NaN"))
+
+
+# Provenance: behaviours the mutation check found untested ---------------------
+
+def test_decimal_samples_are_stored_as_float_and_payload_is_json_serialisable():
+    import json
+    from decimal import Decimal
+
+    from nthlayer_common.manifest.evaluation import AtLeast
+
+    assert type(AtLeast(Decimal("2.5")).value) is float
+    t = JudgmentThreshold("audit_backlog", {"maximum_age": "1h"})
+    for sample in (AtLeast(Decimal("7200")), Decimal("7200")):
+        o = evaluate_threshold(t, Samples(bounds={"maximum_age": sample}))
+        assert o.status == "breach"
+        json.dumps(o.to_dict())
+
+
+def test_a_segment_missing_reason_is_kept_and_others_still_decided():
+    o = evaluate_threshold(_seg(), Samples(overall=0.1, segments={
+        "eu": Missing("insufficient_window"), "us": 0.1}))
+    assert [(s.segment, s.status, s.reason) for s in o.segments] == [
+        ("eu", "not_evaluable", "insufficient_window"), ("us", "within", None)]
+    assert o.bounds[0].reason == "insufficient_window"
+
+
+def test_bound_measured_is_the_largest_evaluated_variance():
+    # overall 0.5, variances 0.02 and 0.20, limit 0.1: min <= limit < max.
+    o = evaluate_threshold(_seg(limit=0.1), Samples(overall=0.5, segments={"eu": 0.52, "us": 0.70}))
+    assert o.status == "breach"
+    assert o.bounds[0].measured == pytest.approx(0.2)
+    assert [s.status for s in o.segments] == ["within", "breach"]
+
+
+@pytest.mark.parametrize("us,expected", [(0.55, "within"), (0.9, "breach")])
+def test_a_decided_segments_bound_has_no_reason(us, expected):
+    o = evaluate_threshold(_seg(limit=0.1), Samples(overall=0.5, segments={"eu": 0.5, "us": us}))
+    assert o.status == expected
+    assert o.bounds[0].reason is None
+
+
+def test_an_int_beyond_float_range_is_no_data_not_an_exception():
+    t = JudgmentThreshold("stability", {"maximum_drift": 1.0},
+                          ThresholdMeasurement(metric="m", window="30d"))
+    o = evaluate_threshold(t, Samples(bounds={"maximum_drift": 10**400}))
+    assert (o.status, o.bounds[0].reason) == ("not_evaluable", "no_data")
+    o = evaluate_threshold(_seg(values=("eu",)), Samples(overall=0.1, segments={"eu": 10**400}))
+    assert (o.segments[0].status, o.segments[0].reason) == ("not_evaluable", "no_data")

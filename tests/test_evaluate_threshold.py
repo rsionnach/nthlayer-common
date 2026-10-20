@@ -109,7 +109,8 @@ def test_unknown_bound_for_the_type_raises_value_error():
     (86400.0, "1d", ("breach", 86400.0, "lower_bound")),
     # > 3600 = 1h, equal at the boundary: still strictly above the limit.
     (3600.0, "1h", ("breach", 3600.0, "lower_bound")),
-    # > 10000 (OTel's default top bucket) says nothing about a 1d limit.
+    # > 10000 (the top finite boundary of the OTel SDK's default explicit-bucket
+    # histogram: 0, 5, 10, 25, ... 7500, 10000) says nothing about a 1d limit.
     (10000.0, "1d", ("not_evaluable", None, "no_data")),
 ])
 def test_lower_bound_breaches_only_when_it_reaches_the_limit(lower, limit, expected):

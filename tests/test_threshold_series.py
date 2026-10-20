@@ -62,3 +62,28 @@ def test_threshold_series_is_read_only():
         THRESHOLD_SERIES["calibration"]["x"] = None
     with pytest.raises(TypeError):
         THRESHOLD_SERIES["segments"]["x"] = None
+
+
+# Transcribed from nthlayer/docs/metrics-contract.md, "Judgment threshold
+# metrics (opensrm-g32d)" (not read at test time). The histogram is stored by
+# base name; the contract's query appends _bucket.
+_CONTRACT = {
+    ("calibration", "maximum_expected_calibration_error"):
+        ("gen_ai_calibration_ece", "gauge", ("service", "bins", "window"), None),
+    ("calibration", "maximum_brier_score"):
+        ("gen_ai_calibration_brier", "gauge", ("service", "bins", "window"), None),
+    ("feedback_latency", "maximum_p50"):
+        ("gen_ai_feedback_latency_seconds", "histogram_quantile", ("service",), 0.5),
+    ("feedback_latency", "maximum_p90"):
+        ("gen_ai_feedback_latency_seconds", "histogram_quantile", ("service",), 0.9),
+}
+
+
+def test_series_match_the_front_door_metrics_contract():
+    actual = {
+        (t, b): (s.metric, s.kind, s.labels, s.quantile)
+        for t, series in THRESHOLD_SERIES.items() for b, s in series.items()
+    }
+    assert actual == _CONTRACT
+    for t in ("segments", "stability", "audit_backlog"):
+        assert not THRESHOLD_SERIES[t]
