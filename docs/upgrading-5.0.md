@@ -126,9 +126,19 @@ no `method`, `frequency` or `sampling`.
   upgrade nthlayer-common no later than the service serving the entries.
 - nthlayer-generate and nthlayer-workers read no `ThresholdMeasurement` field
   today, so they need only the version bump and any `segments` fixtures; an
-  evaluator added to workers later should get its thresholds through
-  `threshold_from_v2_entry` and read `metric` and its parameters from the
-  result.
+  evaluator in workers should get its thresholds through
+  `threshold_from_v2_entry` and evaluate them as in the 5.2.0 bullet below.
+- **New in 5.2.0:** evaluate thresholds with
+  `evaluate_threshold(threshold, Samples(...))` (pure; consumers supply
+  measurements per `THRESHOLD_SERIES`) and emit `ThresholdOutcome.to_dict()` as
+  a `judgment_threshold_evaluation` assessment. A sampler that can only bound a
+  value from below (a histogram quantile in the `+Inf` bucket) supplies
+  `AtLeast(v)`, which breaches iff `v >= limit` (reason `lower_bound`) and is
+  otherwise not evaluable with reason `beyond_top_bucket`. Result reasons are
+  `no_data_source`, `no_data`, `insufficient_window`, `lower_bound` and
+  `beyond_top_bucket`; `ThresholdOutcome.from_dict` preserves reason strings it
+  does not know, so a reader survives a newer writer. `Status`, `MissingReason`
+  and `ResultReason` are exported for typing.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).

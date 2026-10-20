@@ -6,6 +6,19 @@ Public API:
     from nthlayer_common.manifest.models import SLODefinition, Dependency, ...
 """
 
+from nthlayer_common.manifest.evaluation import (
+    AtLeast,
+    BoundResult,
+    Missing,
+    MissingReason,
+    ResultReason,
+    Samples,
+    SegmentResult,
+    Status,
+    ThresholdOutcome,
+    combine,
+    evaluate_threshold,
+)
 from nthlayer_common.manifest.models import (
     SERVICE_TYPE_ALIASES,
     SRM_V1_JUDGMENT_THRESHOLD_TYPES,
@@ -87,6 +100,11 @@ from nthlayer_common.manifest.scan import (
     iter_manifest_files,
     scan_manifest_files,
 )
+from nthlayer_common.manifest.threshold_series import (
+    FEEDBACK_LATENCY_WINDOW,
+    THRESHOLD_SERIES,
+    ThresholdSeries,
+)
 from nthlayer_common.manifest.thresholds import duration_seconds, threshold_to_v2_entry
 
 __all__ = [
@@ -133,6 +151,21 @@ __all__ = [
     "duration_seconds",
     "threshold_from_v2_entry",
     "threshold_to_v2_entry",
+    # Threshold evaluation (pure; consumers supply measurements)
+    "evaluate_threshold",
+    "combine",
+    "Status",
+    "MissingReason",
+    "ResultReason",
+    "ThresholdOutcome",
+    "BoundResult",
+    "SegmentResult",
+    "Samples",
+    "Missing",
+    "AtLeast",
+    "THRESHOLD_SERIES",
+    "ThresholdSeries",
+    "FEEDBACK_LATENCY_WINDOW",
     "BreachAction",
     "StatisticalRequirements",
     "ProbeConfig",

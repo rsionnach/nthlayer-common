@@ -47,6 +47,13 @@ src/nthlayer_common/
     manifest/            # Unified OpenSRM manifest parsing (v1, v2, OpenSLO, legacy)
                          #   + scan.py: walking a directory that holds
                          #     manifests alongside other YAML
+                         #   + evaluation.py: pure threshold evaluation (E1-E4);
+                         #     public, re-exported (with the Status,
+                         #     MissingReason, ResultReason types; reasons:
+                         #     no_data_source, no_data, insufficient_window,
+                         #     lower_bound, beyond_top_bucket)
+                         #   + threshold_series.py: threshold metric contract
+                         #     (public, re-exported)
                          #   + thresholds.py: judgment-threshold bound tables,
                          #     FORBIDDEN_THRESHOLD_KEYS, srm_v1_threshold,
                          #     threshold_to_v2_entry, check_type_fields,
@@ -347,7 +354,8 @@ env sets default deployment ID (default `"default"`).
   (delegates to `VALID_VERDICT_TYPES`); unknown →
   `io.nthlayer.verdict.unknown.v1`.
 - `wrap_assessment(...)` — same shape; kind from `ASSESSMENT_KINDS`
-  (12 values: slo_status, judgment_slo_evaluation, burn_rate,
+  (13 values: slo_status, judgment_slo_evaluation,
+  judgment_threshold_evaluation, burn_rate,
   drift_signal, portfolio_status, deploy_gate, dependency_graph,
   correlation_snapshot, topology_drift, contract_divergence,
   retrospective, calibration_signal). Unknown →
