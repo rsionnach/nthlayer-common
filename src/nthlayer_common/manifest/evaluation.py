@@ -187,4 +187,27 @@ def evaluate_threshold(threshold: JudgmentThreshold, samples: Samples) -> Thresh
 
 
 def _evaluate_segments(threshold: JudgmentThreshold, samples: Samples) -> ThresholdOutcome:
-    raise NotImplementedError("segments: Task 5")
+    """CORE §5.5.1: each listed segment's rate is compared with the overall
+    rate; the bound caps |segment - overall| in either direction."""
+    if len(threshold.bounds) != 1:
+        raise ValueError(f"a segments threshold has exactly one bound, got {sorted(threshold.bounds)}")
+    ((bound, limit),) = threshold.bounds.items()
+    limit_v = _limit_value("segments", bound, limit)
+    overall = samples.overall
+    results: list[SegmentResult] = []
+    for value in dict.fromkeys(threshold.measurement.segment_values):  # distinct, in order
+        if overall is None or isinstance(overall, Missing) or not math.isfinite(overall):
+            reason = overall.reason if isinstance(overall, Missing) else "no_data"
+            results.append(SegmentResult(value, "not_evaluable", None, reason))
+            continue
+        rate = samples.segments.get(value)
+        variance = rate if rate is None or isinstance(rate, Missing) else abs(rate - overall)
+        status, measured, reason = _decide(variance, limit_v)
+        results.append(SegmentResult(value, status, measured, reason))
+    status = combine(s.status for s in results)
+    evaluated = [s.measured for s in results if s.measured is not None]
+    reason = None if status != "not_evaluable" else next(
+        (x.reason for x in results if x.reason), "no_data"
+    )
+    bound_result = BoundResult(bound, status, max(evaluated) if evaluated else None, limit, reason)
+    return ThresholdOutcome("segments", status, (bound_result,), tuple(results))
