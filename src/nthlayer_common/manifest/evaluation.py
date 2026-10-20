@@ -13,6 +13,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, get_args
 
+from nthlayer_common.manifest.models import JudgmentThreshold
+from nthlayer_common.manifest.thresholds import DURATION, THRESHOLD_BOUNDS, duration_seconds
+
 Status = Literal["within", "breach", "not_evaluable"]
 MissingReason = Literal["no_data_source", "no_data", "insufficient_window"]
 
@@ -134,3 +137,54 @@ class ThresholdOutcome:
             bounds=tuple(BoundResult(**b) for b in d["bounds"]),
             segments=tuple(SegmentResult(**s) for s in d.get("segments", ())),
         )
+
+def _limit_value(threshold_type: str, bound: str, limit: float | str) -> float:
+    kinds = THRESHOLD_BOUNDS[threshold_type]
+    if bound not in kinds:
+        # Parsed thresholds never get here (parse_bounds rejects it); a
+        # hand-built one gets a ValueError, not a KeyError.
+        raise ValueError(f"{threshold_type} has no bound {bound!r}; expected one of {sorted(kinds)}")
+    if kinds[bound] == DURATION:
+        return duration_seconds(limit)  # type: ignore[arg-type]
+    return float(limit)
+
+
+def _decide(
+    measured: float | Missing | AtLeast | None, limit: float
+) -> tuple[Status, float | None, str | None]:
+    """E1 for one measured value; E3 for a missing or non-finite one.
+
+    A lower bound (AtLeast) breaches when it already reaches the limit: the
+    true value is strictly greater than it, so strictly greater than the
+    limit. Below the limit it decides nothing, so it is not evaluable."""
+    if measured is None:
+        return "not_evaluable", None, "no_data"
+    if isinstance(measured, Missing):
+        return "not_evaluable", None, measured.reason
+    if isinstance(measured, AtLeast):
+        if measured.value >= limit:
+            return "breach", measured.value, "lower_bound"
+        return "not_evaluable", None, "no_data"
+    if not math.isfinite(measured):
+        return "not_evaluable", None, "no_data"
+    return ("breach" if measured > limit else "within"), measured, None
+
+
+def evaluate_threshold(threshold: JudgmentThreshold, samples: Samples) -> ThresholdOutcome:
+    """Apply CORE §5.5.6 E1-E4 to one threshold. Pure; raises ValueError for
+    a type that is not a judgment threshold type, a bound that type does not
+    define, or a segments threshold without exactly one bound."""
+    t = threshold.type
+    if t not in THRESHOLD_BOUNDS:
+        raise ValueError(f"not a judgment threshold type: {t!r}")
+    if t == "segments":
+        return _evaluate_segments(threshold, samples)
+    results = []
+    for bound, limit in threshold.bounds.items():
+        status, measured, reason = _decide(samples.bounds.get(bound), _limit_value(t, bound, limit))
+        results.append(BoundResult(bound, status, measured, limit, reason))
+    return ThresholdOutcome(t, combine(r.status for r in results), tuple(results))
+
+
+def _evaluate_segments(threshold: JudgmentThreshold, samples: Samples) -> ThresholdOutcome:
+    raise NotImplementedError("segments: Task 5")
