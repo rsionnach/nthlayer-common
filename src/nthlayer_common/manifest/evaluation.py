@@ -18,6 +18,7 @@ from nthlayer_common.manifest.thresholds import DURATION, THRESHOLD_BOUNDS, dura
 
 Status = Literal["within", "breach", "not_evaluable"]
 MissingReason = Literal["no_data_source", "no_data", "insufficient_window"]
+ResultReason = MissingReason | Literal["lower_bound"]
 
 _STATUSES: tuple[str, ...] = get_args(Status)
 _REASONS: tuple[str, ...] = get_args(MissingReason)
@@ -27,7 +28,13 @@ _PRECEDENCE = {"within": 0, "not_evaluable": 1, "breach": 2}
 
 @dataclass(frozen=True)
 class Missing:
-    """A measurement that could not be taken (E3)."""
+    """A measurement that could not be taken (E3). ``reason`` says why:
+
+    - ``no_data_source``: no series is defined for this threshold type/bound.
+    - ``no_data``: the series is absent, its labels do not match, the query
+      failed, or the value is non-finite.
+    - ``insufficient_window``: Prometheus retention is shorter than the window.
+    """
 
     reason: MissingReason
     detail: str = ""
@@ -43,7 +50,8 @@ class AtLeast:
 
     What a classic Prometheus histogram yields when a quantile falls in the
     ``+Inf`` bucket: the value lies beyond the largest finite boundary, which
-    PromQL's histogram_quantile would report as the value itself."""
+    histogram_quantile would instead return the largest finite boundary,
+    silently capping the value."""
 
     value: float
 
@@ -55,6 +63,10 @@ class AtLeast:
 @dataclass(frozen=True)
 class Samples:
     """The raw measurements for one threshold.
+
+    A bound omitted from ``bounds`` is reported as ``no_data``. A bool is not
+    data (True == 1.0 would otherwise pass as a rate) and is treated the same.
+    Segments carry rates; the evaluator computes |segment - overall| itself.
 
     ``bounds`` maps a bound name to its measured value for every type except
     segments; a value may be a lower bound (``AtLeast``). For segments,
@@ -69,19 +81,29 @@ class Samples:
 
 @dataclass(frozen=True)
 class BoundResult:
+    """The outcome for one bound. ``limit`` is as declared (a ratio float or a
+    Duration string). ``reason`` is a MissingReason when not_evaluable,
+    ``"lower_bound"`` when a breach was decided from an AtLeast, else None.
+    For a segments threshold, ``measured`` is the largest evaluated variance
+    and ``reason`` the first segment reason."""
+
     bound: str
     status: Status
     measured: float | None
-    limit: float | str  # as declared: a ratio, or a Duration string
-    reason: str | None
+    limit: float | str
+    reason: ResultReason | None
 
 
 @dataclass(frozen=True)
 class SegmentResult:
+    """The outcome for one segment value. ``measured`` is |segment rate -
+    overall rate|, rounded to 12 places. ``reason`` is a MissingReason when
+    not_evaluable, else None."""
+
     segment: str
     status: Status
-    measured: float | None  # |segment rate - overall rate|
-    reason: str | None
+    measured: float | None
+    reason: ResultReason | None
 
 
 def combine(statuses: Iterable[str]) -> Status:
@@ -99,6 +121,11 @@ def combine(statuses: Iterable[str]) -> Status:
 
 @dataclass(frozen=True)
 class ThresholdOutcome:
+    """The evaluation of one threshold: ``status`` is the E4 combination of
+    its ``bounds`` (one BoundResult per bound, each ``limit`` as declared: a
+    ratio float or a Duration string) and, for segments, ``segments``.
+    ``to_dict()`` is the judgment_threshold_evaluation assessment payload."""
+
     type: str
     status: Status
     bounds: tuple[BoundResult, ...]
@@ -138,6 +165,7 @@ class ThresholdOutcome:
             segments=tuple(SegmentResult(**s) for s in d.get("segments", ())),
         )
 
+
 def _limit_value(threshold_type: str, bound: str, limit: float | str) -> float:
     kinds = THRESHOLD_BOUNDS[threshold_type]
     if bound not in kinds:
@@ -156,7 +184,9 @@ def _decide(
 
     A lower bound (AtLeast) breaches when it already reaches the limit: the
     true value is strictly greater than it, so strictly greater than the
-    limit. Below the limit it decides nothing, so it is not evaluable."""
+    limit. AtLeast below the limit is reported not_evaluable/no_data: the true
+    value is above a boundary that is itself within the bound, so neither
+    breach nor within can be decided."""
     if measured is None or isinstance(measured, bool):  # a bool is not a measurement
         return "not_evaluable", None, "no_data"
     if isinstance(measured, Missing):
@@ -204,8 +234,10 @@ def _evaluate_segments(threshold: JudgmentThreshold, samples: Samples) -> Thresh
         if rate is None or isinstance(rate, (Missing, bool)):
             variance = rate
         else:
-            # Bounds are decimal; binary subtraction noise (0.9 - 0.7 > 0.2) must
-            # not breach an exact equality (E1). 1e-12 is far below any rate that matters.
+            # `measured` is this rounded variance. Bounds are decimal and binary
+            # subtraction is noisy (0.9 - 0.7 > 0.2), which would breach an exact
+            # equality (E1). Differences under 1e-12 are below any rate
+            # resolution, so a variance within 1e-12 of the bound counts as equal.
             variance = round(abs(rate - overall), 12)
         status, measured, reason = _decide(variance, limit_v)
         results.append(SegmentResult(value, status, measured, reason))

@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 # CORE §5.5.5: feedback latency is computed over the last 30 days, anchored on
-# ground-truth arrival; a manifest cannot change it.
+# ground-truth arrival; a manifest cannot change it. Applies to the
+# feedback_latency histogram (gen_ai_feedback_latency_seconds) only.
 FEEDBACK_LATENCY_WINDOW = "30d"
 
 
@@ -50,8 +51,9 @@ THRESHOLD_SERIES: dict[str, dict[str, ThresholdSeries]] = {
             "gen_ai_feedback_latency_seconds", "histogram_quantile", ("service",), 0.9
         ),
     },
-    # No data source yet (opensrm-g32d follow-up beads): evaluated as
-    # not evaluable, reason no_data_source.
+    # No data source yet (opensrm-g32d follow-up beads): a sampler must supply
+    # Missing("no_data_source") for these bounds (an absent sample is reported
+    # as no_data).
     "segments": {},
     "stability": {},
     "audit_backlog": {},
