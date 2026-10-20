@@ -187,3 +187,30 @@ def test_bad_duration_limit_is_value_error(bad_limit):
     t = JudgmentThreshold("audit_backlog", {"maximum_age": bad_limit})
     with pytest.raises(ValueError):
         evaluate_threshold(t, Samples(bounds={"maximum_age": 1.0}))
+
+
+def test_decimal_samples_are_numbers():
+    from decimal import Decimal
+
+    t = JudgmentThreshold("stability", {"maximum_drift": 0.2},
+                          ThresholdMeasurement(metric="m", window="30d"))
+    o = evaluate_threshold(t, Samples(bounds={"maximum_drift": Decimal("0.3")}))
+    assert (o.status, o.bounds[0].measured) == ("breach", pytest.approx(0.3))
+    o = evaluate_threshold(t, Samples(bounds={"maximum_drift": Decimal("0.2")}))
+    assert o.status == "within"
+    for bad in (Decimal("NaN"), Decimal("Infinity")):
+        o = evaluate_threshold(t, Samples(bounds={"maximum_drift": bad}))
+        assert (o.status, o.bounds[0].reason) == ("not_evaluable", "no_data")
+    o = evaluate_threshold(_seg(values=("eu",)),
+                           Samples(overall=Decimal("0.1"), segments={"eu": Decimal("0.3")}))
+    assert o.status == "breach"
+
+
+def test_at_least_accepts_a_finite_decimal():
+    from decimal import Decimal
+
+    from nthlayer_common.manifest.evaluation import AtLeast
+
+    assert AtLeast(Decimal("2.5")).value == 2.5
+    with pytest.raises(ValueError):
+        AtLeast(Decimal("NaN"))

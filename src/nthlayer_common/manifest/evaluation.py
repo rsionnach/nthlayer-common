@@ -12,6 +12,7 @@ import math
 import numbers
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal, get_args
 
 from nthlayer_common.manifest.models import JudgmentThreshold
@@ -58,10 +59,10 @@ class AtLeast:
     value: float
 
     def __post_init__(self) -> None:
-        if isinstance(self.value, bool) or not isinstance(self.value, numbers.Real):
-            raise ValueError(f"AtLeast.value must be a real number, got {self.value!r}")
-        if not math.isfinite(self.value):
-            raise ValueError(f"AtLeast.value must be finite, got {self.value!r}")
+        number = _as_number(self.value)
+        if number is None:
+            raise ValueError(f"AtLeast.value must be a finite real number, got {self.value!r}")
+        object.__setattr__(self, "value", number)  # a Decimal is stored as a float
 
 
 @dataclass(frozen=True)
@@ -169,21 +170,28 @@ class ThresholdOutcome:
         """Inverse of to_dict. Forward-compatible (unknown keys in nested
         results are ignored; ``segments`` may be absent or None) and validating
         (an unknown status or reason raises ValueError)."""
+        _require(d, ("type", "status"), "outcome")
         _check_status(d["status"])
         return cls(
             type=d["type"],
             status=d["status"],
             bounds=tuple(
-                BoundResult(
-                    **_known(b, ("bound", "status", "measured", "limit", "reason"), BoundResult)
-                )
-                for b in d["bounds"]
+                BoundResult(**_known(b, ("bound", "status", "measured", "limit", "reason"), BoundResult))
+                for b in (d.get("bounds") or ())
             ),
             segments=tuple(
                 SegmentResult(**_known(x, ("segment", "status", "measured", "reason"), SegmentResult))
                 for x in (d.get("segments") or ())
             ),
         )
+
+
+def _require(raw: object, keys: tuple[str, ...], what: str) -> None:
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{what} must be a mapping, got {raw!r}")
+    for k in keys:
+        if k not in raw:
+            raise ValueError(f"{what} is missing required key {k!r}")
 
 
 def _check_status(status: object) -> None:
@@ -193,9 +201,8 @@ def _check_status(status: object) -> None:
 
 def _known(raw: Mapping[str, Any], keys: tuple[str, ...], kind: type) -> dict[str, Any]:
     """The known keys of one nested result, validated; unknown keys dropped."""
-    if not isinstance(raw, Mapping):
-        raise ValueError(f"{kind.__name__} must be a mapping, got {raw!r}")
-    out = {k: raw.get(k) for k in keys if k in raw}
+    _require(raw, keys, kind.__name__)
+    out = {k: raw[k] for k in keys}
     _check_status(out.get("status"))
     reason = out.get("reason")
     if reason is not None and reason not in _RESULT_REASONS:
@@ -216,12 +223,13 @@ def _limit_value(threshold_type: str, bound: str, limit: float | str) -> float:
 
 def _as_number(value: object) -> float | None:
     """*value* as a finite float, or None when it is not a measurement: a bool,
-    a str, an object, NaN or infinity."""
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+    a str, an object, NaN or infinity. A finite Decimal (what a SQL NUMERIC
+    sampler produces) is a number."""
+    if isinstance(value, bool) or not isinstance(value, (numbers.Real, Decimal)):
         return None
     try:
         number = float(value)
-    except OverflowError:  # an int beyond float range
+    except (OverflowError, ValueError):  # an int beyond float range; a Decimal NaN
         return None
     return number if math.isfinite(number) else None
 

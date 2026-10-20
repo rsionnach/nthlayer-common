@@ -117,3 +117,36 @@ def test_from_dict_accepts_every_documented_reason():
 def test_at_least_rejects_non_numbers(bad):
     with pytest.raises(ValueError):
         AtLeast(bad)
+
+
+def test_from_dict_missing_or_none_bounds_is_empty():
+    for absent in (None, "missing"):
+        d = _outcome().to_dict()
+        d["bounds"] = None
+        if absent == "missing":
+            del d["bounds"]
+        assert ThresholdOutcome.from_dict(d).bounds == ()
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d["bounds"].__setitem__(0, 5),
+    lambda d: d["segments"].__setitem__(0, "eu"),
+    lambda d: d["bounds"][0].pop("limit"),
+    lambda d: d["bounds"][0].pop("measured"),
+    lambda d: d["segments"][0].pop("segment"),
+    lambda d: d["segments"][0].pop("reason"),
+    lambda d: d.pop("type"),
+    lambda d: d.pop("status"),
+])
+def test_from_dict_malformed_payload_is_value_error_never_type_error(mutate):
+    d = _outcome().to_dict()
+    mutate(d)
+    with pytest.raises(ValueError):
+        ThresholdOutcome.from_dict(d)
+
+
+def test_from_dict_names_the_missing_key():
+    d = _outcome().to_dict()
+    del d["bounds"][0]["limit"]
+    with pytest.raises(ValueError, match="limit"):
+        ThresholdOutcome.from_dict(d)

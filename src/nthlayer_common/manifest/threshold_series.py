@@ -60,4 +60,5 @@ _SERIES: dict[str, dict[str, ThresholdSeries]] = {
     "stability": {},
     "audit_backlog": {},
 }
+# Read-only, and so not picklable or deep-copyable (use dict(...) for a copy).
 THRESHOLD_SERIES = MappingProxyType({t: MappingProxyType(b) for t, b in _SERIES.items()})
