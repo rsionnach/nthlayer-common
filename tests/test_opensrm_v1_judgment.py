@@ -44,7 +44,8 @@ def test_judgment_slos_are_reported_unmapped(key):
 def test_a_non_ai_gate_manifest_reports_the_whole_judgment_block():
     r = convert_opensrm_v1_to_v2(_v1({"calibration": {"target": 0.1, "window": "30d"}}, stype="api"))
     assert "judgment_threshold" not in r.manifest["spec"]
-    assert [f.path for f in r.unmapped] == ["spec.slos.judgment"]
+    assert [(f.path, f.kind) for f in r.unmapped] == [("spec.slos.judgment", "dropped")]
+    assert r.lossy is True
     parse_opensrm_v2(r.manifest)
 
 
@@ -61,7 +62,9 @@ def test_malformed_converted_judgment_fields_raise(cfg, match):
 
 def test_feedback_latency_without_bounds_is_reported():
     r = convert_opensrm_v1_to_v2(_v1({"feedback_latency": {}}))
-    assert [f.path for f in r.unmapped] == ["spec.slos.judgment.feedback_latency"]
+    assert [(f.path, f.kind) for f in r.unmapped] == [
+        ("spec.slos.judgment.feedback_latency", "dropped")]
+    assert r.lossy is True
 
 
 def test_unknown_judgment_key_is_reported_not_dropped():
@@ -91,3 +94,18 @@ def test_feedback_latency_parent_report_comes_before_its_children():
     r = convert_opensrm_v1_to_v2(_v1({"feedback_latency": {"bogus": 1}}))
     assert [f.path for f in r.unmapped] == [
         "spec.slos.judgment.feedback_latency", "spec.slos.judgment.feedback_latency.bogus"]
+
+
+def test_a_shared_validator_value_error_is_wrapped_with_its_cause(monkeypatch):
+    # The wrap branch is unreachable by real input (the converter pre-validates
+    # everything the shared validator checks), so force the validator to raise.
+    boom = ValueError("boom")
+
+    def _raise(_threshold):
+        raise boom
+
+    monkeypatch.setattr("nthlayer_common.manifest.opensrm_v1.threshold_to_v2_entry", _raise)
+    with pytest.raises(OpenSRMV1MigrationError, match="boom") as exc:
+        convert_opensrm_v1_to_v2(_v1({"calibration": {"target": 0.1, "window": "30d"}}))
+    assert isinstance(exc.value.__cause__, ValueError)
+    assert exc.value.__cause__ is boom

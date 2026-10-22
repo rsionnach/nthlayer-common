@@ -50,3 +50,4 @@ def test_a_ref_without_a_kind_names_every_accepted_kind():
         parse_opensrm_v2(_manifest("postgresql"))
     msg = str(exc.value)
     assert "'component:namespace/name'" in msg and "'resource:namespace/name'" in msg
+    assert msg.endswith("Expected format: 'component:namespace/name' or 'resource:namespace/name'")

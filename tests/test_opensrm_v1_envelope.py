@@ -77,8 +77,9 @@ def test_unconvertible_documents_raise(mutate, match):
 def test_missing_type_needs_service_type():
     d = _v1()
     del d["spec"]["type"]
-    with pytest.raises(OpenSRMV1MigrationError, match="service-type"):
+    with pytest.raises(OpenSRMV1MigrationError, match="service-type") as exc:
         convert_opensrm_v1_to_v2(d)
+    assert exc.value.__cause__ is None  # raised directly, not re-wrapped
     assert convert_opensrm_v1_to_v2(d, service_type="api").manifest["spec"]["service"]["type"] == "api"
 
 
@@ -146,3 +147,12 @@ def test_unmapped_spec_sections_carry_their_reason(key):
 def test_a_supplied_type_is_validated_on_its_own_first(supplied):
     with pytest.raises(OpenSRMV1MigrationError, match="not a valid v2 service type"):
         convert_opensrm_v1_to_v2(_v1(), service_type=supplied)
+
+
+def test_a_non_mapping_section_raises_directly():
+    # schema.json Slos is an object; a list there is not convertible.
+    d = _v1()
+    d["spec"]["slos"] = []
+    with pytest.raises(OpenSRMV1MigrationError, match="spec.slos must be a mapping") as exc:
+        convert_opensrm_v1_to_v2(d)
+    assert exc.value.__cause__ is None
