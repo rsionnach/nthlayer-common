@@ -45,6 +45,8 @@ src/nthlayer_common/
     overrides/           # Human override ingestion (gen_ai.override, opensrm-jmy.4)
     governance_bridge/   # External governance webhook protocol (opensrm-jmy.5)
     manifest/            # Unified OpenSRM manifest parsing (v1, v2, OpenSLO, legacy)
+                         #   + opensrm_v1.py: opensrm/v1 -> v2 converter (public,
+                         #     re-exported); load_manifest rejects opensrm/v1
                          #   + scan.py: walking a directory that holds
                          #     manifests alongside other YAML
                          #   + evaluation.py: pure threshold evaluation (E1-E4);
@@ -224,7 +226,15 @@ integration and the inbound adapter sidecar are tracked in follow-ups
 
 Unified OpenSRM manifest parsing — v1 (srm/v1), v2
 (opensrm.nthlayer.io/v2), OpenSLO subpackage, legacy NthLayer formats.
+The published `opensrm/v1` schema is migrate-only: `load_manifest` rejects it.
 Implements C-X.2 (manifest format migration).
+
+- `manifest/opensrm_v1.py` — `convert_opensrm_v1_to_v2(data, *,
+  service_type=None) -> MigrationResult(manifest, unmapped)` converts an
+  `opensrm/v1` document to v2 (AUTHORING §7); `unmapped` lists every field with
+  no v2 home. `load_manifest` raises `ManifestLoadError` naming
+  `nthlayer migrate-manifest` for any `opensrm/v1` document, whatever `format=`
+  says (opensrm-pnmv).
 
 **Scanning a mixed directory** (`manifest/scan.py`). `load_manifest`
 raises for any YAML it cannot parse as a manifest, including files that

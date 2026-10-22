@@ -82,6 +82,13 @@ from nthlayer_common.manifest.models import (
     valid_service_types_phrase,
 )
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError
+from nthlayer_common.manifest.opensrm_v1 import (
+    OPENSRM_V1_API_VERSION,
+    MigrationResult,
+    UnmappedField,
+    convert_opensrm_v1_to_v2,
+    is_opensrm_v1_format,
+)
 from nthlayer_common.manifest.parser._shared import extract_declared_dependencies
 from nthlayer_common.manifest.parser.loader import (
     LegacyFormatWarning,
@@ -117,6 +124,12 @@ __all__ = [
     "OpenSLOParseError",
     "OpenSRMParseError",
     "OpenSRMV2ParseError",
+    # opensrm/v1 migration
+    "convert_opensrm_v1_to_v2",
+    "is_opensrm_v1_format",
+    "MigrationResult",
+    "UnmappedField",
+    "OPENSRM_V1_API_VERSION",
     # Constants
     "V2_JUDGMENT_SLO_TYPES",
     "V2_JUDGMENT_THRESHOLD_TYPES",

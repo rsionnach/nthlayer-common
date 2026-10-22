@@ -77,6 +77,8 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
        (`manifest/thresholds.py`, decision 3c, opensrm-l33e), stored as
        declared and never converted, and they are not in
        `SLODefinition.target` at all.
+   - opensrm/v1 targets are 0-1 ratios and `convert_opensrm_v1_to_v2`
+     writes them as ratios — never ÷100; the v2 parser converts on load.
    - Load-time validator in `manifest/target_validation.py` flags
      targets in `(0, 1)` as likely ratio author errors via
      `TargetConventionWarning(UserWarning)`. Tests in

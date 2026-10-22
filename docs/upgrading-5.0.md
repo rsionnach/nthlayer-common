@@ -139,6 +139,12 @@ no `method`, `frequency` or `sampling`.
   `beyond_top_bucket`; `ThresholdOutcome.from_dict` preserves reason strings it
   does not know, so a reader survives a newer writer. `Status`, `MissingReason`
   and `ResultReason` are exported for typing.
+- **New in 5.3.0:** `load_manifest` rejects `apiVersion: opensrm/v1` (the
+  published v1 schema) with an error naming `nthlayer migrate-manifest`, instead
+  of "service.name is required". `convert_opensrm_v1_to_v2(data, *,
+  service_type=None) -> MigrationResult(manifest, unmapped)` converts it to v2
+  following AUTHORING §7; `unmapped` lists every field with no v2 home. v2
+  `spec.dependencies[].service` now accepts `resource:` refs.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).

@@ -29,6 +29,7 @@ from nthlayer_common.manifest.models import (
     SLODefinition,
     SourceFormat,
 )
+from nthlayer_common.manifest.opensrm_v1 import OPENSRM_V1_REJECTION, is_opensrm_v1_format
 from nthlayer_common.manifest.parser.v1 import (
     OpenSRMParseError,
     is_srm_v1_format,
@@ -82,6 +83,13 @@ def load_manifest(
 
     if not isinstance(data, dict):
         raise ManifestLoadError(f"Expected YAML object in {file_path}")
+
+    # The published OpenSRM v1 schema is migrate-only: NthLayer's v1 dialect is
+    # srm/v1. Rejected before format dispatch so no explicit format= can push it
+    # into a parser that misreads it (opensrm-pnmv). See
+    # docs/superpowers/decisions/opensrm-v1-support.md in the nthlayer front door.
+    if is_opensrm_v1_format(data):
+        raise ManifestLoadError(OPENSRM_V1_REJECTION.format(path=file_path))
 
     # Detect format
     detected_format = _detect_format(data)
