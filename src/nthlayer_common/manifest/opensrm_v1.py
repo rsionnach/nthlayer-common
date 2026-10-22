@@ -23,6 +23,8 @@ from nthlayer_common.manifest.models import (
     resolve_service_type,
     valid_service_types_phrase,
 )
+from nthlayer_common.manifest.openslo.parser import OpenSLOParseError, _infer_openslo_type
+from nthlayer_common.manifest.thresholds import is_duration
 
 OPENSRM_V1_API_VERSION = "opensrm/v1"
 _V1_KIND = "ServiceReliabilityManifest"
@@ -224,3 +226,136 @@ _SPEC_HANDLERS = {
     key: _not_yet(key)
     for key in ("slos", "contract", "dependencies", "ownership", "observability", "instrumentation")
 }
+
+
+# v1 classical SLO key → the slo_type common's OpenSLO parser must infer.
+_CLASSICAL = {
+    "availability": "availability", "connection_availability": "availability",
+    "error_rate": "error_rate",
+    "latency": "latency", "duration": "latency", "query_latency": "latency",
+}
+# spec/v1/schema.json window defaults for the converted types (all 30d).
+_WINDOW_DEFAULT = dict.fromkeys(_CLASSICAL, "30d")
+# Percentile properties per v1 definition (spec/v1/schema.json): DurationSLO has no p999.
+_PERCENTILES_BY_DEFN = {
+    "LatencySLO": ("p50", "p90", "p95", "p99", "p999"),
+    "DurationSLO": ("p50", "p90", "p95", "p99"),
+    "QueryLatencySLO": ("p50", "p90", "p95", "p99", "p999"),
+}
+_DEFN_FOR_KEY = {"latency": "LatencySLO", "duration": "DurationSLO", "query_latency": "QueryLatencySLO"}
+_PERCENTILE_WHY = ("kept only in the OpenSLO displayName: an objective without an "
+                   "indicator carries no machine-readable percentile")
+
+_SECTIONS["SLOs"] = (
+    frozenset({*_CLASSICAL, "openslo", "judgment"}),
+    {
+        "throughput": "v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)",
+        "success_rate": "common's v2 parser cannot infer this SLO's type (opensrm-47tt)",
+        "processing_time": "common's v2 parser cannot infer this SLO's type (opensrm-47tt)",
+        "lag": "common's v2 parser cannot infer this SLO's type (opensrm-47tt)",
+        "schedule_adherence": "maximum-only SLO (max_delay) with no target; an OpenSLO objective needs one",
+        "data_freshness": "maximum-only SLO (max_age) with no target; an OpenSLO objective needs one",
+        "replication_lag": "maximum-only SLO (max_lag) with no target; an OpenSLO objective needs one",
+        "custom": "custom SLOs have no v2 mapping",
+    },
+)
+for _defn, _pcts in _PERCENTILES_BY_DEFN.items():
+    _SECTIONS[_defn] = (frozenset({"target", "window"}), dict.fromkeys(_pcts, _PERCENTILE_WHY))
+for _defn in ("AvailabilitySLO", "ErrorRateSLO", "ConnectionAvailabilitySLO"):
+    _SECTIONS[_defn] = (frozenset({"target", "window"}), {})
+
+
+def _ratio(path: str, value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
+        raise ValueError(f"{path} must be a ratio in [0, 1], got {value!r}")
+    return float(value)
+
+
+def _duration(path: str, value: object) -> str:
+    if not is_duration(value):
+        raise ValueError(f"{path} must be a duration like '30d' or '200ms', got {value!r}")
+    return value
+
+
+def _pct(ratio: float) -> str:
+    return f"{ratio * 100:g}%"
+
+
+def _openslo(key: str, cfg: object, ctx: _Ctx) -> dict[str, Any]:
+    path = f"spec.slos.{key}"
+    cfg = _mapping(path, cfg)
+    target = _ratio(f"{path}.target", cfg.get("target"))
+    window = _duration(f"{path}.window", cfg.get("window", _WINDOW_DEFAULT[key]))
+    kind = _CLASSICAL[key]
+    if kind == "error_rate":
+        # v1 ErrorRateSLO.target is a MAXIMUM error ratio; OpenSLO targets are
+        # good-ratios (the spec's reference output turns 0.001 into 0.999).
+        good = round(1.0 - target, 12)
+        display = f"Error rate under {_pct(target)} over {window}"
+    elif kind == "latency":
+        pct_keys = _PERCENTILES_BY_DEFN[_DEFN_FOR_KEY[key]]
+        pcts = [(p, _duration(f"{path}.{p}", cfg[p])) for p in pct_keys if p in cfg]
+        for p, _ in pcts:
+            ctx.skip(f"{path}.{p}", _PERCENTILE_WHY)
+        good = target
+        bits = ", ".join(f"{p} under {v}" for p, v in pcts)
+        display = f"{_pct(target)} of requests {bits} over {window}" if bits else f"{_pct(target)} {key.replace('_', ' ')} over {window}"
+    else:
+        good = target
+        display = f"{_pct(target)} {key.replace('_', ' ')} over {window}"
+    for extra in cfg:
+        if extra not in ("target", "window", *_PERCENTILES_BY_DEFN.get(_DEFN_FOR_KEY.get(key, ""), ())):
+            ctx.skip(f"{path}.{extra}", _NOT_IN_SCHEMA)
+
+    slo_name = f"{ctx.service}-{key.replace('_', '-')}"
+    objective = {"displayName": display, "target": good}
+    try:
+        inferred: str | None = _infer_openslo_type(slo_name, good * 100, None, None, None, objective)
+    except OpenSLOParseError:
+        inferred = None
+    if inferred != kind:
+        raise ValueError(
+            f"SLO '{slo_name}' would be read as {inferred!r}, not {kind!r}: common's v2 "
+            "parser infers the type from the SLO name and the service name contains "
+            "another type's word (opensrm-47tt). Rename the service or migrate this SLO by hand."
+        )
+    return {
+        "apiVersion": "openslo/v1",
+        "kind": "SLO",
+        "metadata": {"name": slo_name},
+        "spec": {
+            "service": ctx.service,
+            "timeWindow": [{"duration": window, "isRolling": True}],
+            "objectives": [objective],
+        },
+    }
+
+
+def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    slos = _mapping("spec.slos", value)
+    converted, unmapped = _SECTIONS["SLOs"]
+    docs: list[dict[str, Any]] = []
+    for key, cfg in slos.items():
+        if key in unmapped:
+            ctx.skip(f"spec.slos.{key}", unmapped[key])
+        elif key not in converted:
+            ctx.skip(f"spec.slos.{key}", _NOT_IN_SCHEMA)
+        elif key == "openslo":
+            for i, item in enumerate(cfg if isinstance(cfg, list) else []):
+                ref = _mapping(f"spec.slos.openslo[{i}]", item).get("path")
+                if not isinstance(ref, str) or not ref:
+                    raise ValueError(f"spec.slos.openslo[{i}].path must be a non-empty string")
+                docs.append({"$ref": ref})
+        elif key == "judgment":
+            _convert_judgment(cfg, out, ctx)
+        else:
+            docs.append(_openslo(key, cfg, ctx))
+    if docs:
+        out["slo"] = docs
+
+
+def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    ctx.skip("spec.slos.judgment", "not yet converted")   # Task 5
+
+
+_SPEC_HANDLERS["slos"] = _convert_slos
