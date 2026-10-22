@@ -231,8 +231,14 @@ Implements C-X.2 (manifest format migration).
 
 - `manifest/opensrm_v1.py` — `convert_opensrm_v1_to_v2(data, *,
   service_type=None) -> MigrationResult(manifest, unmapped)` converts an
-  `opensrm/v1` document to v2 (AUTHORING §7); `unmapped` lists every field with
-  no v2 home. `load_manifest` raises `ManifestLoadError` naming
+  `opensrm/v1` document to v2 (AUTHORING §7). `unmapped` lists, in document
+  order, every `UnmappedField(path, reason, kind)`: kind `"dropped"` (no v2
+  home, not in the output) or `"assumed"` (converted with a value v1 does not
+  declare — today only judgment calibration's `measurement.bins: 10`).
+  `MigrationResult.lossy` is True only when something was dropped; assumed
+  entries are informational, so they alone must not force `--allow-lossy`.
+  Unconvertible input raises `OpenSRMV1MigrationError(ValueError)`.
+  `OPENSRM_V1_REJECTION` is the loader's message template. `load_manifest` raises `ManifestLoadError` naming
   `nthlayer migrate-manifest` for any `opensrm/v1` document, whatever `format=`
   says (opensrm-pnmv).
 

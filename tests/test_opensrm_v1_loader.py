@@ -27,8 +27,22 @@ def test_opensrm_v1_is_rejected_with_the_migrate_command(tmp_path, fmt):
 
 def test_migration_api_is_public():
     for name in ("convert_opensrm_v1_to_v2", "is_opensrm_v1_format", "MigrationResult",
-                 "UnmappedField", "OPENSRM_V1_API_VERSION"):
+                 "UnmappedField", "UnmappedKind", "OPENSRM_V1_API_VERSION",
+                 "OPENSRM_V1_REJECTION", "OpenSRMV1MigrationError"):
         assert name in manifest.__all__ and hasattr(manifest, name), name
+
+
+def test_migration_error_is_a_value_error():
+    # Existing `except ValueError` callers keep catching it.
+    assert issubclass(manifest.OpenSRMV1MigrationError, ValueError)
+
+
+def test_exported_rejection_is_the_one_the_loader_raises(tmp_path):
+    path = tmp_path / "svc.yaml"
+    path.write_text(yaml.safe_dump(_DOC))
+    with pytest.raises(ManifestLoadError) as exc:
+        load_manifest(path)
+    assert str(exc.value) == manifest.OPENSRM_V1_REJECTION.format(path=path)
 
 
 def test_is_manifest_file_counts_opensrm_v1_so_scans_reach_the_rejection(tmp_path):

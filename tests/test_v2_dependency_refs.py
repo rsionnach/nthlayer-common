@@ -43,3 +43,10 @@ def test_owner_escalation_still_requires_a_group_ref():
     m["spec"]["owner"]["escalation"] = "resource:default/pager"
     with pytest.raises(OpenSRMV2ParseError):
         parse_opensrm_v2(m)
+
+
+def test_a_ref_without_a_kind_names_every_accepted_kind():
+    with pytest.raises(OpenSRMV2ParseError) as exc:
+        parse_opensrm_v2(_manifest("postgresql"))
+    msg = str(exc.value)
+    assert "'component:namespace/name'" in msg and "'resource:namespace/name'" in msg

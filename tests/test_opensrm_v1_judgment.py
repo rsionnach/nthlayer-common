@@ -8,7 +8,7 @@ migration). v2 allows judgment blocks only on ai-gate (§3.1).
 """
 import pytest
 
-from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.opensrm_v1 import OpenSRMV1MigrationError, convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
 
@@ -55,7 +55,7 @@ def test_a_non_ai_gate_manifest_reports_the_whole_judgment_block():
     ({"feedback_latency": {"p50": "two days"}}, "p50"),
 ])
 def test_malformed_converted_judgment_fields_raise(cfg, match):
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(OpenSRMV1MigrationError, match=match):
         convert_opensrm_v1_to_v2(_v1(cfg))
 
 

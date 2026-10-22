@@ -7,6 +7,7 @@ import pytest
 
 from nthlayer_common.manifest.opensrm_v1 import (
     MigrationResult,
+    OpenSRMV1MigrationError,
     UnmappedField,
     convert_opensrm_v1_to_v2,
     is_opensrm_v1_format,
@@ -69,14 +70,14 @@ def test_template_is_reported_unmapped():
 def test_unconvertible_documents_raise(mutate, match):
     d = _v1()
     mutate(d)
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(OpenSRMV1MigrationError, match=match):
         convert_opensrm_v1_to_v2(d)
 
 
 def test_missing_type_needs_service_type():
     d = _v1()
     del d["spec"]["type"]
-    with pytest.raises(ValueError, match="service-type"):
+    with pytest.raises(OpenSRMV1MigrationError, match="service-type"):
         convert_opensrm_v1_to_v2(d)
     assert convert_opensrm_v1_to_v2(d, service_type="api").manifest["spec"]["service"]["type"] == "api"
 
@@ -92,13 +93,13 @@ def test_an_absent_type_is_filled_by_the_supplied_one(supplied):
 
 def test_supplied_type_must_agree_with_a_declared_one():
     assert convert_opensrm_v1_to_v2(_v1(), service_type="api").manifest["spec"]["service"]["type"] == "api"
-    with pytest.raises(ValueError, match="spec.type"):
+    with pytest.raises(OpenSRMV1MigrationError, match="spec.type"):
         convert_opensrm_v1_to_v2(_v1(), service_type="worker")
 
 
 def test_unknown_spec_keys_are_reported_not_dropped():
     r = convert_opensrm_v1_to_v2(_v1(sla={"x": 1}))
-    assert r.unmapped == (UnmappedField("spec.sla", "not part of the opensrm/v1 schema"),)
+    assert r.unmapped == (UnmappedField("spec.sla", "not part of the opensrm/v1 schema", "dropped"),)
 
 
 @pytest.mark.parametrize("tier", ["critical", "high", "standard", "low"])
@@ -112,19 +113,19 @@ def test_every_schema_tier_converts(tier):
 def test_non_schema_or_non_string_tier_raises_value_error(tier):
     d = _v1()
     d["metadata"]["tier"] = tier
-    with pytest.raises(ValueError, match="tier"):
+    with pytest.raises(OpenSRMV1MigrationError, match="tier"):
         convert_opensrm_v1_to_v2(d)
 
 
 def test_non_string_description_raises():
     d = _v1()
     d["metadata"]["description"] = 5
-    with pytest.raises(ValueError, match="metadata.description"):
+    with pytest.raises(OpenSRMV1MigrationError, match="metadata.description"):
         convert_opensrm_v1_to_v2(d)
 
 
 def test_non_mapping_document_raises_value_error():
-    with pytest.raises(ValueError, match="opensrm/v1"):
+    with pytest.raises(OpenSRMV1MigrationError, match="opensrm/v1"):
         convert_opensrm_v1_to_v2([])  # type: ignore[arg-type]
 
 
@@ -132,16 +133,16 @@ def test_unknown_metadata_key_is_reported():
     d = _v1()
     d["metadata"]["owner"] = "x"
     r = convert_opensrm_v1_to_v2(d)
-    assert r.unmapped == (UnmappedField("metadata.owner", "not part of the opensrm/v1 schema"),)
+    assert r.unmapped == (UnmappedField("metadata.owner", "not part of the opensrm/v1 schema", "dropped"),)
 
 
 @pytest.mark.parametrize("key", ["notifications", "deployment"])
 def test_unmapped_spec_sections_carry_their_reason(key):
     r = convert_opensrm_v1_to_v2(_v1(**{key: {"x": 1}}))
-    assert r.unmapped == (UnmappedField(f"spec.{key}", "no v2 equivalent (AUTHORING §7.6)"),)
+    assert r.unmapped == (UnmappedField(f"spec.{key}", "no v2 equivalent (AUTHORING §7.6)", "dropped"),)
 
 
 @pytest.mark.parametrize("supplied", ["API", " api ", "", "apii"])
 def test_a_supplied_type_is_validated_on_its_own_first(supplied):
-    with pytest.raises(ValueError, match="not a valid v2 service type"):
+    with pytest.raises(OpenSRMV1MigrationError, match="not a valid v2 service type"):
         convert_opensrm_v1_to_v2(_v1(), service_type=supplied)

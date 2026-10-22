@@ -143,7 +143,11 @@ no `method`, `frequency` or `sampling`.
   published v1 schema) with an error naming `nthlayer migrate-manifest`, instead
   of "service.name is required". `convert_opensrm_v1_to_v2(data, *,
   service_type=None) -> MigrationResult(manifest, unmapped)` converts it to v2
-  following AUTHORING §7; `unmapped` lists every field with no v2 home. v2
+  following AUTHORING §7. `unmapped` lists every field not carried over
+  exactly, each with a `kind`: `"dropped"` (no v2 home) or `"assumed"`
+  (converted with a value v1 does not declare). `MigrationResult.lossy` is True
+  only when something was dropped; assumed entries are informational. It raises
+  `OpenSRMV1MigrationError`, a `ValueError`, for input it cannot convert. v2
   `spec.dependencies[].service` now accepts `resource:` refs.
   `is_manifest_file` now recognises `opensrm/v1` documents by content, so
   directory scans surface them instead of skipping them.

@@ -84,8 +84,11 @@ from nthlayer_common.manifest.models import (
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError
 from nthlayer_common.manifest.opensrm_v1 import (
     OPENSRM_V1_API_VERSION,
+    OPENSRM_V1_REJECTION,
     MigrationResult,
+    OpenSRMV1MigrationError,
     UnmappedField,
+    UnmappedKind,
     convert_opensrm_v1_to_v2,
     is_opensrm_v1_format,
 )
@@ -129,7 +132,10 @@ __all__ = [
     "is_opensrm_v1_format",
     "MigrationResult",
     "UnmappedField",
+    "UnmappedKind",
+    "OpenSRMV1MigrationError",
     "OPENSRM_V1_API_VERSION",
+    "OPENSRM_V1_REJECTION",
     # Constants
     "V2_JUDGMENT_SLO_TYPES",
     "V2_JUDGMENT_THRESHOLD_TYPES",

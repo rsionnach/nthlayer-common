@@ -361,9 +361,9 @@ def _resolve_backstage_ref(ref: str, expected_kind: str | tuple[str, ...]) -> st
     """
     kinds = (expected_kind,) if isinstance(expected_kind, str) else expected_kind
     if ":" not in ref:
+        formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
         raise OpenSRMV2ParseError(
-            f"Invalid Backstage entity reference: '{ref}'. "
-            f"Expected format: '{kinds[0]}:namespace/name'"
+            f"Invalid Backstage entity reference: '{ref}'. Expected format: {formats}"
         )
 
     kind, rest = ref.split(":", 1)

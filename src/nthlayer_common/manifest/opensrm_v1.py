@@ -6,7 +6,10 @@ which differs from the schema in nearly every section. This module converts a
 schema-shaped ``opensrm/v1`` document to v2 following
 opensrm/spec/v2/AUTHORING.md §7, and never drops a field silently: anything
 with no v2 home is returned in ``MigrationResult.unmapped`` for the caller to
-refuse or accept. Targets are 0–1 ratios on both sides; nothing here
+refuse or accept. Each entry has a *kind*: ``"dropped"`` (the value is not in
+the v2 output) or ``"assumed"`` (converted, but with a value v1 does not
+declare). ``MigrationResult.lossy`` is True only when something was dropped;
+assumed entries are informational. Targets are 0–1 ratios on both sides; nothing here
 multiplies by 100. See docs/superpowers/decisions/opensrm-v1-support.md in the
 nthlayer front door.
 """
@@ -16,7 +19,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from nthlayer_common.manifest.models import (
     VALID_TIERS,
@@ -43,6 +46,16 @@ OPENSRM_V1_REJECTION = (
     "NthLayer does not load. NthLayer reads opensrm.nthlayer.io/v2 (and srm/v1, "
     "its own v1 dialect). Convert it with: nthlayer migrate-manifest {path}"
 )
+
+UnmappedKind = Literal["dropped", "assumed"]
+
+
+class OpenSRMV1MigrationError(ValueError):
+    """An ``opensrm/v1`` document that cannot be converted at all.
+
+    A ValueError, so existing ``except ValueError`` callers still catch it.
+    """
+
 
 # Reasons shared by several _SECTIONS entries.
 # opensrm-47tt: NthLayer's v2 parser infers an SLO's type from its name and
@@ -170,18 +183,32 @@ _SECTIONS: dict[str, tuple[frozenset[str], dict[str, str]]] = {
 
 @dataclass(frozen=True)
 class UnmappedField:
-    """A v1 field with no v2 home. *path* is dotted into the v1 document."""
+    """A v1 field the conversion could not carry over exactly.
+
+    *path* is dotted into the v1 document. *kind* is ``"dropped"`` when the
+    value is not in the v2 output, or ``"assumed"`` when it was converted but
+    with a value v1 does not declare (the author should check it).
+    """
 
     path: str
     reason: str
+    kind: UnmappedKind
 
 
 @dataclass(frozen=True)
 class MigrationResult:
-    """*unmapped* is in document order, depth-first: the order the fields appear in the v1 file."""
+    """*unmapped* is in document order, depth-first: the order the fields appear in the v1 file.
+
+    It holds both kinds of entry; ``lossy`` says whether any was dropped.
+    """
 
     manifest: dict[str, Any]
     unmapped: tuple[UnmappedField, ...]
+
+    @property
+    def lossy(self) -> bool:
+        """True iff a v1 field was dropped. Assumed entries are informational."""
+        return any(f.kind == "dropped" for f in self.unmapped)
 
 
 @dataclass
@@ -191,23 +218,29 @@ class _Ctx:
     annotations: dict[str, str] = field(default_factory=dict)
     open_walks: int = 0  # _keys walks started and not yet exhausted
 
-    def report(self, path: str, reason: str) -> None:
-        self.unmapped.append(UnmappedField(path, reason))
+    def report(self, path: str, reason: str, kind: UnmappedKind) -> None:
+        self.unmapped.append(UnmappedField(path, reason, kind))
 
 
 def is_opensrm_v1_format(data: object) -> bool:
+    """True when *data* is a mapping with ``apiVersion: opensrm/v1``.
+
+    Matches on apiVersion alone, regardless of ``kind``: a v1 Template is
+    still opensrm/v1 (the loader rejects it with the migrate hint, and
+    convert_opensrm_v1_to_v2 refuses it by kind).
+    """
     return isinstance(data, dict) and data.get("apiVersion") == OPENSRM_V1_API_VERSION
 
 
 def _mapping(path: str, value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise ValueError(f"{path} must be a mapping, got {type(value).__name__}")
+        raise OpenSRMV1MigrationError(f"{path} must be a mapping, got {type(value).__name__}")
     return value
 
 
 def _entity_name(path: str, value: object) -> str:
     if not isinstance(value, str) or not _ENTITY_NAME.fullmatch(value):
-        raise ValueError(
+        raise OpenSRMV1MigrationError(
             f"{path} must be a name usable in an entity ref ([A-Za-z0-9._-], "
             f"starting alphanumeric), got {value!r}"
         )
@@ -218,7 +251,7 @@ def _string_map(path: str, value: object) -> dict[str, str]:
     m = _mapping(path, value)
     for k, v in m.items():
         if not isinstance(k, str) or not isinstance(v, str):
-            raise ValueError(f"{path} must map strings to strings, got {k!r}: {v!r}")
+            raise OpenSRMV1MigrationError(f"{path} must map strings to strings, got {k!r}: {v!r}")
     return dict(m)
 
 
@@ -240,9 +273,9 @@ def _walk(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator
     converted, unmapped = _SECTIONS[section]
     for key in value:
         if key in unmapped:
-            ctx.report(f"{path}.{key}", unmapped[key])
+            ctx.report(f"{path}.{key}", unmapped[key], "dropped")
         elif key not in converted:
-            ctx.report(f"{path}.{key}", _NOT_IN_SCHEMA)
+            ctx.report(f"{path}.{key}", _NOT_IN_SCHEMA, "dropped")
         else:
             yield key
     ctx.open_walks -= 1  # only on exhaustion: an abandoned walk stays counted
@@ -250,13 +283,13 @@ def _walk(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator
 
 def _service_type(declared: object, supplied: str | None) -> str:
     if supplied is not None and resolve_service_type(supplied) is None:
-        raise ValueError(
+        raise OpenSRMV1MigrationError(
             f"supplied service type {supplied!r} is not a valid v2 service type "
             f"(it fills an absent spec.type). Must be one of: {valid_service_types_phrase()}."
         )
     if declared is None:
         if supplied is None:
-            raise ValueError(
+            raise OpenSRMV1MigrationError(
                 "spec.type is absent: it is optional in opensrm/v1 but required in "
                 "v2 (spec.service.type). Supply it (migrate-manifest --service-type). "
                 f"Must be one of: {valid_service_types_phrase()}."
@@ -265,13 +298,13 @@ def _service_type(declared: object, supplied: str | None) -> str:
     else:
         declared_type = declared
         if supplied is not None and resolve_service_type(supplied) != resolve_service_type(declared):
-            raise ValueError(
+            raise OpenSRMV1MigrationError(
                 f"spec.type is {declared!r} but {supplied!r} was supplied; "
                 "a supplied service type only fills an absent spec.type"
             )
     resolved = resolve_service_type(declared_type) if isinstance(declared_type, str) else None
     if resolved is None:
-        raise ValueError(
+        raise OpenSRMV1MigrationError(
             f"spec.type {declared_type!r} is not a valid v2 service type. "
             f"Must be one of: {valid_service_types_phrase()}."
         )
@@ -283,16 +316,28 @@ def convert_opensrm_v1_to_v2(
 ) -> MigrationResult:
     """Convert an ``opensrm/v1`` document to an ``opensrm.nthlayer.io/v2`` dict.
 
-    Raises ValueError only for a document that cannot be converted at all
-    (wrong apiVersion or kind, unusable name/team/tier/type, a malformed value on
-    a field that is converted). Fields with no v2 home are reported in
-    ``unmapped``, never raised and never dropped.
+    Raises OpenSRMV1MigrationError (a ValueError) only for a document that
+    cannot be converted at all (wrong apiVersion or kind, unusable
+    name/team/tier/type, a malformed value on a field that is converted).
+    Fields with no v2 home are reported in ``unmapped`` as ``"dropped"``, never
+    raised and never lost silently; a field converted with a value v1 does not
+    declare is reported as ``"assumed"``. ``lossy`` is True only if something
+    was dropped.
     """
+    try:
+        return _convert(data, service_type)
+    except OpenSRMV1MigrationError:
+        raise
+    except ValueError as exc:  # from a shared validator this module calls
+        raise OpenSRMV1MigrationError(str(exc)) from exc
+
+
+def _convert(data: dict[str, Any], service_type: str | None) -> MigrationResult:
     if not is_opensrm_v1_format(data):
         got = data.get("apiVersion") if isinstance(data, dict) else type(data).__name__
-        raise ValueError(f"expects apiVersion {OPENSRM_V1_API_VERSION!r}, got {got!r}")
+        raise OpenSRMV1MigrationError(f"expects apiVersion {OPENSRM_V1_API_VERSION!r}, got {got!r}")
     if data.get("kind") != _V1_KIND:
-        raise ValueError(
+        raise OpenSRMV1MigrationError(
             f"only kind {_V1_KIND!r} converts, got {data.get('kind')!r} "
             "(a v1 Template has no v2 equivalent)"
         )
@@ -301,17 +346,17 @@ def convert_opensrm_v1_to_v2(
 
     name = metadata.get("name")
     if not isinstance(name, str) or not _V2_NAME.fullmatch(name):
-        raise ValueError(
+        raise OpenSRMV1MigrationError(
             f"metadata.name must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ in v2, got {name!r}"
         )
     ctx = _Ctx(service=name)
 
     tier = metadata.get("tier")
     if not isinstance(tier, str) or tier not in VALID_TIERS:
-        raise ValueError(f"metadata.tier must be one of {sorted(VALID_TIERS)}, got {tier!r}")
+        raise OpenSRMV1MigrationError(f"metadata.tier must be one of {sorted(VALID_TIERS)}, got {tier!r}")
     labels = _string_map("metadata.labels", metadata.get("labels", {}))
     if labels.get("tier", tier) != tier:
-        raise ValueError(f"metadata.labels.tier {labels['tier']!r} disagrees with metadata.tier {tier!r}")
+        raise OpenSRMV1MigrationError(f"metadata.labels.tier {labels['tier']!r} disagrees with metadata.tier {tier!r}")
     labels["tier"] = tier
     if "annotations" in metadata:
         ctx.annotations.update(_string_map("metadata.annotations", metadata["annotations"]))
@@ -322,7 +367,7 @@ def convert_opensrm_v1_to_v2(
     service: dict[str, Any] = {"name": name, "type": _service_type(spec.get("type"), service_type)}
     if "description" in metadata:
         if not isinstance(metadata["description"], str):
-            raise ValueError(
+            raise OpenSRMV1MigrationError(
                 f"metadata.description must be a string, got {type(metadata['description']).__name__}"
             )
         service["description"] = metadata["description"]
@@ -352,13 +397,13 @@ def _convert_spec(spec: dict[str, Any], out: dict[str, Any], ctx: _Ctx) -> None:
 
 def _ratio(path: str, value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
-        raise ValueError(f"{path} must be a ratio in [0, 1], got {value!r}")
+        raise OpenSRMV1MigrationError(f"{path} must be a ratio in [0, 1], got {value!r}")
     return float(value)
 
 
 def _duration(path: str, value: object) -> str:
     if not is_duration(value):
-        raise ValueError(f"{path} must be a duration like '30d' or '200ms', got {value!r}")
+        raise OpenSRMV1MigrationError(f"{path} must be a duration like '30d' or '200ms', got {value!r}")
     return str(value)
 
 
@@ -399,7 +444,7 @@ def _openslo(key: str, cfg: object, ctx: _Ctx) -> dict[str, Any]:
     except OpenSLOParseError:
         inferred = None
     if inferred != slo_type:
-        raise ValueError(
+        raise OpenSRMV1MigrationError(
             f"SLO '{slo_name}' would be read as {inferred!r}, not {slo_type!r}: "
             "NthLayer's v2 parser infers the type from the SLO name and the service "
             "name contains another type's word. Rename the service or migrate this SLO by hand."
@@ -423,13 +468,13 @@ def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         cfg = slos[key]
         if key == "openslo":
             if not isinstance(cfg, list):
-                raise ValueError(f"spec.slos.openslo must be a list, got {type(cfg).__name__}")
+                raise OpenSRMV1MigrationError(f"spec.slos.openslo must be a list, got {type(cfg).__name__}")
             for i, item in enumerate(cfg):
                 item = _mapping(f"spec.slos.openslo[{i}]", item)
                 list(_keys("SLOs.openslo[]", f"spec.slos.openslo[{i}]", item, ctx))
                 ref = item.get("path")
                 if not isinstance(ref, str) or not ref:
-                    raise ValueError(f"spec.slos.openslo[{i}].path must be a non-empty string")
+                    raise OpenSRMV1MigrationError(f"spec.slos.openslo[{i}].path must be a non-empty string")
                 docs.append({"$ref": ref})
         elif key == "judgment":
             _convert_judgment(cfg, out, ctx)
@@ -443,7 +488,8 @@ def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
     judgment = _mapping("spec.slos.judgment", value)
     if out["service"]["type"] != "ai-gate":
         ctx.report("spec.slos.judgment",
-                 "v2 allows judgment blocks only on spec.service.type ai-gate (AUTHORING §3.1)")
+                 "v2 allows judgment blocks only on spec.service.type ai-gate (AUTHORING §3.1)",
+                 "dropped")
         return
     entries: list[dict[str, Any]] = []
     for key in _keys("JudgmentSLOs", "spec.slos.judgment", judgment, ctx):
@@ -461,13 +507,14 @@ def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             )
             entries.append(threshold_to_v2_entry(threshold))
             ctx.report(path, f"converted with measurement.bins: {_SRM_V1_CALIBRATION_BINS}, "
-                       "a value opensrm/v1 does not declare; check it")
+                       "a value opensrm/v1 does not declare; check it", "assumed")
             list(_keys("FlatCalibrationSLO", path, cfg, ctx))
         else:  # feedback_latency
             cfg = _mapping(path, cfg)
             bounds = {f"maximum_{p}": _duration(f"{path}.{p}", cfg[p]) for p in ("p50", "p90") if p in cfg}
             if not bounds:
-                ctx.report(path, "declares neither p50 nor p90, so there is no bound to convert")
+                ctx.report(path, "declares neither p50 nor p90, so there is no bound to convert",
+                           "dropped")
             list(_keys("FeedbackLatencySLO", path, cfg, ctx))
             if not bounds:
                 continue
@@ -486,9 +533,9 @@ _OWNERSHIP_ANNOTATIONS = {   # AUTHORING §7.2
 
 def _annotate(ctx: _Ctx, key: str, value: object, path: str) -> None:
     if not isinstance(value, str):
-        raise ValueError(f"{path} must be a string, got {value!r}")
+        raise OpenSRMV1MigrationError(f"{path} must be a string, got {value!r}")
     if ctx.annotations.get(key, value) != value:
-        raise ValueError(f"{path} would set annotation {key} to {value!r}, but metadata.annotations has {ctx.annotations[key]!r}")
+        raise OpenSRMV1MigrationError(f"{path} would set annotation {key} to {value!r}, but metadata.annotations has {ctx.annotations[key]!r}")
     ctx.annotations[key] = value
 
 
@@ -507,7 +554,7 @@ def _convert_contract(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             for _ in _keys("ContractThroughput", "spec.contract.throughput", throughput, ctx):  # max_rps
                 rps = throughput["max_rps"]
                 if isinstance(rps, bool) or not isinstance(rps, int) or rps < 1:
-                    raise ValueError(f"spec.contract.throughput.max_rps must be an integer >= 1, got {rps!r}")
+                    raise OpenSRMV1MigrationError(f"spec.contract.throughput.max_rps must be an integer >= 1, got {rps!r}")
                 promise["throughput"] = f"{rps}rps"
     if promise:
         out["contracts"] = [{"name": ctx.service, "promise": promise,
@@ -516,7 +563,7 @@ def _convert_contract(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
 
 def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
     if not isinstance(value, list):
-        raise ValueError(f"spec.dependencies must be a list, got {type(value).__name__}")
+        raise OpenSRMV1MigrationError(f"spec.dependencies must be a list, got {type(value).__name__}")
     deps = []
     for i, raw in enumerate(value):
         path = f"spec.dependencies[{i}]"
@@ -530,7 +577,7 @@ def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None
         elif dtype == "service":
             ref = f"component:default/{name}"
         else:
-            raise ValueError(f"{path}.type must be one of service, database, cache, queue, external; got {dtype!r}")
+            raise OpenSRMV1MigrationError(f"{path}.type must be one of service, database, cache, queue, external; got {dtype!r}")
         entry: dict[str, Any] = {"service": ref}
         if dtype != "service":
             # The ref kind alone does not survive the v2 parser, which reads a
@@ -560,7 +607,7 @@ def _convert_ownership(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         if key == "team":
             team = _entity_name(path, own[key])
             if f"group:default/{team}" != out["owner"]["group"]:
-                raise ValueError(f"spec.ownership.team {team!r} disagrees with metadata.team ({out['owner']['group']})")
+                raise OpenSRMV1MigrationError(f"spec.ownership.team {team!r} disagrees with metadata.team ({out['owner']['group']})")
         elif key == "escalation":
             out["owner"]["escalation"] = f"group:default/{_entity_name(path, own[key])}"
         elif key == "pagerduty":
@@ -583,7 +630,7 @@ def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> N
         required = []
         for key in _keys("Instrumentation.events", path, events, ctx):
             if not isinstance(events[key], str):
-                raise ValueError(f"{path}.{key} must be an event-name string, got {events[key]!r}")
+                raise OpenSRMV1MigrationError(f"{path}.{key} must be an event-name string, got {events[key]!r}")
             required.append({"type": events[key]})
         if required:
             out["instrumentation"] = {"required_events": required}

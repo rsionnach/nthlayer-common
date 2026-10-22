@@ -7,7 +7,7 @@ converted types) and AUTHORING.md §7.3, whose reference output
 """
 import pytest
 
-from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.opensrm_v1 import OpenSRMV1MigrationError, convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
 _PERCENTILE_WHY = ("kept only in the OpenSLO displayName: an objective without an "
@@ -93,19 +93,19 @@ def test_custom_is_reported_and_openslo_paths_become_refs():
     ({"target": 0.99, "window": "30 days"}, "window"), ({}, "target"),
 ])
 def test_malformed_converted_slos_raise(cfg, match):
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(OpenSRMV1MigrationError, match=match):
         convert_opensrm_v1_to_v2(_v1({"availability": cfg}))
 
 
 def test_a_type_hint_word_in_the_service_name_raises_instead_of_mistyping():
     # "error-tracker-availability" would be typed error_rate by the parser.
-    with pytest.raises(ValueError, match="error-tracker-availability"):
+    with pytest.raises(OpenSRMV1MigrationError, match="error-tracker-availability"):
         convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.999}}, name="error-tracker"))
 
 
 @pytest.mark.parametrize("value", [{"path": "a.yaml"}, None, "a.yaml"])
 def test_openslo_must_be_a_list(value):
-    with pytest.raises(ValueError, match=r"spec\.slos\.openslo"):
+    with pytest.raises(OpenSRMV1MigrationError, match=r"spec\.slos\.openslo"):
         convert_opensrm_v1_to_v2(_v1({"openslo": value}))
 
 
@@ -118,7 +118,7 @@ def test_openslo_item_extra_keys_are_reported():
 
 @pytest.mark.parametrize("name", ["rps-svc", "latency-svc"])
 def test_other_type_hint_words_in_service_name_raise(name):
-    with pytest.raises(ValueError, match=f"{name}-availability"):
+    with pytest.raises(OpenSRMV1MigrationError, match=f"{name}-availability"):
         convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.999}}, name=name))
 
 

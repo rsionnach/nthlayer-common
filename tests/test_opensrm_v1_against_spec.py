@@ -55,46 +55,56 @@ EXPECTED: dict[str, tuple[str | None, list[str]]] = {
 }
 
 
-# The reason each unmapped path above must carry, as literals cross-checked
-# against the pnmv design §4 table (not read from the converter's table).
-# Dependency indices are normalised to [*].
+# The reason and kind each unmapped path above must carry, as literals
+# cross-checked against the pnmv design §4 table (not read from the converter's
+# table). Only calibration is "assumed" (converted, with a bins value v1 does
+# not declare); every other entry is "dropped" — percentiles included, since
+# they survive only as displayName text. Dependency indices are normalised to [*].
 _PCT = ("kept only in the OpenSLO displayName: an objective without an "
         "indicator carries no machine-readable percentile")
 _JUDGMENT_SLO = ("judgment_slo is new capability, not migration (AUTHORING §7.7 step 8), and no "
                  "v2 judgment-SLO shape passes both the schema and NthLayer's v2 parser")
 _NO_V2 = "no v2 equivalent (AUTHORING §7.6)"
-REASONS: dict[str, str] = {
+REASONS: dict[str, tuple[str, str]] = {
     "spec.contract.judgment":
-        "v2 contracts[].promise has availability, latency_p99 and throughput only (AUTHORING §7.4)",
-    "spec.slos.latency.p50": _PCT,
-    "spec.slos.latency.p95": _PCT,
-    "spec.slos.latency.p99": _PCT,
-    "spec.slos.duration.p95": _PCT,
-    "spec.slos.query_latency.p50": _PCT,
-    "spec.slos.query_latency.p99": _PCT,
+        ("v2 contracts[].promise has availability, latency_p99 and throughput only (AUTHORING §7.4)",
+         "dropped"),
+    "spec.slos.latency.p50": (_PCT, "dropped"),
+    "spec.slos.latency.p95": (_PCT, "dropped"),
+    "spec.slos.latency.p99": (_PCT, "dropped"),
+    "spec.slos.duration.p95": (_PCT, "dropped"),
+    "spec.slos.query_latency.p50": (_PCT, "dropped"),
+    "spec.slos.query_latency.p99": (_PCT, "dropped"),
     "spec.slos.throughput":
-        "v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)",
-    "spec.slos.success_rate": "NthLayer's v2 parser cannot infer this SLO's type",
+        ("v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)",
+         "dropped"),
+    "spec.slos.success_rate": ("NthLayer's v2 parser cannot infer this SLO's type", "dropped"),
     "spec.slos.schedule_adherence":
-        "maximum-only SLO (max_delay) with no target; an OpenSLO objective needs one",
-    "spec.slos.data_freshness": "maximum-only SLO (max_age) with no target; an OpenSLO objective needs one",
-    "spec.slos.replication_lag": "maximum-only SLO (max_lag) with no target; an OpenSLO objective needs one",
-    "spec.slos.judgment.reversal_rate": _JUDGMENT_SLO,
-    "spec.slos.judgment.high_confidence_failure": _JUDGMENT_SLO,
+        ("maximum-only SLO (max_delay) with no target; an OpenSLO objective needs one", "dropped"),
+    "spec.slos.data_freshness":
+        ("maximum-only SLO (max_age) with no target; an OpenSLO objective needs one", "dropped"),
+    "spec.slos.replication_lag":
+        ("maximum-only SLO (max_lag) with no target; an OpenSLO objective needs one", "dropped"),
+    "spec.slos.judgment.reversal_rate": (_JUDGMENT_SLO, "dropped"),
+    "spec.slos.judgment.high_confidence_failure": (_JUDGMENT_SLO, "dropped"),
     "spec.slos.judgment.calibration":
-        "converted with measurement.bins: 10, a value opensrm/v1 does not declare; check it",
-    "spec.instrumentation.attributes": "v2 instrumentation has no attribute list",
+        ("converted with measurement.bins: 10, a value opensrm/v1 does not declare; check it",
+         "assumed"),
+    "spec.instrumentation.attributes": ("v2 instrumentation has no attribute list", "dropped"),
     "spec.dependencies[*].critical":
-        "v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
-    "spec.dependencies[*].manifest": "v2 resolves dependencies through the catalogue (AUTHORING §7.5)",
-    "spec.ownership.email": "no v2 field or AUTHORING §7.2 annotation key",
-    "spec.ownership.pagerduty.escalation_policy_id": "no AUTHORING §7.2 annotation key",
-    "spec.notifications": _NO_V2,
-    "spec.observability.metrics": "v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)",
-    "spec.observability.dashboards": _NO_V2,
-    "spec.observability.alerts": _NO_V2,
-    "spec.observability.tracing": _NO_V2,
-    "spec.deployment": _NO_V2,
+        ("v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
+         "dropped"),
+    "spec.dependencies[*].manifest":
+        ("v2 resolves dependencies through the catalogue (AUTHORING §7.5)", "dropped"),
+    "spec.ownership.email": ("no v2 field or AUTHORING §7.2 annotation key", "dropped"),
+    "spec.ownership.pagerduty.escalation_policy_id": ("no AUTHORING §7.2 annotation key", "dropped"),
+    "spec.notifications": (_NO_V2, "dropped"),
+    "spec.observability.metrics":
+        ("v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)", "dropped"),
+    "spec.observability.dashboards": (_NO_V2, "dropped"),
+    "spec.observability.alerts": (_NO_V2, "dropped"),
+    "spec.observability.tracing": (_NO_V2, "dropped"),
+    "spec.deployment": (_NO_V2, "dropped"),
 }
 
 
@@ -110,12 +120,52 @@ def test_every_expected_path_has_a_reason_and_every_reason_is_used():
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))
-def test_example_unmapped_reasons_are_the_specific_ones(name):
+def test_example_unmapped_reasons_and_kinds_are_the_specific_ones(name):
     service_type, _ = EXPECTED[name]
     doc = yaml.safe_load((EXAMPLES / name).read_text())
     r = convert_opensrm_v1_to_v2(doc, service_type=service_type)
-    got = [(f.path, f.reason) for f in r.unmapped]
+    got = [(f.path, (f.reason, f.kind)) for f in r.unmapped]
     assert got == [(path, REASONS[_generic(path)]) for path, _ in got]
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_example_is_lossy_exactly_when_an_expected_path_is_dropped(name):
+    service_type, unmapped = EXPECTED[name]
+    doc = yaml.safe_load((EXAMPLES / name).read_text())
+    r = convert_opensrm_v1_to_v2(doc, service_type=service_type)
+    assert r.lossy is any(REASONS[_generic(p)][1] == "dropped" for p in unmapped)
+    assert r.lossy is True  # every spec example drops something
+
+
+def _ai_gate_calibration_only() -> dict:
+    """ai-gate-full.yaml cut down to its envelope and spec.slos.judgment.calibration:
+    the shape is the spec example's, not one the converter was written against."""
+    full = yaml.safe_load((EXAMPLES / "ai-gate-full.yaml").read_text())
+    return {
+        "apiVersion": full["apiVersion"], "kind": full["kind"], "metadata": full["metadata"],
+        "spec": {"type": full["spec"]["type"],
+                 "slos": {"judgment": {"calibration": full["spec"]["slos"]["judgment"]["calibration"]}}},
+    }
+
+
+def test_calibration_only_document_is_not_lossy():
+    r = convert_opensrm_v1_to_v2(_ai_gate_calibration_only())
+    assert [(f.path, f.kind) for f in r.unmapped] == [("spec.slos.judgment.calibration", "assumed")]
+    assert r.lossy is False
+
+
+def test_any_dropped_field_makes_the_result_lossy():
+    # The calibration-only document plus one field ai-gate-full.yaml also
+    # declares and v2 has no home for.
+    full = yaml.safe_load((EXAMPLES / "ai-gate-full.yaml").read_text())
+    doc = _ai_gate_calibration_only()
+    doc["spec"]["slos"]["judgment"]["reversal_rate"] = full["spec"]["slos"]["judgment"]["reversal_rate"]
+    r = convert_opensrm_v1_to_v2(doc)
+    assert sorted((f.path, f.kind) for f in r.unmapped) == [
+        ("spec.slos.judgment.calibration", "assumed"),
+        ("spec.slos.judgment.reversal_rate", "dropped"),
+    ]
+    assert r.lossy is True
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))

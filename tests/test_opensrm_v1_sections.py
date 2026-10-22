@@ -9,7 +9,12 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from nthlayer_common.manifest.opensrm_v1 import _SPEC_HANDLERS, _keys, convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.opensrm_v1 import (
+    _SPEC_HANDLERS,
+    OpenSRMV1MigrationError,
+    _keys,
+    convert_opensrm_v1_to_v2,
+)
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
 V2_SCHEMA = Path(__file__).resolve().parents[2] / "opensrm" / "spec" / "v2" / "schema.json"
@@ -95,14 +100,14 @@ def test_ownership_becomes_owner_and_annotations():
 
 
 def test_ownership_team_must_agree_with_metadata_team():
-    with pytest.raises(ValueError, match="ownership.team"):
+    with pytest.raises(OpenSRMV1MigrationError, match="ownership.team"):
         convert_opensrm_v1_to_v2(_v1(ownership={"team": "billing"}))
 
 
 def test_an_annotation_collision_raises():
     d = _v1(ownership={"team": "payments", "slack": "#new"})
     d["metadata"]["annotations"] = {"slack.com/channel": "#old"}
-    with pytest.raises(ValueError, match="slack.com/channel"):
+    with pytest.raises(OpenSRMV1MigrationError, match="slack.com/channel"):
         convert_opensrm_v1_to_v2(d)
 
 
@@ -123,7 +128,7 @@ def test_instrumentation_events_become_required_events():
 
 
 def test_instrumentation_event_value_must_be_a_string():
-    with pytest.raises(ValueError, match=r"spec\.instrumentation\.events\.decision"):
+    with pytest.raises(OpenSRMV1MigrationError, match=r"spec\.instrumentation\.events\.decision"):
         convert_opensrm_v1_to_v2(_v1(instrumentation={"events": {"decision": {}}}))
 
 
@@ -136,7 +141,7 @@ def test_instrumentation_unknown_event_key_is_reported():
 
 @pytest.mark.parametrize("rps", [0, 1.5, -3, True, "5"])
 def test_max_rps_below_the_schema_minimum_or_non_integer_raises(rps):
-    with pytest.raises(ValueError, match=r"spec\.contract\.throughput\.max_rps"):
+    with pytest.raises(OpenSRMV1MigrationError, match=r"spec\.contract\.throughput\.max_rps"):
         convert_opensrm_v1_to_v2(_v1(contract={"throughput": {"max_rps": rps}}))
 
 
@@ -146,13 +151,13 @@ def test_max_rps_of_one_converts():
 
 
 def test_dependency_type_outside_the_enum_raises():
-    with pytest.raises(ValueError, match=r"spec\.dependencies\[0\]\.type"):
+    with pytest.raises(OpenSRMV1MigrationError, match=r"spec\.dependencies\[0\]\.type"):
         convert_opensrm_v1_to_v2(_v1(dependencies=[{"service": "db", "type": "mainframe"}]))
 
 
 @pytest.mark.parametrize("name", ["", "-lead", "has space", 7, None])
 def test_dependency_service_name_must_be_usable_in_a_ref(name):
-    with pytest.raises(ValueError, match=r"spec\.dependencies\[0\]\.service"):
+    with pytest.raises(OpenSRMV1MigrationError, match=r"spec\.dependencies\[0\]\.service"):
         convert_opensrm_v1_to_v2(_v1(dependencies=[{"service": name}]))
 
 
