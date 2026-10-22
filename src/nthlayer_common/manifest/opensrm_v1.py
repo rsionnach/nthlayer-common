@@ -20,11 +20,17 @@ from typing import Any
 
 from nthlayer_common.manifest.models import (
     VALID_TIERS,
+    JudgmentThreshold,
+    ThresholdMeasurement,
     resolve_service_type,
     valid_service_types_phrase,
 )
 from nthlayer_common.manifest.openslo.parser import OpenSLOParseError, _infer_openslo_type
-from nthlayer_common.manifest.thresholds import is_duration
+from nthlayer_common.manifest.thresholds import (
+    _SRM_V1_CALIBRATION_BINS,
+    is_duration,
+    threshold_to_v2_entry,
+)
 
 OPENSRM_V1_API_VERSION = "opensrm/v1"
 _V1_KIND = "ServiceReliabilityManifest"
@@ -360,8 +366,65 @@ def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         out["slo"] = docs
 
 
+_JUDGMENT_SLO_WHY = (
+    "judgment_slo is new capability, not migration (AUTHORING §7.7 step 8), and no "
+    "v2 judgment-SLO shape passes both the schema and common's parser (opensrm-a742)"
+)
+_SECTIONS["JudgmentSLOs"] = (
+    frozenset({"calibration", "feedback_latency"}),
+    {"reversal_rate": _JUDGMENT_SLO_WHY, "high_confidence_failure": _JUDGMENT_SLO_WHY},
+)
+_SECTIONS["FlatCalibrationSLO"] = (frozenset({"target", "window"}), {})
+_SECTIONS["FeedbackLatencySLO"] = (frozenset({"p50", "p90"}), {})
+
+
+def _report_extra_keys(path: str, cfg: dict[str, Any], defn: str, ctx: _Ctx) -> None:
+    converted, unmapped = _SECTIONS[defn]
+    for extra in cfg:
+        if extra in unmapped:
+            ctx.skip(f"{path}.{extra}", unmapped[extra])
+        elif extra not in converted:
+            ctx.skip(f"{path}.{extra}", _NOT_IN_SCHEMA)
+
+
 def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
-    ctx.skip("spec.slos.judgment", "not yet converted")   # Task 5
+    judgment = _mapping("spec.slos.judgment", value)
+    if out["service"]["type"] != "ai-gate":
+        ctx.skip("spec.slos.judgment",
+                 "v2 allows judgment blocks only on spec.service.type ai-gate (AUTHORING §3.1)")
+        return
+    converted, unmapped = _SECTIONS["JudgmentSLOs"]
+    entries: list[dict[str, Any]] = []
+    for key, cfg in judgment.items():
+        path = f"spec.slos.judgment.{key}"
+        if key in unmapped:
+            ctx.skip(path, unmapped[key])
+        elif key not in converted:
+            ctx.skip(path, _NOT_IN_SCHEMA)
+        elif key == "calibration":
+            cfg = _mapping(path, cfg)
+            threshold = JudgmentThreshold(
+                type="calibration",
+                bounds={"maximum_expected_calibration_error": _ratio(f"{path}.target", cfg.get("target"))},
+                measurement=ThresholdMeasurement(
+                    window=_duration(f"{path}.window", cfg.get("window")),
+                    bins=_SRM_V1_CALIBRATION_BINS,
+                ),
+            )
+            entries.append(threshold_to_v2_entry(threshold))
+            ctx.skip(path, f"converted with measurement.bins: {_SRM_V1_CALIBRATION_BINS}, "
+                           "a value opensrm/v1 does not declare; check it")
+            _report_extra_keys(path, cfg, "FlatCalibrationSLO", ctx)
+        else:  # feedback_latency
+            cfg = _mapping(path, cfg)
+            bounds = {f"maximum_{p}": _duration(f"{path}.{p}", cfg[p]) for p in ("p50", "p90") if p in cfg}
+            _report_extra_keys(path, cfg, "FeedbackLatencySLO", ctx)
+            if not bounds:
+                ctx.skip(path, "declares neither p50 nor p90, so there is no bound to convert")
+                continue
+            entries.append(threshold_to_v2_entry(JudgmentThreshold(type="feedback_latency", bounds=bounds)))
+    if entries:
+        out["judgment_threshold"] = entries
 
 
 _SPEC_HANDLERS["slos"] = _convert_slos
