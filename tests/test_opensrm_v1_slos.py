@@ -7,7 +7,7 @@ converted types) and AUTHORING.md §7.3, whose reference output
 """
 import pytest
 
-from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.opensrm_v1 import _PERCENTILE_WHY, convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
 
@@ -127,3 +127,11 @@ def test_unconvertible_reasons_are_the_specific_ones():
         r = convert_opensrm_v1_to_v2(_v1({key: {"target": 0.9}}, stype="batch"))
         (f,) = r.unmapped
         assert f.reason == _SECTIONS["SLOs"][1][key] != _NOT_IN_SCHEMA
+
+
+def test_keys_after_target_in_a_classical_slo_are_all_reported_in_order():
+    r = convert_opensrm_v1_to_v2(_v1({"latency": {"target": 0.99, "p99": "200ms", "bogus": 1}}))
+    assert [(f.path, f.reason) for f in r.unmapped] == [
+        ("spec.slos.latency.p99", _PERCENTILE_WHY),
+        ("spec.slos.latency.bogus", "not part of the opensrm/v1 schema"),
+    ]

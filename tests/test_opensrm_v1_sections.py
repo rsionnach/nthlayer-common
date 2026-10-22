@@ -5,7 +5,7 @@ contracts), §7.5 (dependencies), §7.6 (homeless blocks).
 """
 import pytest
 
-from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.opensrm_v1 import _SPEC_HANDLERS, _keys, convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
 
@@ -177,3 +177,20 @@ def test_pagerduty_and_expects_take_their_reasons_from_sections(monkeypatch, sec
         spec["ownership"] = {"team": "payments", **own}
     r = convert_opensrm_v1_to_v2(_v1(**spec))
     assert (path, "probe") in {(f.path, f.reason) for f in r.unmapped}
+
+
+# --- the open-walk guard: an abandoned _keys walk would drop reports silently ---
+
+def _abandon_with_next(value, out, ctx):
+    next(_keys("Instrumentation", "spec.instrumentation", value, ctx), None)
+
+
+def _never_iterate(value, out, ctx):
+    _keys("Instrumentation", "spec.instrumentation", value, ctx)
+
+
+@pytest.mark.parametrize("handler", [_abandon_with_next, _never_iterate])
+def test_an_abandoned_section_walk_fails_loudly(monkeypatch, handler):
+    monkeypatch.setitem(_SPEC_HANDLERS, "instrumentation", handler)
+    with pytest.raises(RuntimeError, match="section walk was not exhausted"):
+        convert_opensrm_v1_to_v2(_v1(instrumentation={"events": {"decision": "d", "reversal": "r"}, "attributes": {}}))

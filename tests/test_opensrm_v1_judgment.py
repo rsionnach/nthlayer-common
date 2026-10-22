@@ -80,3 +80,9 @@ def test_unknown_key_inside_feedback_latency_is_reported_not_dropped():
     r = convert_opensrm_v1_to_v2(_v1({"feedback_latency": {"p50": "48h", "p99": "9h"}}))
     assert [f.path for f in r.unmapped] == ["spec.slos.judgment.feedback_latency.p99"]
     assert r.manifest["spec"]["judgment_threshold"][0]["bounds"] == {"maximum_p50": "48h"}
+
+
+def test_feedback_latency_parent_report_comes_before_its_children():
+    r = convert_opensrm_v1_to_v2(_v1({"feedback_latency": {"bogus": 1}}))
+    assert [f.path for f in r.unmapped] == [
+        "spec.slos.judgment.feedback_latency", "spec.slos.judgment.feedback_latency.bogus"]

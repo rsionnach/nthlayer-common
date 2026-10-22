@@ -189,6 +189,7 @@ class _Ctx:
     service: str
     unmapped: list[UnmappedField] = field(default_factory=list)
     annotations: dict[str, str] = field(default_factory=dict)
+    open_walks: int = 0  # _keys walks started and not yet exhausted
 
     def report(self, path: str, reason: str) -> None:
         self.unmapped.append(UnmappedField(path, reason))
@@ -227,8 +228,15 @@ def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator
     Unmapped and unknown keys are reported as the walk reaches them, so a caller
     that handles each yielded key before asking for the next gets
     ``MigrationResult.unmapped`` in document order, depth-first. A caller with
-    nothing to convert must still exhaust it: ``list(_keys(...))``.
+    nothing to convert must still exhaust it: ``list(_keys(...))``. A walk that
+    is not exhausted would silently drop reports, so the conversion counts open
+    walks and refuses to return while one is left (see convert_opensrm_v1_to_v2).
     """
+    ctx.open_walks += 1  # here, not in the generator: a walk never iterated counts too
+    return _walk(section, path, value, ctx)
+
+
+def _walk(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator[str]:
     converted, unmapped = _SECTIONS[section]
     for key in value:
         if key in unmapped:
@@ -237,6 +245,7 @@ def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator
             ctx.report(f"{path}.{key}", _NOT_IN_SCHEMA)
         else:
             yield key
+    ctx.open_walks -= 1  # only on exhaustion: an abandoned walk stays counted
 
 
 def _service_type(declared: object, supplied: str | None) -> str:
@@ -325,6 +334,8 @@ def convert_opensrm_v1_to_v2(
         "metadata": out_metadata,
         "spec": out_spec,
     }
+    if ctx.open_walks:
+        raise RuntimeError("internal: a section walk was not exhausted; fields may have been dropped")
     return MigrationResult(manifest=manifest, unmapped=tuple(ctx.unmapped))
 
 
@@ -450,9 +461,10 @@ def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         else:  # feedback_latency
             cfg = _mapping(path, cfg)
             bounds = {f"maximum_{p}": _duration(f"{path}.{p}", cfg[p]) for p in ("p50", "p90") if p in cfg}
-            list(_keys("FeedbackLatencySLO", path, cfg, ctx))
             if not bounds:
                 ctx.report(path, "declares neither p50 nor p90, so there is no bound to convert")
+            list(_keys("FeedbackLatencySLO", path, cfg, ctx))
+            if not bounds:
                 continue
             entries.append(threshold_to_v2_entry(JudgmentThreshold(type="feedback_latency", bounds=bounds)))
     if entries:
@@ -565,7 +577,6 @@ def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> N
             required.append({"type": events[key]})
         if required:
             out["instrumentation"] = {"required_events": required}
-
 
 
 _SPEC_HANDLERS: dict[str, Callable[[object, dict[str, Any], _Ctx], None]] = {
