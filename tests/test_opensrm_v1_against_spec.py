@@ -81,8 +81,13 @@ def test_load_manifest_rejects_every_example(name):
 def test_api_full_matches_the_spec_reference_on_mapped_fields():
     """Excluded (the reference author's decisions or inventions, or unmapped by
     §4): fallback, api_ref, technical_contact, the backstage.io/component-ref
-    annotation, metadata.namespace, instrumentation, displayName wording, and
-    the throughput SLO."""
+    annotation, metadata.namespace, instrumentation, and the throughput SLO.
+
+    SLO documents are compared whole except for two keys:
+    ``objectives[].displayName`` (wording) and ``spec.timeWindow``. The
+    reference omits timeWindow, which is a defect in the spec's reference file:
+    its 7d error-rate SLO would parse as the parser's 30d default. timeWindow is
+    pinned separately in test_opensrm_v1_slos.py."""
     got = convert_opensrm_v1_to_v2(yaml.safe_load((EXAMPLES / "api-full.yaml").read_text()),
                                    service_type="api").manifest
     ref = yaml.safe_load(REFERENCE.read_text())
@@ -95,10 +100,15 @@ def test_api_full_matches_the_spec_reference_on_mapped_fields():
            {k: ref["spec"]["owner"][k] for k in ("group", "escalation")}
     assert got["spec"]["service"] == ref["spec"]["service"]
 
-    def targets(slos):
-        return {d["metadata"]["name"]: d["spec"]["objectives"][0]["target"]
+    def slo_docs(slos):
+        def comparable(d):
+            spec = {k: v for k, v in d["spec"].items() if k != "timeWindow"}
+            spec["objectives"] = [{k: v for k, v in o.items() if k != "displayName"}
+                                  for o in spec["objectives"]]
+            return {**d, "spec": spec}
+        return {d["metadata"]["name"]: comparable(d)
                 for d in slos if not d["metadata"]["name"].endswith("throughput")}
-    assert targets(got["spec"]["slo"]) == targets(ref["spec"]["slo"])
+    assert slo_docs(got["spec"]["slo"]) == slo_docs(ref["spec"]["slo"])
     (c,) = got["spec"]["contracts"]
     (rc,) = ref["spec"]["contracts"]
     assert (c["name"], c["promise"], c["contract_owner"]) == (rc["name"], rc["promise"], rc["contract_owner"])
