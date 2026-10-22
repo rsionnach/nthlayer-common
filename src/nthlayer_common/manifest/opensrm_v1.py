@@ -436,7 +436,7 @@ _SECTIONS["Observability"] = (frozenset(), {
     "tracing": "no v2 equivalent (AUTHORING §7.6)"})
 _SECTIONS["Instrumentation"] = (frozenset({"events"}), {"attributes": "v2 instrumentation has no attribute list"})
 # spec/v1/schema.json Instrumentation.events: each key maps to an event-name string.
-_SECTIONS["InstrumentationEvents"] = (frozenset({"decision", "reversal", "outcome", "audit_result"}), {})
+_SECTIONS["Instrumentation.events"] = (frozenset({"decision", "reversal", "outcome", "audit_result"}), {})
 
 _RESOURCE_TYPES = ("database", "cache", "queue")
 _OWNERSHIP_ANNOTATIONS = {   # AUTHORING §7.2
@@ -482,8 +482,8 @@ def _convert_contract(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             throughput = _mapping("spec.contract.throughput", contract[key])
             if "max_rps" in _keys("ContractThroughput", "spec.contract.throughput", throughput, ctx):
                 rps = throughput["max_rps"]
-                if isinstance(rps, bool) or not isinstance(rps, int) or rps < 0:
-                    raise ValueError(f"spec.contract.throughput.max_rps must be a non-negative integer, got {rps!r}")
+                if isinstance(rps, bool) or not isinstance(rps, int) or rps < 1:
+                    raise ValueError(f"spec.contract.throughput.max_rps must be an integer >= 1, got {rps!r}")
                 promise["throughput"] = f"{rps}rps"
     if promise:
         out["contracts"] = [{"name": ctx.service, "promise": promise,
@@ -561,7 +561,7 @@ def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> N
         path = "spec.instrumentation.events"
         events = _mapping(path, inst["events"])
         required = []
-        for key in _keys("InstrumentationEvents", path, events, ctx):
+        for key in _keys("Instrumentation.events", path, events, ctx):
             if not isinstance(events[key], str):
                 raise ValueError(f"{path}.{key} must be an event-name string, got {events[key]!r}")
             required.append({"type": events[key]})

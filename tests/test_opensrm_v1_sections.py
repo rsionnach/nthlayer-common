@@ -118,3 +118,25 @@ def test_instrumentation_unknown_event_key_is_reported():
         "events": {"decision": "d", "bogus": "b"}}))
     assert r.manifest["spec"]["instrumentation"] == {"required_events": [{"type": "d"}]}
     assert _paths(r) == ["spec.instrumentation.events.bogus"]
+
+
+@pytest.mark.parametrize("rps", [0, 1.5, -3, True, "5"])
+def test_max_rps_below_the_schema_minimum_or_non_integer_raises(rps):
+    with pytest.raises(ValueError, match=r"spec\.contract\.throughput\.max_rps"):
+        convert_opensrm_v1_to_v2(_v1(contract={"throughput": {"max_rps": rps}}))
+
+
+def test_max_rps_of_one_converts():
+    r = convert_opensrm_v1_to_v2(_v1(contract={"throughput": {"max_rps": 1}}))
+    assert r.manifest["spec"]["contracts"][0]["promise"] == {"throughput": "1rps"}
+
+
+def test_dependency_type_outside_the_enum_raises():
+    with pytest.raises(ValueError, match=r"spec\.dependencies\[0\]\.type"):
+        convert_opensrm_v1_to_v2(_v1(dependencies=[{"service": "db", "type": "mainframe"}]))
+
+
+@pytest.mark.parametrize("name", ["", "-lead", "has space", 7, None])
+def test_dependency_service_name_must_be_usable_in_a_ref(name):
+    with pytest.raises(ValueError, match=r"spec\.dependencies\[0\]\.service"):
+        convert_opensrm_v1_to_v2(_v1(dependencies=[{"service": name}]))
