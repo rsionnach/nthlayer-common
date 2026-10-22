@@ -1,0 +1,120 @@
+"""opensrm/v1 contract / dependencies / ownership / observability /
+instrumentation (opensrm-pnmv). Shapes: spec/v1/schema.json; mapping:
+AUTHORING.md §7.2 (ownership → owner + annotations), §7.4 (contract →
+contracts), §7.5 (dependencies), §7.6 (homeless blocks).
+"""
+import pytest
+
+from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
+
+
+def _v1(**spec) -> dict:
+    return {"apiVersion": "opensrm/v1", "kind": "ServiceReliabilityManifest",
+            "metadata": {"name": "payment-api", "team": "payments", "tier": "critical"},
+            "spec": {"type": "api", **spec}}
+
+
+def _paths(r):
+    return sorted(f.path for f in r.unmapped)
+
+
+def test_contract_becomes_contracts():
+    r = convert_opensrm_v1_to_v2(_v1(contract={
+        "availability": 0.9995, "latency": {"p99": "300ms"}, "throughput": {"max_rps": 5000}}))
+    assert r.manifest["spec"]["contracts"] == [{
+        "name": "payment-api",
+        "promise": {"availability": 0.9995, "latency_p99": "300ms", "throughput": "5000rps"},
+        "contract_owner": "group:default/payments",
+    }]
+    assert r.unmapped == ()
+    parse_opensrm_v2(r.manifest)
+
+
+def test_contract_fields_with_no_promise_slot_are_reported():
+    r = convert_opensrm_v1_to_v2(_v1(contract={
+        "latency": {"p50": "50ms", "p999": "1s"}, "throughput": {"burst": 100},
+        "judgment": {"max_reversal_rate": 0.05}}))
+    assert "contracts" not in r.manifest["spec"]
+    assert _paths(r) == sorted(["spec.contract.latency.p50", "spec.contract.latency.p999", "spec.contract.throughput.burst", "spec.contract.judgment"])
+
+
+@pytest.mark.parametrize("dtype, ref", [
+    ("database", "resource:default/postgresql"), ("cache", "resource:default/postgresql"),
+    ("queue", "resource:default/postgresql"), ("external", "component:external/postgresql"),
+    ("service", "component:default/postgresql"), (None, "component:default/postgresql"),
+])
+def test_dependency_ref_kind_follows_the_v1_type(dtype, ref):
+    dep = {"service": "postgresql", "expects": {"availability": 0.9995, "latency": {"p99": "20ms"}}}
+    if dtype:
+        dep["type"] = dtype
+    r = convert_opensrm_v1_to_v2(_v1(dependencies=[dep]))
+    assert r.manifest["spec"]["dependencies"] == [
+        {"service": ref, "expected_availability": 0.9995, "expected_latency_p99": "20ms"}]
+    parse_opensrm_v2(r.manifest)
+
+
+def test_dependency_critical_and_manifest_are_reported():
+    r = convert_opensrm_v1_to_v2(_v1(dependencies=[
+        {"service": "user-service", "type": "service", "critical": True,
+         "manifest": "https://example.com/user-service.yaml"}]))
+    assert _paths(r) == sorted(["spec.dependencies[0].critical", "spec.dependencies[0].manifest"])
+
+
+def test_ownership_becomes_owner_and_annotations():
+    r = convert_opensrm_v1_to_v2(_v1(ownership={
+        "team": "payments", "slack": "#payments-team", "email": "p@example.com",
+        "escalation": "payments-oncall", "runbook": "https://wiki/rb", "documentation": "https://docs",
+        "pagerduty": {"service_id": "PXXXXXX", "escalation_policy_id": "PYYY"},
+        "oncall_required": True}))
+    m = r.manifest
+    assert m["spec"]["owner"] == {"group": "group:default/payments",
+                                  "escalation": "group:default/payments-oncall"}
+    assert m["metadata"]["annotations"] == {
+        "slack.com/channel": "#payments-team",
+        "opensrm.nthlayer.io/runbook": "https://wiki/rb",
+        "opensrm.nthlayer.io/documentation": "https://docs",
+        "pagerduty.com/service-id": "PXXXXXX",
+    }
+    assert _paths(r) == sorted(["spec.ownership.email", "spec.ownership.pagerduty.escalation_policy_id", "spec.ownership.oncall_required"])
+    parse_opensrm_v2(m)
+
+
+def test_ownership_team_must_agree_with_metadata_team():
+    with pytest.raises(ValueError, match="ownership.team"):
+        convert_opensrm_v1_to_v2(_v1(ownership={"team": "billing"}))
+
+
+def test_an_annotation_collision_raises():
+    d = _v1(ownership={"team": "payments", "slack": "#new"})
+    d["metadata"]["annotations"] = {"slack.com/channel": "#old"}
+    with pytest.raises(ValueError, match="slack.com/channel"):
+        convert_opensrm_v1_to_v2(d)
+
+
+def test_observability_notifications_and_deployment_are_reported():
+    r = convert_opensrm_v1_to_v2(_v1(
+        observability={"metrics": {"required": ["x"]}, "dashboards": {"required": True},
+                       "alerts": {"required": True}, "tracing": {"required": True}},
+        notifications={"slack": {"channel": "#x"}}, deployment={"gates": {}}))
+    assert _paths(r) == sorted(["spec.observability.metrics", "spec.observability.dashboards", "spec.observability.alerts", "spec.observability.tracing", "spec.notifications", "spec.deployment"])
+
+
+def test_instrumentation_events_become_required_events():
+    r = convert_opensrm_v1_to_v2(_v1(instrumentation={
+        "events": {"decision": "pr_review.decision", "reversal": "pr_review.reversal"}, "attributes": {"decision_id": "string"}}))
+    assert r.manifest["spec"]["instrumentation"] == {
+        "required_events": [{"type": "pr_review.decision"}, {"type": "pr_review.reversal"}]}
+    assert _paths(r) == sorted(["spec.instrumentation.attributes"])
+
+
+def test_instrumentation_event_value_must_be_a_string():
+    with pytest.raises(ValueError, match=r"spec\.instrumentation\.events\.decision"):
+        convert_opensrm_v1_to_v2(_v1(instrumentation={"events": {"decision": {}}}))
+
+
+def test_instrumentation_unknown_event_key_is_reported():
+    r = convert_opensrm_v1_to_v2(_v1(instrumentation={
+        "events": {"decision": "d", "bogus": "b"}}))
+    assert r.manifest["spec"]["instrumentation"] == {"required_events": [{"type": "d"}]}
+    assert _paths(r) == ["spec.instrumentation.events.bogus"]

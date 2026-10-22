@@ -221,17 +221,7 @@ def _convert_spec(spec: dict[str, Any], out: dict[str, Any], ctx: _Ctx) -> None:
             _SPEC_HANDLERS[key](value, out, ctx)
 
 
-def _not_yet(key: str) -> Callable[[object, dict[str, Any], _Ctx], None]:
-    def handler(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
-        ctx.skip(f"spec.{key}", "not yet converted")
-    return handler
-
-
-# Tasks 4-6 replace each stub with the real handler.
-_SPEC_HANDLERS = {
-    key: _not_yet(key)
-    for key in ("slos", "contract", "dependencies", "ownership", "observability", "instrumentation")
-}
+_SPEC_HANDLERS: dict[str, Callable[[object, dict[str, Any], _Ctx], None]] = {}
 
 
 # v1 classical SLO key → the slo_type common's OpenSLO parser must infer.
@@ -427,4 +417,159 @@ def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         out["judgment_threshold"] = entries
 
 
-_SPEC_HANDLERS["slos"] = _convert_slos
+_SECTIONS["Contract"] = (frozenset({"availability", "latency", "throughput"}),
+                         {"judgment": "v2 contracts[].promise has availability, latency_p99 and throughput only (AUTHORING §7.4)"})
+_SECTIONS["ContractLatency"] = (frozenset({"p99"}), dict.fromkeys(
+    ("p50", "p999"), "v2 contracts[].promise has latency_p99 only (AUTHORING §7.4)"))
+_SECTIONS["ContractThroughput"] = (frozenset({"max_rps"}),
+                                   {"burst": "v2 contracts[].promise.throughput is a single rate (AUTHORING §7.4)"})
+_SECTIONS["Dependency"] = (frozenset({"service", "type", "expects"}), {
+    "critical": "v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
+    "manifest": "v2 resolves dependencies through the catalogue (AUTHORING §7.5)"})
+_SECTIONS["Ownership"] = (frozenset({"team", "slack", "escalation", "pagerduty", "runbook", "documentation"}), {
+    "email": "no v2 field or AUTHORING §7.2 annotation key",
+    "oncall_required": "no v2 field"})
+_SECTIONS["Observability"] = (frozenset(), {
+    "metrics": "v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)",
+    "dashboards": "no v2 equivalent (AUTHORING §7.6)",
+    "alerts": "no v2 equivalent (AUTHORING §7.6)",
+    "tracing": "no v2 equivalent (AUTHORING §7.6)"})
+_SECTIONS["Instrumentation"] = (frozenset({"events"}), {"attributes": "v2 instrumentation has no attribute list"})
+# spec/v1/schema.json Instrumentation.events: each key maps to an event-name string.
+_SECTIONS["InstrumentationEvents"] = (frozenset({"decision", "reversal", "outcome", "audit_result"}), {})
+
+_RESOURCE_TYPES = ("database", "cache", "queue")
+_OWNERSHIP_ANNOTATIONS = {   # AUTHORING §7.2
+    "slack": "slack.com/channel",
+    "runbook": "opensrm.nthlayer.io/runbook",
+    "documentation": "opensrm.nthlayer.io/documentation",
+}
+
+
+def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> list[str]:
+    """Report the unmapped and unknown keys of *value*; return the converted ones, in order."""
+    converted, unmapped = _SECTIONS[section]
+    keep = []
+    for key in value:
+        if key in unmapped:
+            ctx.skip(f"{path}.{key}", unmapped[key])
+        elif key not in converted:
+            ctx.skip(f"{path}.{key}", _NOT_IN_SCHEMA)
+        else:
+            keep.append(key)
+    return keep
+
+
+def _annotate(ctx: _Ctx, key: str, value: object, path: str) -> None:
+    if not isinstance(value, str):
+        raise ValueError(f"{path} must be a string, got {value!r}")
+    if ctx.annotations.get(key, value) != value:
+        raise ValueError(f"{path} would set annotation {key} to {value!r}, but metadata.annotations has {ctx.annotations[key]!r}")
+    ctx.annotations[key] = value
+
+
+def _convert_contract(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    contract = _mapping("spec.contract", value)
+    promise: dict[str, Any] = {}
+    for key in _keys("Contract", "spec.contract", contract, ctx):
+        if key == "availability":
+            promise["availability"] = _ratio("spec.contract.availability", contract[key])
+        elif key == "latency":
+            latency = _mapping("spec.contract.latency", contract[key])
+            if "p99" in _keys("ContractLatency", "spec.contract.latency", latency, ctx):
+                promise["latency_p99"] = _duration("spec.contract.latency.p99", latency["p99"])
+        else:  # throughput
+            throughput = _mapping("spec.contract.throughput", contract[key])
+            if "max_rps" in _keys("ContractThroughput", "spec.contract.throughput", throughput, ctx):
+                rps = throughput["max_rps"]
+                if isinstance(rps, bool) or not isinstance(rps, int) or rps < 0:
+                    raise ValueError(f"spec.contract.throughput.max_rps must be a non-negative integer, got {rps!r}")
+                promise["throughput"] = f"{rps}rps"
+    if promise:
+        out["contracts"] = [{"name": ctx.service, "promise": promise,
+                             "contract_owner": out["owner"]["group"]}]
+
+
+def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    if not isinstance(value, list):
+        raise ValueError(f"spec.dependencies must be a list, got {type(value).__name__}")
+    deps = []
+    for i, raw in enumerate(value):
+        path = f"spec.dependencies[{i}]"
+        dep = _mapping(path, raw)
+        keys = _keys("Dependency", path, dep, ctx)
+        name = _entity_name(f"{path}.service", dep.get("service"))
+        dtype = dep.get("type", "service")
+        if dtype in _RESOURCE_TYPES:
+            ref = f"resource:default/{name}"
+        elif dtype == "external":
+            ref = f"component:external/{name}"
+        elif dtype == "service":
+            ref = f"component:default/{name}"
+        else:
+            raise ValueError(f"{path}.type must be one of service, database, cache, queue, external; got {dtype!r}")
+        entry: dict[str, Any] = {"service": ref}
+        if "expects" in keys:
+            expects = _mapping(f"{path}.expects", dep["expects"])
+            for key in expects:
+                if key == "availability":
+                    entry["expected_availability"] = _ratio(f"{path}.expects.availability", expects[key])
+                elif key == "latency":
+                    latency = _mapping(f"{path}.expects.latency", expects[key])
+                    for lk in latency:
+                        if lk == "p99":
+                            entry["expected_latency_p99"] = _duration(f"{path}.expects.latency.p99", latency[lk])
+                        else:
+                            ctx.skip(f"{path}.expects.latency.{lk}", _NOT_IN_SCHEMA)
+                else:
+                    ctx.skip(f"{path}.expects.{key}", _NOT_IN_SCHEMA)
+        deps.append(entry)
+    if deps:
+        out["dependencies"] = deps
+
+
+def _convert_ownership(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    own = _mapping("spec.ownership", value)
+    for key in _keys("Ownership", "spec.ownership", own, ctx):
+        path = f"spec.ownership.{key}"
+        if key == "team":
+            team = _entity_name(path, own[key])
+            if f"group:default/{team}" != out["owner"]["group"]:
+                raise ValueError(f"spec.ownership.team {team!r} disagrees with metadata.team ({out['owner']['group']})")
+        elif key == "escalation":
+            out["owner"]["escalation"] = f"group:default/{_entity_name(path, own[key])}"
+        elif key == "pagerduty":
+            pd = _mapping(path, own[key])
+            for pk in pd:
+                if pk == "service_id":
+                    _annotate(ctx, "pagerduty.com/service-id", pd[pk], f"{path}.service_id")
+                elif pk == "escalation_policy_id":
+                    ctx.skip(f"{path}.escalation_policy_id", "no AUTHORING §7.2 annotation key")
+                else:
+                    ctx.skip(f"{path}.{pk}", _NOT_IN_SCHEMA)
+        else:
+            _annotate(ctx, _OWNERSHIP_ANNOTATIONS[key], own[key], path)
+
+
+def _convert_observability(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    _keys("Observability", "spec.observability", _mapping("spec.observability", value), ctx)
+
+
+def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
+    inst = _mapping("spec.instrumentation", value)
+    if "events" in _keys("Instrumentation", "spec.instrumentation", inst, ctx):
+        path = "spec.instrumentation.events"
+        events = _mapping(path, inst["events"])
+        required = []
+        for key in _keys("InstrumentationEvents", path, events, ctx):
+            if not isinstance(events[key], str):
+                raise ValueError(f"{path}.{key} must be an event-name string, got {events[key]!r}")
+            required.append({"type": events[key]})
+        if required:
+            out["instrumentation"] = {"required_events": required}
+
+
+_SPEC_HANDLERS.update(
+    slos=_convert_slos, contract=_convert_contract, dependencies=_convert_dependencies, ownership=_convert_ownership,
+    observability=_convert_observability, instrumentation=_convert_instrumentation,
+)
