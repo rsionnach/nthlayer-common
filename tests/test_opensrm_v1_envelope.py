@@ -90,3 +90,43 @@ def test_supplied_type_must_agree_with_a_declared_one():
 def test_unknown_spec_keys_are_reported_not_dropped():
     r = convert_opensrm_v1_to_v2(_v1(sla={"x": 1}))
     assert r.unmapped == (UnmappedField("spec.sla", "not part of the opensrm/v1 schema"),)
+
+
+@pytest.mark.parametrize("tier", ["critical", "high", "standard", "low"])
+def test_every_schema_tier_converts(tier):
+    d = _v1()
+    d["metadata"]["tier"] = tier
+    assert convert_opensrm_v1_to_v2(d).manifest["metadata"]["labels"]["tier"] == tier
+
+
+@pytest.mark.parametrize("tier", ["tier-1", ["critical"], None, 1])
+def test_non_schema_or_non_string_tier_raises_value_error(tier):
+    d = _v1()
+    d["metadata"]["tier"] = tier
+    with pytest.raises(ValueError, match="tier"):
+        convert_opensrm_v1_to_v2(d)
+
+
+def test_non_string_description_raises():
+    d = _v1()
+    d["metadata"]["description"] = 5
+    with pytest.raises(ValueError, match="metadata.description"):
+        convert_opensrm_v1_to_v2(d)
+
+
+def test_non_mapping_document_raises_value_error():
+    with pytest.raises(ValueError, match="opensrm/v1"):
+        convert_opensrm_v1_to_v2([])  # type: ignore[arg-type]
+
+
+def test_unknown_metadata_key_is_reported():
+    d = _v1()
+    d["metadata"]["owner"] = "x"
+    r = convert_opensrm_v1_to_v2(d)
+    assert r.unmapped == (UnmappedField("metadata.owner", "not part of the opensrm/v1 schema"),)
+
+
+@pytest.mark.parametrize("key", ["notifications", "deployment"])
+def test_unmapped_spec_sections_carry_their_reason(key):
+    r = convert_opensrm_v1_to_v2(_v1(**{key: {"x": 1}}))
+    assert r.unmapped == (UnmappedField(f"spec.{key}", "no v2 equivalent (AUTHORING §7.6)"),)

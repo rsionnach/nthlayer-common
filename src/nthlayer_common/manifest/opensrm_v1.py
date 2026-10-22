@@ -14,11 +14,15 @@ nthlayer front door.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from nthlayer_common.manifest.models import resolve_service_type, valid_service_types_phrase
-from nthlayer_common.tiers import VALID_TIERS
+from nthlayer_common.manifest.models import (
+    VALID_TIERS,
+    resolve_service_type,
+    valid_service_types_phrase,
+)
 
 OPENSRM_V1_API_VERSION = "opensrm/v1"
 _V1_KIND = "ServiceReliabilityManifest"
@@ -138,7 +142,8 @@ def convert_opensrm_v1_to_v2(
     ``unmapped``, never raised and never dropped.
     """
     if not is_opensrm_v1_format(data):
-        raise ValueError(f"expects apiVersion {OPENSRM_V1_API_VERSION!r}, got {data.get('apiVersion')!r}")
+        got = data.get("apiVersion") if isinstance(data, dict) else type(data).__name__
+        raise ValueError(f"expects apiVersion {OPENSRM_V1_API_VERSION!r}, got {got!r}")
     if data.get("kind") != _V1_KIND:
         raise ValueError(
             f"only kind {_V1_KIND!r} converts, got {data.get('kind')!r} "
@@ -155,7 +160,7 @@ def convert_opensrm_v1_to_v2(
     ctx = _Ctx(service=name)
 
     tier = metadata.get("tier")
-    if tier not in VALID_TIERS:
+    if not isinstance(tier, str) or tier not in VALID_TIERS:
         raise ValueError(f"metadata.tier must be one of {sorted(VALID_TIERS)}, got {tier!r}")
     labels = _string_map("metadata.labels", metadata.get("labels", {}))
     if labels.get("tier", tier) != tier:
@@ -174,6 +179,10 @@ def convert_opensrm_v1_to_v2(
     team = _entity_name("metadata.team", metadata.get("team"))
     service: dict[str, Any] = {"name": name, "type": _service_type(spec.get("type"), service_type)}
     if "description" in metadata:
+        if not isinstance(metadata["description"], str):
+            raise ValueError(
+                f"metadata.description must be a string, got {type(metadata['description']).__name__}"
+            )
         service["description"] = metadata["description"]
 
     out_spec: dict[str, Any] = {"owner": {"group": f"group:default/{team}"}, "service": service}
@@ -204,7 +213,7 @@ def _convert_spec(spec: dict[str, Any], out: dict[str, Any], ctx: _Ctx) -> None:
             _SPEC_HANDLERS[key](value, out, ctx)
 
 
-def _not_yet(key: str):
+def _not_yet(key: str) -> Callable[[object, dict[str, Any], _Ctx], None]:
     def handler(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         ctx.skip(f"spec.{key}", "not yet converted")
     return handler
