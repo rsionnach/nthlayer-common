@@ -7,8 +7,11 @@ converted types) and AUTHORING.md §7.3, whose reference output
 """
 import pytest
 
-from nthlayer_common.manifest.opensrm_v1 import _PERCENTILE_WHY, convert_opensrm_v1_to_v2
+from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
+
+_PERCENTILE_WHY = ("kept only in the OpenSLO displayName: an objective without an "
+                   "indicator carries no machine-readable percentile")
 
 
 def _v1(slos: dict, name: str = "payment-api", stype: str = "api") -> dict:
@@ -68,7 +71,7 @@ def test_other_converted_types_parse_as_intended(key, expected_type):
     ("throughput", {"target": 1000, "unit": "rps"}),
     ("success_rate", {"target": 0.995}),
     ("processing_time", {"target": 0.95, "p95": "5m"}),
-    ("lag", {"target": 0.99, "max": "1m"}),
+    ("lag", {"max_seconds": 60, "target": 0.99}),
     ("schedule_adherence", {"max_delay": "10m"}),
     ("data_freshness", {"max_age": "2h"}),
     ("replication_lag", {"max_lag": "1s"}),
@@ -107,10 +110,10 @@ def test_openslo_must_be_a_list(value):
 
 
 def test_openslo_item_extra_keys_are_reported():
-    from nthlayer_common.manifest.opensrm_v1 import _NOT_IN_SCHEMA
     r = convert_opensrm_v1_to_v2(_v1({"openslo": [{"path": "a.yaml", "inline": 1}]}))
     assert r.manifest["spec"]["slo"] == [{"$ref": "a.yaml"}]
-    assert [(f.path, f.reason) for f in r.unmapped] == [("spec.slos.openslo[0].inline", _NOT_IN_SCHEMA)]
+    assert [(f.path, f.reason) for f in r.unmapped] == [
+        ("spec.slos.openslo[0].inline", "not part of the opensrm/v1 schema")]
 
 
 @pytest.mark.parametrize("name", ["rps-svc", "latency-svc"])
@@ -119,14 +122,28 @@ def test_other_type_hint_words_in_service_name_raise(name):
         convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.999}}, name=name))
 
 
-def test_unconvertible_reasons_are_the_specific_ones():
-    from nthlayer_common.manifest.opensrm_v1 import _NOT_IN_SCHEMA, _SECTIONS
-    for key in _SECTIONS["SLOs"][1]:
-        if key == "custom":
-            continue
-        r = convert_opensrm_v1_to_v2(_v1({key: {"target": 0.9}}, stype="batch"))
-        (f,) = r.unmapped
-        assert f.reason == _SECTIONS["SLOs"][1][key] != _NOT_IN_SCHEMA
+# Literal reasons, checked against the pnmv design §4 table. Each fixture is
+# shaped by its v1 schema definition: ThroughputSLO {target, unit},
+# SuccessRateSLO {target}, ProcessingTimeSLO {target, p50|p90|p95|p99},
+# LagSLO {max_seconds, target}, ScheduleAdherenceSLO {max_delay},
+# DataFreshnessSLO {max_age}, ReplicationLagSLO {max_lag}, custom [{name, target}].
+@pytest.mark.parametrize("key, cfg, reason", [
+    ("throughput", {"target": 1000, "unit": "rps"},
+     "v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)"),
+    ("success_rate", {"target": 0.995}, "NthLayer's v2 parser cannot infer this SLO's type"),
+    ("processing_time", {"target": 0.95, "p95": "5m"}, "NthLayer's v2 parser cannot infer this SLO's type"),
+    ("lag", {"max_seconds": 60, "target": 0.99}, "NthLayer's v2 parser cannot infer this SLO's type"),
+    ("schedule_adherence", {"max_delay": "10m"},
+     "maximum-only SLO (max_delay) with no target; an OpenSLO objective needs one"),
+    ("data_freshness", {"max_age": "2h"},
+     "maximum-only SLO (max_age) with no target; an OpenSLO objective needs one"),
+    ("replication_lag", {"max_lag": "1s"},
+     "maximum-only SLO (max_lag) with no target; an OpenSLO objective needs one"),
+    ("custom", [{"name": "queue-depth", "target": 100}], "custom SLOs have no v2 mapping"),
+])
+def test_unconvertible_reasons_are_the_specific_ones(key, cfg, reason):
+    r = convert_opensrm_v1_to_v2(_v1({key: cfg}, stype="batch"))
+    assert [(f.path, f.reason) for f in r.unmapped] == [(f"spec.slos.{key}", reason)]
 
 
 def test_keys_after_target_in_a_classical_slo_are_all_reported_in_order():
@@ -140,6 +157,12 @@ def test_keys_after_target_in_a_classical_slo_are_all_reported_in_order():
 def test_display_name_does_not_round_a_near_one_target_up_to_100_percent():
     r = convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.9999999}}))
     assert _slo(r, "availability")["spec"]["objectives"][0]["displayName"].startswith("99.99999% ")
+
+
+def test_error_rate_complement_is_exact_for_an_inexact_float():
+    # 1 - 0.07 is 0.9299999999999999 in binary floating point.
+    r = convert_opensrm_v1_to_v2(_v1({"error_rate": {"target": 0.07}}))
+    assert _slo(r, "error-rate")["spec"]["objectives"][0]["target"] == 0.93
 
 
 @pytest.mark.parametrize("key, target, objective", [

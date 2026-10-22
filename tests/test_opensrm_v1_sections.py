@@ -42,7 +42,13 @@ def test_contract_fields_with_no_promise_slot_are_reported():
         "latency": {"p50": "50ms", "p999": "1s"}, "throughput": {"burst": 100},
         "judgment": {"max_reversal_rate": 0.05}}))
     assert "contracts" not in r.manifest["spec"]
-    assert _paths(r) == sorted(["spec.contract.latency.p50", "spec.contract.latency.p999", "spec.contract.throughput.burst", "spec.contract.judgment"])
+    assert [(f.path, f.reason) for f in r.unmapped] == [
+        ("spec.contract.latency.p50", "v2 contracts[].promise has latency_p99 only (AUTHORING §7.4)"),
+        ("spec.contract.latency.p999", "v2 contracts[].promise has latency_p99 only (AUTHORING §7.4)"),
+        ("spec.contract.throughput.burst", "v2 contracts[].promise.throughput is a single rate (AUTHORING §7.4)"),
+        ("spec.contract.judgment",
+         "v2 contracts[].promise has availability, latency_p99 and throughput only (AUTHORING §7.4)"),
+    ]
 
 
 @pytest.mark.parametrize("dtype, ref", [

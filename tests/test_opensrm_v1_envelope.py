@@ -81,6 +81,15 @@ def test_missing_type_needs_service_type():
     assert convert_opensrm_v1_to_v2(d, service_type="api").manifest["spec"]["service"]["type"] == "api"
 
 
+@pytest.mark.parametrize("supplied", ["worker", "batch"])
+def test_an_absent_type_is_filled_by_the_supplied_one(supplied):
+    # spec.type is optional in the v1 schema (Spec has no required list), so a
+    # schema-valid document can omit it; the supplied type is what v2 gets.
+    d = _v1()
+    del d["spec"]["type"]
+    assert convert_opensrm_v1_to_v2(d, service_type=supplied).manifest["spec"]["service"]["type"] == supplied
+
+
 def test_supplied_type_must_agree_with_a_declared_one():
     assert convert_opensrm_v1_to_v2(_v1(), service_type="api").manifest["spec"]["service"]["type"] == "api"
     with pytest.raises(ValueError, match="spec.type"):

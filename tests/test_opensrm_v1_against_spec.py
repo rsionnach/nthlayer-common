@@ -10,7 +10,7 @@ import jsonschema
 import pytest
 import yaml
 
-from nthlayer_common.manifest import ManifestLoadError, load_manifest
+from nthlayer_common.manifest import ManifestLoadError, is_manifest_file, load_manifest
 from nthlayer_common.manifest.opensrm_v1 import convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
 
@@ -54,6 +54,75 @@ EXPECTED: dict[str, tuple[str | None, list[str]]] = {
         "spec.ownership.email", "spec.ownership.pagerduty.escalation_policy_id", *_OBS, "spec.deployment"]),
 }
 
+
+# The reason each unmapped path above must carry, as literals cross-checked
+# against the pnmv design §4 table (not read from the converter's table).
+# Dependency indices are normalised to [*].
+_PCT = ("kept only in the OpenSLO displayName: an objective without an "
+        "indicator carries no machine-readable percentile")
+_JUDGMENT_SLO = ("judgment_slo is new capability, not migration (AUTHORING §7.7 step 8), and no "
+                 "v2 judgment-SLO shape passes both the schema and NthLayer's v2 parser")
+_NO_V2 = "no v2 equivalent (AUTHORING §7.6)"
+REASONS: dict[str, str] = {
+    "spec.contract.judgment":
+        "v2 contracts[].promise has availability, latency_p99 and throughput only (AUTHORING §7.4)",
+    "spec.slos.latency.p50": _PCT,
+    "spec.slos.latency.p95": _PCT,
+    "spec.slos.latency.p99": _PCT,
+    "spec.slos.duration.p95": _PCT,
+    "spec.slos.query_latency.p50": _PCT,
+    "spec.slos.query_latency.p99": _PCT,
+    "spec.slos.throughput":
+        "v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)",
+    "spec.slos.success_rate": "NthLayer's v2 parser cannot infer this SLO's type",
+    "spec.slos.schedule_adherence":
+        "maximum-only SLO (max_delay) with no target; an OpenSLO objective needs one",
+    "spec.slos.data_freshness": "maximum-only SLO (max_age) with no target; an OpenSLO objective needs one",
+    "spec.slos.replication_lag": "maximum-only SLO (max_lag) with no target; an OpenSLO objective needs one",
+    "spec.slos.judgment.reversal_rate": _JUDGMENT_SLO,
+    "spec.slos.judgment.high_confidence_failure": _JUDGMENT_SLO,
+    "spec.slos.judgment.calibration":
+        "converted with measurement.bins: 10, a value opensrm/v1 does not declare; check it",
+    "spec.instrumentation.attributes": "v2 instrumentation has no attribute list",
+    "spec.dependencies[*].critical":
+        "v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
+    "spec.dependencies[*].manifest": "v2 resolves dependencies through the catalogue (AUTHORING §7.5)",
+    "spec.ownership.email": "no v2 field or AUTHORING §7.2 annotation key",
+    "spec.ownership.pagerduty.escalation_policy_id": "no AUTHORING §7.2 annotation key",
+    "spec.notifications": _NO_V2,
+    "spec.observability.metrics": "v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)",
+    "spec.observability.dashboards": _NO_V2,
+    "spec.observability.alerts": _NO_V2,
+    "spec.observability.tracing": _NO_V2,
+    "spec.deployment": _NO_V2,
+}
+
+
+def _generic(path: str) -> str:
+    """spec.dependencies[2].critical -> spec.dependencies[*].critical (one index level)."""
+    head, bracket, rest = path.partition("[")
+    return f"{head}[*]{rest.partition(']')[2]}" if bracket else path
+
+
+def test_every_expected_path_has_a_reason_and_every_reason_is_used():
+    used = {_generic(p) for _, paths in EXPECTED.values() for p in paths}
+    assert used == set(REASONS)
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_example_unmapped_reasons_are_the_specific_ones(name):
+    service_type, _ = EXPECTED[name]
+    doc = yaml.safe_load((EXAMPLES / name).read_text())
+    r = convert_opensrm_v1_to_v2(doc, service_type=service_type)
+    got = [(f.path, f.reason) for f in r.unmapped]
+    assert got == [(path, REASONS[_generic(path)]) for path, _ in got]
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_is_manifest_file_counts_every_example(name):
+    # The example names are neither *.reliability.yaml nor service.yaml, so
+    # only the opensrm/v1 content check can count them.
+    assert is_manifest_file(EXAMPLES / name)
 
 def test_the_spec_examples_are_present():
     found = sorted(p.name for p in EXAMPLES.glob("*.yaml")

@@ -72,7 +72,12 @@ def test_unknown_judgment_key_is_reported_not_dropped():
 
 def test_unknown_key_inside_calibration_is_reported_not_dropped():
     r = convert_opensrm_v1_to_v2(_v1({"calibration": {"target": 0.1, "window": "30d", "bogus": 1}}))
-    assert "spec.slos.judgment.calibration.bogus" in [f.path for f in r.unmapped]
+    # Parents first, in document order: the bins note on calibration, then its child.
+    assert [(f.path, f.reason) for f in r.unmapped] == [
+        ("spec.slos.judgment.calibration",
+         "converted with measurement.bins: 10, a value opensrm/v1 does not declare; check it"),
+        ("spec.slos.judgment.calibration.bogus", "not part of the opensrm/v1 schema"),
+    ]
     assert r.manifest["spec"]["judgment_threshold"][0]["type"] == "calibration"
 
 
