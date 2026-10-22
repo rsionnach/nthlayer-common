@@ -193,6 +193,10 @@ def is_manifest_file(file_path: str | Path) -> bool:
             return True
         if is_srm_v1_format(data):
             return True
+        # Counts as a manifest so a scan reaches load_manifest and its
+        # migrate-manifest rejection instead of skipping the file silently.
+        if is_opensrm_v1_format(data):
+            return True
 
         if "service" in data and isinstance(data["service"], dict):
             service = data["service"]

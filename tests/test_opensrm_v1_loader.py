@@ -29,3 +29,17 @@ def test_migration_api_is_public():
     for name in ("convert_opensrm_v1_to_v2", "is_opensrm_v1_format", "MigrationResult",
                  "UnmappedField", "OPENSRM_V1_API_VERSION"):
         assert name in manifest.__all__ and hasattr(manifest, name), name
+
+
+def test_is_manifest_file_counts_opensrm_v1_so_scans_reach_the_rejection(tmp_path):
+    path = tmp_path / "svc.yaml"          # not *.reliability.yaml, not service.yaml
+    path.write_text(yaml.safe_dump(_DOC))
+    assert manifest.is_manifest_file(path)
+    with pytest.raises(ManifestLoadError, match="nthlayer migrate-manifest"):
+        load_manifest(path)
+
+
+def test_foreign_yaml_reason_does_not_treat_opensrm_v1_as_foreign(tmp_path):
+    path = tmp_path / "svc.yaml"
+    path.write_text(yaml.safe_dump(_DOC))
+    assert manifest.foreign_yaml_reason(path) is None
