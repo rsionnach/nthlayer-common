@@ -145,6 +145,8 @@ no `method`, `frequency` or `sampling`.
   service_type=None) -> MigrationResult(manifest, unmapped)` converts it to v2
   following AUTHORING §7; `unmapped` lists every field with no v2 home. v2
   `spec.dependencies[].service` now accepts `resource:` refs.
+  `is_manifest_file` now recognises `opensrm/v1` documents by content, so
+  directory scans surface them instead of skipping them.
 - Evaluators compare the rate `metric` names, per CORE §5.5.1. For `outcomes`,
   count only decisions in `measurement.window` whose `outcome_signal.window` has
   elapsed; a listed segment with none is not evaluable (CORE §5.5.6 E3).
