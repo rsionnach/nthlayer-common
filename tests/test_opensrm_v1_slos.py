@@ -98,3 +98,32 @@ def test_a_type_hint_word_in_the_service_name_raises_instead_of_mistyping():
     # "error-tracker-availability" would be typed error_rate by the parser.
     with pytest.raises(ValueError, match="error-tracker-availability"):
         convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.999}}, name="error-tracker"))
+
+
+@pytest.mark.parametrize("value", [{"path": "a.yaml"}, None, "a.yaml"])
+def test_openslo_must_be_a_list(value):
+    with pytest.raises(ValueError, match=r"spec\.slos\.openslo"):
+        convert_opensrm_v1_to_v2(_v1({"openslo": value}))
+
+
+def test_openslo_item_extra_keys_are_reported():
+    from nthlayer_common.manifest.opensrm_v1 import _NOT_IN_SCHEMA
+    r = convert_opensrm_v1_to_v2(_v1({"openslo": [{"path": "a.yaml", "inline": 1}]}))
+    assert r.manifest["spec"]["slo"] == [{"$ref": "a.yaml"}]
+    assert [(f.path, f.reason) for f in r.unmapped] == [("spec.slos.openslo[0].inline", _NOT_IN_SCHEMA)]
+
+
+@pytest.mark.parametrize("name", ["rps-svc", "latency-svc"])
+def test_other_type_hint_words_in_service_name_raise(name):
+    with pytest.raises(ValueError, match=f"{name}-availability"):
+        convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.999}}, name=name))
+
+
+def test_unconvertible_reasons_are_the_specific_ones():
+    from nthlayer_common.manifest.opensrm_v1 import _NOT_IN_SCHEMA, _SECTIONS
+    for key in _SECTIONS["SLOs"][1]:
+        if key == "custom":
+            continue
+        r = convert_opensrm_v1_to_v2(_v1({key: {"target": 0.9}}, stype="batch"))
+        (f,) = r.unmapped
+        assert f.reason == _SECTIONS["SLOs"][1][key] != _NOT_IN_SCHEMA

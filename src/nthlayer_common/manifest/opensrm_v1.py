@@ -274,7 +274,7 @@ def _ratio(path: str, value: object) -> float:
 def _duration(path: str, value: object) -> str:
     if not is_duration(value):
         raise ValueError(f"{path} must be a duration like '30d' or '200ms', got {value!r}")
-    return value
+    return str(value)
 
 
 def _pct(ratio: float) -> str:
@@ -341,8 +341,14 @@ def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         elif key not in converted:
             ctx.skip(f"spec.slos.{key}", _NOT_IN_SCHEMA)
         elif key == "openslo":
-            for i, item in enumerate(cfg if isinstance(cfg, list) else []):
-                ref = _mapping(f"spec.slos.openslo[{i}]", item).get("path")
+            if not isinstance(cfg, list):
+                raise ValueError(f"spec.slos.openslo must be a list, got {type(cfg).__name__}")
+            for i, item in enumerate(cfg):
+                item = _mapping(f"spec.slos.openslo[{i}]", item)
+                for extra in item:
+                    if extra != "path":
+                        ctx.skip(f"spec.slos.openslo[{i}].{extra}", _NOT_IN_SCHEMA)
+                ref = item.get("path")
                 if not isinstance(ref, str) or not ref:
                     raise ValueError(f"spec.slos.openslo[{i}].path must be a non-empty string")
                 docs.append({"$ref": ref})
