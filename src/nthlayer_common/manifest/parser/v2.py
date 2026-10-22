@@ -352,22 +352,24 @@ def _parse_v2_owner(owner_data: dict[str, Any]) -> Ownership | None:
     )
 
 
-def _resolve_backstage_ref(ref: str, expected_kind: str) -> str:
+def _resolve_backstage_ref(ref: str, expected_kind: str | tuple[str, ...]) -> str:
     """Extract the name from a Backstage entity reference.
 
     Format: "kind:namespace/name" or "kind:name" (default namespace).
+    *expected_kind* is one kind or a tuple of accepted kinds.
     Raises OpenSRMV2ParseError on invalid format.
     """
+    kinds = (expected_kind,) if isinstance(expected_kind, str) else expected_kind
     if ":" not in ref:
+        formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
         raise OpenSRMV2ParseError(
-            f"Invalid Backstage entity reference: '{ref}'. "
-            f"Expected format: '{expected_kind}:namespace/name'"
+            f"Invalid Backstage entity reference: '{ref}'. Expected format: {formats}"
         )
 
     kind, rest = ref.split(":", 1)
-    if kind != expected_kind:
+    if kind not in kinds:
         raise OpenSRMV2ParseError(
-            f"Expected {expected_kind} reference, got '{kind}' in '{ref}'"
+            f"Expected {' or '.join(kinds)} reference, got '{kind}' in '{ref}'"
         )
 
     if "/" in rest:
@@ -885,8 +887,10 @@ def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
         if not service_ref:
             raise OpenSRMV2ParseError("Dependency missing 'service' field")
 
-        # Extract name from Backstage entity ref
-        name = _resolve_backstage_ref(service_ref, "component")
+        # A dependency is a component (a service) or a resource (a database,
+        # cache or queue) — the spec's migration reference uses both
+        # (opensrm-pnmv).
+        name = _resolve_backstage_ref(service_ref, ("component", "resource"))
 
         # Map expected guarantees into DependencySLO
         slo = None
