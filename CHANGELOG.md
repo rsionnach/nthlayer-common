@@ -4,6 +4,37 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.3.0](https://github.com/rsionnach/nthlayer-common/compare/v5.2.0...v5.3.0) (2026-10-22)
+
+
+### Features
+
+* **manifest:** converted v1 dependencies keep their type (opensrm-pnmv) ([54aeaef](https://github.com/rsionnach/nthlayer-common/commit/54aeaef67f48f8bd78fee3a2329b2bfacb59868d))
+* **manifest:** directory scans surface opensrm/v1 files instead of skipping them (opensrm-pnmv) ([f7ab272](https://github.com/rsionnach/nthlayer-common/commit/f7ab2720575a476e007d69985afa5ece28b9acb9))
+* **manifest:** distinguish dropped from assumed migration fields (opensrm-pnmv) ([69b91cd](https://github.com/rsionnach/nthlayer-common/commit/69b91cdc84baa589f4685d17e3eae3398b5f47ba))
+* **manifest:** key inline v1 sections by schema path; max_rps follows the v1 minimum (opensrm-pnmv) ([9617215](https://github.com/rsionnach/nthlayer-common/commit/9617215e9e52de861e2e57f63a04c36704e9b21e))
+* **manifest:** load_manifest rejects opensrm/v1 and names the migrate command (opensrm-pnmv) ([243a87f](https://github.com/rsionnach/nthlayer-common/commit/243a87f27dc49ad3ad6362406a7938758c093332))
+* **manifest:** opensrm/v1 classical SLOs become OpenSLO documents (opensrm-pnmv) ([f9f434a](https://github.com/rsionnach/nthlayer-common/commit/f9f434a27c459d779bdd01829deb76c1b595fd4a))
+* **manifest:** opensrm/v1 contract, dependencies, ownership and instrumentation (opensrm-pnmv) ([d02ac89](https://github.com/rsionnach/nthlayer-common/commit/d02ac89d4ce571e5ad1b3454633a937fb0108b7d))
+* **manifest:** opensrm/v1 converter accepts every v1 tier and type-checks metadata (opensrm-pnmv) ([98121d4](https://github.com/rsionnach/nthlayer-common/commit/98121d443da212bca8f2b3aa2bfae6df62d8cd31))
+* **manifest:** opensrm/v1 converter envelope, metadata and owner (opensrm-pnmv) ([d63ad99](https://github.com/rsionnach/nthlayer-common/commit/d63ad99d8d28ed9b0bdb915aa93b45e5c1b5d83e))
+* **manifest:** opensrm/v1 judgment block becomes judgment thresholds (opensrm-pnmv) ([02a8dd9](https://github.com/rsionnach/nthlayer-common/commit/02a8dd9a4fcc1560da5d7b28cb69ca2d41413302))
+* **manifest:** opensrm/v1 openslo references never drop input silently (opensrm-pnmv) ([8d6ce61](https://github.com/rsionnach/nthlayer-common/commit/8d6ce61e27b59bc823e67fff4285aa28e573ac35))
+* **manifest:** report unknown keys in v1 pagerduty and expects by schema section (opensrm-pnmv) ([00d0251](https://github.com/rsionnach/nthlayer-common/commit/00d0251f4d9cf8299af8072918cb0509122cc5d3))
+* **manifest:** v2 dependencies accept resource: entity refs (opensrm-pnmv) ([e9df822](https://github.com/rsionnach/nthlayer-common/commit/e9df822f07ceca9ac26dafe32ab4e2a7858d5035))
+
+
+### Code Refactoring
+
+* **manifest:** one key-classification path and one section table in opensrm_v1 (opensrm-pnmv) ([3fac559](https://github.com/rsionnach/nthlayer-common/commit/3fac5593fadae3d316e3e4638d10c39970c150e3))
+* **manifest:** opensrm/v1 conversion fails loudly if a section walk is abandoned (opensrm-pnmv) ([b695338](https://github.com/rsionnach/nthlayer-common/commit/b695338d036f8861393694bc82716ee8acbe8600))
+* **manifest:** opensrm/v1 reports unmapped fields in document order (opensrm-pnmv) ([871c92b](https://github.com/rsionnach/nthlayer-common/commit/871c92bc8388e047489d5edb2480cf4fbe00e89f))
+
+
+### Documentation
+
+* **manifest:** opensrm/v1 notes say what the code does (opensrm-pnmv) ([c3e9b53](https://github.com/rsionnach/nthlayer-common/commit/c3e9b5384b09923267026e8c4d1f5b5190753f3e))
+
 ## [5.2.0](https://github.com/rsionnach/nthlayer-common/compare/v5.1.0...v5.2.0) (2026-10-20)
 
 
