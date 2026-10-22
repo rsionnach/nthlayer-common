@@ -34,11 +34,10 @@ def _schema_properties(section: str) -> set[str]:
     return set(node.get("properties", {}))
 
 
-def test_the_v1_schema_is_present_and_every_section_resolves_in_it():
+def test_the_v1_schema_is_present_and_the_sections_are_not_vacuous():
+    # Every section resolving in the schema is asserted per section below.
     assert V1_SCHEMA.is_file()
-    for section in _SECTIONS:
-        _schema_properties(section)
-    assert len(_SECTIONS) >= 20
+    assert len(_SECTIONS) >= 23
 
 
 @pytest.mark.parametrize("section", sorted(_SECTIONS))
@@ -52,3 +51,9 @@ def test_section_covers_the_schema_both_ways(section):
                                         "Dependency", "Ownership", "Observability", "Instrumentation"])
 def test_the_sections_the_spec_names_are_covered(definition):
     assert definition in _SECTIONS
+
+
+@pytest.mark.parametrize("section", ["Ownership.pagerduty", "Dependency.expects",
+                                     "Dependency.expects.latency", "Instrumentation.events"])
+def test_the_inline_sections_the_converter_walks_are_covered(section):
+    assert section in _SECTIONS

@@ -426,9 +426,15 @@ _SECTIONS["ContractThroughput"] = (frozenset({"max_rps"}),
 _SECTIONS["Dependency"] = (frozenset({"service", "type", "expects"}), {
     "critical": "v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
     "manifest": "v2 resolves dependencies through the catalogue (AUTHORING §7.5)"})
+# spec/v1/schema.json Dependency.expects and its inline latency object.
+_SECTIONS["Dependency.expects"] = (frozenset({"availability", "latency"}), {})
+_SECTIONS["Dependency.expects.latency"] = (frozenset({"p99"}), {})
 _SECTIONS["Ownership"] = (frozenset({"team", "slack", "escalation", "pagerduty", "runbook", "documentation"}), {
     "email": "no v2 field or AUTHORING §7.2 annotation key",
     "oncall_required": "no v2 field"})
+# spec/v1/schema.json Ownership.pagerduty (inline).
+_SECTIONS["Ownership.pagerduty"] = (frozenset({"service_id"}), {
+    "escalation_policy_id": "no AUTHORING §7.2 annotation key"})
 _SECTIONS["Observability"] = (frozenset(), {
     "metrics": "v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)",
     "dashboards": "no v2 equivalent (AUTHORING §7.6)",
@@ -511,18 +517,13 @@ def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None
         entry: dict[str, Any] = {"service": ref}
         if "expects" in keys:
             expects = _mapping(f"{path}.expects", dep["expects"])
-            for key in expects:
+            for key in _keys("Dependency.expects", f"{path}.expects", expects, ctx):
                 if key == "availability":
                     entry["expected_availability"] = _ratio(f"{path}.expects.availability", expects[key])
-                elif key == "latency":
+                else:  # latency
                     latency = _mapping(f"{path}.expects.latency", expects[key])
-                    for lk in latency:
-                        if lk == "p99":
-                            entry["expected_latency_p99"] = _duration(f"{path}.expects.latency.p99", latency[lk])
-                        else:
-                            ctx.skip(f"{path}.expects.latency.{lk}", _NOT_IN_SCHEMA)
-                else:
-                    ctx.skip(f"{path}.expects.{key}", _NOT_IN_SCHEMA)
+                    if "p99" in _keys("Dependency.expects.latency", f"{path}.expects.latency", latency, ctx):
+                        entry["expected_latency_p99"] = _duration(f"{path}.expects.latency.p99", latency["p99"])
         deps.append(entry)
     if deps:
         out["dependencies"] = deps
@@ -540,13 +541,8 @@ def _convert_ownership(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             out["owner"]["escalation"] = f"group:default/{_entity_name(path, own[key])}"
         elif key == "pagerduty":
             pd = _mapping(path, own[key])
-            for pk in pd:
-                if pk == "service_id":
-                    _annotate(ctx, "pagerduty.com/service-id", pd[pk], f"{path}.service_id")
-                elif pk == "escalation_policy_id":
-                    ctx.skip(f"{path}.escalation_policy_id", "no AUTHORING §7.2 annotation key")
-                else:
-                    ctx.skip(f"{path}.{pk}", _NOT_IN_SCHEMA)
+            if "service_id" in _keys("Ownership.pagerduty", path, pd, ctx):
+                _annotate(ctx, "pagerduty.com/service-id", pd["service_id"], f"{path}.service_id")
         else:
             _annotate(ctx, _OWNERSHIP_ANNOTATIONS[key], own[key], path)
 

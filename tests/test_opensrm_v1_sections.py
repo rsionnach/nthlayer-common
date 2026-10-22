@@ -140,3 +140,40 @@ def test_dependency_type_outside_the_enum_raises():
 def test_dependency_service_name_must_be_usable_in_a_ref(name):
     with pytest.raises(ValueError, match=r"spec\.dependencies\[0\]\.service"):
         convert_opensrm_v1_to_v2(_v1(dependencies=[{"service": name}]))
+
+
+def test_unknown_keys_in_pagerduty_and_expects_are_reported_as_outside_the_schema():
+    r = convert_opensrm_v1_to_v2(_v1(
+        ownership={"team": "payments", "pagerduty": {"service_id": "PX", "routing_key": "k"}},
+        dependencies=[{"service": "db", "expects": {"availability": 0.999, "error_rate": 0.01,
+                                                    "latency": {"p99": "20ms", "p50": "5ms"}}}]))
+    assert {(f.path, f.reason) for f in r.unmapped} == {
+        ("spec.ownership.pagerduty.routing_key", "not part of the opensrm/v1 schema"),
+        ("spec.dependencies[0].expects.error_rate", "not part of the opensrm/v1 schema"),
+        ("spec.dependencies[0].expects.latency.p50", "not part of the opensrm/v1 schema"),
+    }
+    assert r.manifest["spec"]["dependencies"] == [
+        {"service": "component:default/db", "expected_availability": 0.999, "expected_latency_p99": "20ms"}]
+
+
+@pytest.mark.parametrize(("section", "path", "dep", "own"), [
+    ("Ownership.pagerduty", "spec.ownership.pagerduty.service_id", None, {"pagerduty": {"service_id": "PX"}}),
+    ("Dependency.expects", "spec.dependencies[0].expects.availability",
+     {"expects": {"availability": 0.999}}, None),
+    ("Dependency.expects.latency", "spec.dependencies[0].expects.latency.p99",
+     {"expects": {"latency": {"p99": "20ms"}}}, None),
+])
+def test_pagerduty_and_expects_take_their_reasons_from_sections(monkeypatch, section, path, dep, own):
+    """The inline handlers read _SECTIONS, so the schema-completeness test governs them too."""
+    from nthlayer_common.manifest import opensrm_v1
+
+    key = path.rsplit(".", 1)[1]
+    converted, unmapped = opensrm_v1._SECTIONS[section]
+    monkeypatch.setitem(opensrm_v1._SECTIONS, section, (converted - {key}, {**unmapped, key: "probe"}))
+    spec = {}
+    if dep is not None:
+        spec["dependencies"] = [{"service": "db", **dep}]
+    if own is not None:
+        spec["ownership"] = {"team": "payments", **own}
+    r = convert_opensrm_v1_to_v2(_v1(**spec))
+    assert (path, "probe") in {(f.path, f.reason) for f in r.unmapped}
