@@ -3,10 +3,16 @@ instrumentation (opensrm-pnmv). Shapes: spec/v1/schema.json; mapping:
 AUTHORING.md §7.2 (ownership → owner + annotations), §7.4 (contract →
 contracts), §7.5 (dependencies), §7.6 (homeless blocks).
 """
+import json
+from pathlib import Path
+
+import jsonschema
 import pytest
 
 from nthlayer_common.manifest.opensrm_v1 import _SPEC_HANDLERS, _keys, convert_opensrm_v1_to_v2
 from nthlayer_common.manifest.parser.v2 import parse_opensrm_v2
+
+V2_SCHEMA = Path(__file__).resolve().parents[2] / "opensrm" / "spec" / "v2" / "schema.json"
 
 
 def _v1(**spec) -> dict:
@@ -49,8 +55,10 @@ def test_dependency_ref_kind_follows_the_v1_type(dtype, ref):
     if dtype:
         dep["type"] = dtype
     r = convert_opensrm_v1_to_v2(_v1(dependencies=[dep]))
-    assert r.manifest["spec"]["dependencies"] == [
-        {"service": ref, "expected_availability": 0.9995, "expected_latency_p99": "20ms"}]
+    expected = {"service": ref, "expected_availability": 0.9995, "expected_latency_p99": "20ms"}
+    if dtype not in (None, "service"):
+        expected["type"] = dtype  # see test_dependency_type_survives_into_the_parsed_dependency
+    assert r.manifest["spec"]["dependencies"] == [expected]
     parse_opensrm_v2(r.manifest)
 
 
@@ -194,3 +202,21 @@ def test_an_abandoned_section_walk_fails_loudly(monkeypatch, handler):
     monkeypatch.setitem(_SPEC_HANDLERS, "instrumentation", handler)
     with pytest.raises(RuntimeError, match="section walk was not exhausted"):
         convert_opensrm_v1_to_v2(_v1(instrumentation={"events": {"decision": "d", "reversal": "r"}, "attributes": {}}))
+
+
+@pytest.mark.parametrize("dtype, parsed", [
+    ("database", "database"), ("cache", "cache"), ("queue", "queue"),
+    ("external", "external"), ("service", "api"), (None, "api"),
+])
+def test_dependency_type_survives_into_the_parsed_dependency(dtype, parsed):
+    """common's v2 parser reads a missing dependency type as 'api', which
+    nthlayer-generate would turn into API alerts for a database."""
+    dep = {"service": "postgresql"}
+    if dtype:
+        dep["type"] = dtype
+    r = convert_opensrm_v1_to_v2(_v1(dependencies=[dep]))
+    (entry,) = r.manifest["spec"]["dependencies"]
+    assert ("type" in entry) == (dtype not in (None, "service"))
+    (parsed_dep,) = parse_opensrm_v2(r.manifest).dependencies
+    assert parsed_dep.type == parsed
+    jsonschema.validate(r.manifest, json.loads(V2_SCHEMA.read_text()))

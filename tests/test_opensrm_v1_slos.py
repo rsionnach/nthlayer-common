@@ -135,3 +135,18 @@ def test_keys_after_target_in_a_classical_slo_are_all_reported_in_order():
         ("spec.slos.latency.p99", _PERCENTILE_WHY),
         ("spec.slos.latency.bogus", "not part of the opensrm/v1 schema"),
     ]
+
+
+def test_display_name_does_not_round_a_near_one_target_up_to_100_percent():
+    r = convert_opensrm_v1_to_v2(_v1({"availability": {"target": 0.9999999}}))
+    assert _slo(r, "availability")["spec"]["objectives"][0]["displayName"].startswith("99.99999% ")
+
+
+@pytest.mark.parametrize("key, target, objective", [
+    ("error_rate", 1.0, 0.0), ("error_rate", 0, 1.0),
+    ("availability", 0, 0.0), ("availability", 1.0, 1.0),
+])
+def test_ratio_edges_convert_and_parse(key, target, objective):
+    r = convert_opensrm_v1_to_v2(_v1({key: {"target": target}}))
+    assert _slo(r, key.replace("_", "-"))["spec"]["objectives"][0]["target"] == objective
+    parse_opensrm_v2(r.manifest)

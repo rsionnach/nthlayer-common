@@ -107,6 +107,9 @@ def test_api_full_matches_the_spec_reference_on_mapped_fields():
     """Excluded (the reference author's decisions or inventions, or unmapped by
     §4): fallback, api_ref, technical_contact, the backstage.io/component-ref
     annotation, metadata.namespace, instrumentation, and the throughput SLO.
+    Dependencies are compared without ``type`` as well as ``fallback``: the
+    converter writes the v1 dependency type (so a database does not parse as
+    'api') and the spec's reference file does not carry it.
 
     SLO documents are compared whole except for two keys:
     ``objectives[].displayName`` (wording) and ``spec.timeWindow``. The
@@ -139,5 +142,5 @@ def test_api_full_matches_the_spec_reference_on_mapped_fields():
     assert (c["name"], c["promise"], c["contract_owner"]) == (rc["name"], rc["promise"], rc["contract_owner"])
 
     def strip(deps):
-        return [{k: v for k, v in d.items() if k != "fallback"} for d in deps]
-    assert got["spec"]["dependencies"] == strip(ref["spec"]["dependencies"])
+        return [{k: v for k, v in d.items() if k not in ("fallback", "type")} for d in deps]
+    assert strip(got["spec"]["dependencies"]) == strip(ref["spec"]["dependencies"])

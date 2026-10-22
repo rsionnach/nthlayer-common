@@ -249,6 +249,11 @@ def _walk(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator
 
 
 def _service_type(declared: object, supplied: str | None) -> str:
+    if supplied is not None and resolve_service_type(supplied) is None:
+        raise ValueError(
+            f"supplied service type {supplied!r} is not a valid v2 service type "
+            f"(it fills an absent spec.type). Must be one of: {valid_service_types_phrase()}."
+        )
     if declared is None:
         if supplied is None:
             raise ValueError(
@@ -358,7 +363,7 @@ def _duration(path: str, value: object) -> str:
 
 
 def _pct(ratio: float) -> str:
-    return f"{ratio * 100:g}%"
+    return f"{ratio * 100:.10g}%"
 
 
 def _openslo(key: str, cfg: object, ctx: _Ctx) -> dict[str, Any]:
@@ -527,6 +532,11 @@ def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None
         else:
             raise ValueError(f"{path}.type must be one of service, database, cache, queue, external; got {dtype!r}")
         entry: dict[str, Any] = {"service": ref}
+        if dtype != "service":
+            # The ref kind alone does not survive the v2 parser, which reads a
+            # missing type as 'api' (and nthlayer-generate would then emit API
+            # alerts for a database).
+            entry["type"] = dtype
         for dep_key in _keys("Dependency", path, dep, ctx):
             if dep_key != "expects":
                 continue  # service and type are already in the ref

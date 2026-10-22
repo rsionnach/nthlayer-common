@@ -130,3 +130,9 @@ def test_unknown_metadata_key_is_reported():
 def test_unmapped_spec_sections_carry_their_reason(key):
     r = convert_opensrm_v1_to_v2(_v1(**{key: {"x": 1}}))
     assert r.unmapped == (UnmappedField(f"spec.{key}", "no v2 equivalent (AUTHORING §7.6)"),)
+
+
+@pytest.mark.parametrize("supplied", ["API", " api ", "", "apii"])
+def test_a_supplied_type_is_validated_on_its_own_first(supplied):
+    with pytest.raises(ValueError, match="not a valid v2 service type"):
+        convert_opensrm_v1_to_v2(_v1(), service_type=supplied)
