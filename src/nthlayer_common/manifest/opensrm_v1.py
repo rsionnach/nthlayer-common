@@ -44,9 +44,47 @@ OPENSRM_V1_REJECTION = (
     "its own v1 dialect). Convert it with: nthlayer migrate-manifest {path}"
 )
 
-# Per opensrm/spec/v1/schema.json definition: (keys converted, {key: why not}).
-# tests/test_opensrm_v1_schema_completeness.py checks every definition's
-# properties are covered, both ways.
+# Reasons shared by several _SECTIONS entries.
+# opensrm-47tt: NthLayer's v2 parser infers an SLO's type from its name and
+# cannot be told these types.
+_UNINFERABLE_SLO_WHY = "NthLayer's v2 parser cannot infer this SLO's type"
+_PERCENTILE_WHY = ("kept only in the OpenSLO displayName: an objective without an "
+                   "indicator carries no machine-readable percentile")
+# opensrm-a742: no judgment-SLO shape passes both the v2 schema and the parser.
+_JUDGMENT_SLO_WHY = (
+    "judgment_slo is new capability, not migration (AUTHORING §7.7 step 8), and no "
+    "v2 judgment-SLO shape passes both the schema and NthLayer's v2 parser"
+)
+_MAX_ONLY_WHY = "maximum-only SLO ({field}) with no target; an OpenSLO objective needs one"
+_CONTRACT_WHY = "v2 contracts[].promise has {have} only (AUTHORING §7.4)"
+_NO_V2_WHY = "no v2 equivalent (AUTHORING §7.6)"
+
+# v1 classical SLO key → the slo_type NthLayer's OpenSLO parser must infer.
+_CLASSICAL = {
+    "availability": "availability", "connection_availability": "availability",
+    "error_rate": "error_rate",
+    "latency": "latency", "duration": "latency", "query_latency": "latency",
+}
+# v1 classical SLO key → its schema definition.
+_DEFN_FOR_KEY = {
+    "availability": "AvailabilitySLO", "connection_availability": "ConnectionAvailabilitySLO",
+    "error_rate": "ErrorRateSLO",
+    "latency": "LatencySLO", "duration": "DurationSLO", "query_latency": "QueryLatencySLO",
+}
+# Percentile properties per v1 definition (spec/v1/schema.json): DurationSLO has no p999.
+_PERCENTILES_BY_DEFN = {
+    "LatencySLO": ("p50", "p90", "p95", "p99", "p999"),
+    "DurationSLO": ("p50", "p90", "p95", "p99"),
+    "QueryLatencySLO": ("p50", "p90", "p95", "p99", "p999"),
+}
+# spec/v1/schema.json: the window default of every converted SLO definition.
+_V1_SLO_WINDOW_DEFAULT = "30d"
+
+# The one table of what the converter does with each v1 object's keys.
+# Keys are v1 schema definition names (opensrm/spec/v1/schema.json), or
+# "Definition.property" for an object declared inline in a definition.
+# Values are (converted keys, {unmapped key: reason}).
+# tests/test_opensrm_v1_schema_completeness.py checks it both ways.
 _SECTIONS: dict[str, tuple[frozenset[str], dict[str, str]]] = {
     "Metadata": (
         frozenset({"name", "team", "tier", "description", "labels", "annotations"}),
@@ -55,11 +93,77 @@ _SECTIONS: dict[str, tuple[frozenset[str], dict[str, str]]] = {
     "Spec": (
         frozenset({"type", "slos", "contract", "dependencies", "ownership",
                    "observability", "instrumentation"}),
+        {"notifications": _NO_V2_WHY, "deployment": _NO_V2_WHY},
+    ),
+    "SLOs": (
+        frozenset({*_CLASSICAL, "openslo", "judgment"}),
         {
-            "notifications": "no v2 equivalent (AUTHORING §7.6)",
-            "deployment": "no v2 equivalent (AUTHORING §7.6)",
+            "throughput": "v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)",
+            "success_rate": _UNINFERABLE_SLO_WHY,
+            "processing_time": _UNINFERABLE_SLO_WHY,
+            "lag": _UNINFERABLE_SLO_WHY,
+            "schedule_adherence": _MAX_ONLY_WHY.format(field="max_delay"),
+            "data_freshness": _MAX_ONLY_WHY.format(field="max_age"),
+            "replication_lag": _MAX_ONLY_WHY.format(field="max_lag"),
+            "custom": "custom SLOs have no v2 mapping",
         },
     ),
+    **{defn: (frozenset({"target", "window"}), dict.fromkeys(pcts, _PERCENTILE_WHY))
+       for defn, pcts in _PERCENTILES_BY_DEFN.items()},
+    **{defn: (frozenset({"target", "window"}), {})
+       for defn in ("AvailabilitySLO", "ErrorRateSLO", "ConnectionAvailabilitySLO")},
+    "JudgmentSLOs": (
+        frozenset({"calibration", "feedback_latency"}),
+        {"reversal_rate": _JUDGMENT_SLO_WHY, "high_confidence_failure": _JUDGMENT_SLO_WHY},
+    ),
+    "FlatCalibrationSLO": (frozenset({"target", "window"}), {}),
+    "FeedbackLatencySLO": (frozenset({"p50", "p90"}), {}),
+    "Contract": (
+        frozenset({"availability", "latency", "throughput"}),
+        {"judgment": _CONTRACT_WHY.format(have="availability, latency_p99 and throughput")},
+    ),
+    "ContractLatency": (
+        frozenset({"p99"}),
+        dict.fromkeys(("p50", "p999"), _CONTRACT_WHY.format(have="latency_p99")),
+    ),
+    "ContractThroughput": (
+        frozenset({"max_rps"}),
+        {"burst": "v2 contracts[].promise.throughput is a single rate (AUTHORING §7.4)"},
+    ),
+    "Dependency": (
+        frozenset({"service", "type", "expects"}),
+        {
+            "critical": "v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
+            "manifest": "v2 resolves dependencies through the catalogue (AUTHORING §7.5)",
+        },
+    ),
+    "Dependency.expects": (frozenset({"availability", "latency"}), {}),
+    "Dependency.expects.latency": (frozenset({"p99"}), {}),
+    "Ownership": (
+        frozenset({"team", "slack", "escalation", "pagerduty", "runbook", "documentation"}),
+        {
+            "email": "no v2 field or AUTHORING §7.2 annotation key",
+            "oncall_required": "no v2 field",
+        },
+    ),
+    "Ownership.pagerduty": (
+        frozenset({"service_id"}),
+        {"escalation_policy_id": "no AUTHORING §7.2 annotation key"},
+    ),
+    "Observability": (
+        frozenset(),
+        {
+            "metrics": "v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)",
+            "dashboards": _NO_V2_WHY,
+            "alerts": _NO_V2_WHY,
+            "tracing": _NO_V2_WHY,
+        },
+    ),
+    "Instrumentation": (
+        frozenset({"events"}),
+        {"attributes": "v2 instrumentation has no attribute list"},
+    ),
+    "Instrumentation.events": (frozenset({"decision", "reversal", "outcome", "audit_result"}), {}),
 }
 
 
@@ -83,7 +187,7 @@ class _Ctx:
     unmapped: list[UnmappedField] = field(default_factory=list)
     annotations: dict[str, str] = field(default_factory=dict)
 
-    def skip(self, path: str, reason: str) -> None:
+    def report(self, path: str, reason: str) -> None:
         self.unmapped.append(UnmappedField(path, reason))
 
 
@@ -112,6 +216,20 @@ def _string_map(path: str, value: object) -> dict[str, str]:
         if not isinstance(k, str) or not isinstance(v, str):
             raise ValueError(f"{path} must map strings to strings, got {k!r}: {v!r}")
     return dict(m)
+
+
+def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> list[str]:
+    """Report the unmapped and unknown keys of *value*; return the converted ones, in order."""
+    converted, unmapped = _SECTIONS[section]
+    keep = []
+    for key in value:
+        if key in unmapped:
+            ctx.report(f"{path}.{key}", unmapped[key])
+        elif key not in converted:
+            ctx.report(f"{path}.{key}", _NOT_IN_SCHEMA)
+        else:
+            keep.append(key)
+    return keep
 
 
 def _service_type(declared: object, supplied: str | None) -> str:
@@ -177,12 +295,7 @@ def convert_opensrm_v1_to_v2(
     if "annotations" in metadata:
         ctx.annotations.update(_string_map("metadata.annotations", metadata["annotations"]))
 
-    for key in metadata:
-        converted, unmapped = _SECTIONS["Metadata"]
-        if key in unmapped:
-            ctx.skip(f"metadata.{key}", unmapped[key])
-        elif key not in converted:
-            ctx.skip(f"metadata.{key}", _NOT_IN_SCHEMA)
+    _keys("Metadata", "metadata", metadata, ctx)
 
     team = _entity_name("metadata.team", metadata.get("team"))
     service: dict[str, Any] = {"name": name, "type": _service_type(spec.get("type"), service_type)}
@@ -209,56 +322,9 @@ def convert_opensrm_v1_to_v2(
 
 
 def _convert_spec(spec: dict[str, Any], out: dict[str, Any], ctx: _Ctx) -> None:
-    converted, unmapped = _SECTIONS["Spec"]
-    for key, value in spec.items():
-        if key == "type":
-            continue
-        if key in unmapped:
-            ctx.skip(f"spec.{key}", unmapped[key])
-        elif key not in converted:
-            ctx.skip(f"spec.{key}", _NOT_IN_SCHEMA)
-        else:
-            _SPEC_HANDLERS[key](value, out, ctx)
-
-
-_SPEC_HANDLERS: dict[str, Callable[[object, dict[str, Any], _Ctx], None]] = {}
-
-
-# v1 classical SLO key → the slo_type common's OpenSLO parser must infer.
-_CLASSICAL = {
-    "availability": "availability", "connection_availability": "availability",
-    "error_rate": "error_rate",
-    "latency": "latency", "duration": "latency", "query_latency": "latency",
-}
-# spec/v1/schema.json window defaults for the converted types (all 30d).
-_WINDOW_DEFAULT = dict.fromkeys(_CLASSICAL, "30d")
-# Percentile properties per v1 definition (spec/v1/schema.json): DurationSLO has no p999.
-_PERCENTILES_BY_DEFN = {
-    "LatencySLO": ("p50", "p90", "p95", "p99", "p999"),
-    "DurationSLO": ("p50", "p90", "p95", "p99"),
-    "QueryLatencySLO": ("p50", "p90", "p95", "p99", "p999"),
-}
-_DEFN_FOR_KEY = {"latency": "LatencySLO", "duration": "DurationSLO", "query_latency": "QueryLatencySLO"}
-_PERCENTILE_WHY = ("kept only in the OpenSLO displayName: an objective without an "
-                   "indicator carries no machine-readable percentile")
-
-_SECTIONS["SLOs"] = (
-    frozenset({*_CLASSICAL, "openslo", "judgment"}),
-    {
-        "throughput": "v1 declares a rate (e.g. 1000 rps); an OpenSLO objective needs a ratio target (AUTHORING §7.3)",
-        "success_rate": "common's v2 parser cannot infer this SLO's type (opensrm-47tt)",
-        "processing_time": "common's v2 parser cannot infer this SLO's type (opensrm-47tt)",
-        "lag": "common's v2 parser cannot infer this SLO's type (opensrm-47tt)",
-        "schedule_adherence": "maximum-only SLO (max_delay) with no target; an OpenSLO objective needs one",
-        "data_freshness": "maximum-only SLO (max_age) with no target; an OpenSLO objective needs one",
-        "replication_lag": "maximum-only SLO (max_lag) with no target; an OpenSLO objective needs one",
-        "custom": "custom SLOs have no v2 mapping",
-    },
-)
-for _defn, _pcts in _PERCENTILES_BY_DEFN.items():
-    _SECTIONS[_defn] = (frozenset({"target", "window"}), dict.fromkeys(_pcts, _PERCENTILE_WHY))
-for _defn in ("AvailabilitySLO", "ErrorRateSLO", "ConnectionAvailabilitySLO"):
-    _SECTIONS[_defn] = (frozenset({"target", "window"}), {})
+    for key in _keys("Spec", "spec", spec, ctx):
+        if key != "type":
+            _SPEC_HANDLERS[key](spec[key], out, ctx)
 
 
 def _ratio(path: str, value: object) -> float:
@@ -280,40 +346,40 @@ def _pct(ratio: float) -> str:
 def _openslo(key: str, cfg: object, ctx: _Ctx) -> dict[str, Any]:
     path = f"spec.slos.{key}"
     cfg = _mapping(path, cfg)
+    defn = _DEFN_FOR_KEY[key]
+    _keys(defn, path, cfg, ctx)  # reports percentiles and unknown keys
     target = _ratio(f"{path}.target", cfg.get("target"))
-    window = _duration(f"{path}.window", cfg.get("window", _WINDOW_DEFAULT[key]))
-    kind = _CLASSICAL[key]
-    if kind == "error_rate":
+    window = _duration(f"{path}.window", cfg.get("window", _V1_SLO_WINDOW_DEFAULT))
+    slo_type = _CLASSICAL[key]
+    if slo_type == "error_rate":
         # v1 ErrorRateSLO.target is a MAXIMUM error ratio; OpenSLO targets are
         # good-ratios (the spec's reference output turns 0.001 into 0.999).
         good = round(1.0 - target, 12)
         display = f"Error rate under {_pct(target)} over {window}"
-    elif kind == "latency":
-        pct_keys = _PERCENTILES_BY_DEFN[_DEFN_FOR_KEY[key]]
-        pcts = [(p, _duration(f"{path}.{p}", cfg[p])) for p in pct_keys if p in cfg]
-        for p, _ in pcts:
-            ctx.skip(f"{path}.{p}", _PERCENTILE_WHY)
+    elif slo_type == "latency":
+        pcts = [(p, _duration(f"{path}.{p}", cfg[p])) for p in _PERCENTILES_BY_DEFN[defn] if p in cfg]
         good = target
         bits = ", ".join(f"{p} under {v}" for p, v in pcts)
-        display = f"{_pct(target)} of requests {bits} over {window}" if bits else f"{_pct(target)} {key.replace('_', ' ')} over {window}"
+        if bits:
+            display = f"{_pct(target)} of requests {bits} over {window}"
+        else:
+            display = f"{_pct(target)} {key.replace('_', ' ')} over {window}"
     else:
         good = target
         display = f"{_pct(target)} {key.replace('_', ' ')} over {window}"
-    for extra in cfg:
-        if extra not in ("target", "window", *_PERCENTILES_BY_DEFN.get(_DEFN_FOR_KEY.get(key, ""), ())):
-            ctx.skip(f"{path}.{extra}", _NOT_IN_SCHEMA)
 
     slo_name = f"{ctx.service}-{key.replace('_', '-')}"
     objective = {"displayName": display, "target": good}
+    # opensrm-47tt: the parser infers the type from the name, so check it.
     try:
         inferred: str | None = _infer_openslo_type(slo_name, good * 100, None, None, None, objective)
     except OpenSLOParseError:
         inferred = None
-    if inferred != kind:
+    if inferred != slo_type:
         raise ValueError(
-            f"SLO '{slo_name}' would be read as {inferred!r}, not {kind!r}: common's v2 "
-            "parser infers the type from the SLO name and the service name contains "
-            "another type's word (opensrm-47tt). Rename the service or migrate this SLO by hand."
+            f"SLO '{slo_name}' would be read as {inferred!r}, not {slo_type!r}: "
+            "NthLayer's v2 parser infers the type from the SLO name and the service "
+            "name contains another type's word. Rename the service or migrate this SLO by hand."
         )
     return {
         "apiVersion": "openslo/v1",
@@ -329,21 +395,17 @@ def _openslo(key: str, cfg: object, ctx: _Ctx) -> dict[str, Any]:
 
 def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
     slos = _mapping("spec.slos", value)
-    converted, unmapped = _SECTIONS["SLOs"]
     docs: list[dict[str, Any]] = []
-    for key, cfg in slos.items():
-        if key in unmapped:
-            ctx.skip(f"spec.slos.{key}", unmapped[key])
-        elif key not in converted:
-            ctx.skip(f"spec.slos.{key}", _NOT_IN_SCHEMA)
-        elif key == "openslo":
+    for key in _keys("SLOs", "spec.slos", slos, ctx):
+        cfg = slos[key]
+        if key == "openslo":
             if not isinstance(cfg, list):
                 raise ValueError(f"spec.slos.openslo must be a list, got {type(cfg).__name__}")
             for i, item in enumerate(cfg):
                 item = _mapping(f"spec.slos.openslo[{i}]", item)
                 for extra in item:
                     if extra != "path":
-                        ctx.skip(f"spec.slos.openslo[{i}].{extra}", _NOT_IN_SCHEMA)
+                        ctx.report(f"spec.slos.openslo[{i}].{extra}", _NOT_IN_SCHEMA)
                 ref = item.get("path")
                 if not isinstance(ref, str) or not ref:
                     raise ValueError(f"spec.slos.openslo[{i}].path must be a non-empty string")
@@ -356,42 +418,17 @@ def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
         out["slo"] = docs
 
 
-_JUDGMENT_SLO_WHY = (
-    "judgment_slo is new capability, not migration (AUTHORING §7.7 step 8), and no "
-    "v2 judgment-SLO shape passes both the schema and common's parser (opensrm-a742)"
-)
-_SECTIONS["JudgmentSLOs"] = (
-    frozenset({"calibration", "feedback_latency"}),
-    {"reversal_rate": _JUDGMENT_SLO_WHY, "high_confidence_failure": _JUDGMENT_SLO_WHY},
-)
-_SECTIONS["FlatCalibrationSLO"] = (frozenset({"target", "window"}), {})
-_SECTIONS["FeedbackLatencySLO"] = (frozenset({"p50", "p90"}), {})
-
-
-def _report_extra_keys(path: str, cfg: dict[str, Any], defn: str, ctx: _Ctx) -> None:
-    converted, unmapped = _SECTIONS[defn]
-    for extra in cfg:
-        if extra in unmapped:
-            ctx.skip(f"{path}.{extra}", unmapped[extra])
-        elif extra not in converted:
-            ctx.skip(f"{path}.{extra}", _NOT_IN_SCHEMA)
-
-
 def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
     judgment = _mapping("spec.slos.judgment", value)
     if out["service"]["type"] != "ai-gate":
-        ctx.skip("spec.slos.judgment",
+        ctx.report("spec.slos.judgment",
                  "v2 allows judgment blocks only on spec.service.type ai-gate (AUTHORING §3.1)")
         return
-    converted, unmapped = _SECTIONS["JudgmentSLOs"]
     entries: list[dict[str, Any]] = []
-    for key, cfg in judgment.items():
+    for key in _keys("JudgmentSLOs", "spec.slos.judgment", judgment, ctx):
         path = f"spec.slos.judgment.{key}"
-        if key in unmapped:
-            ctx.skip(path, unmapped[key])
-        elif key not in converted:
-            ctx.skip(path, _NOT_IN_SCHEMA)
-        elif key == "calibration":
+        cfg = judgment[key]
+        if key == "calibration":
             cfg = _mapping(path, cfg)
             threshold = JudgmentThreshold(
                 type="calibration",
@@ -402,47 +439,20 @@ def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
                 ),
             )
             entries.append(threshold_to_v2_entry(threshold))
-            ctx.skip(path, f"converted with measurement.bins: {_SRM_V1_CALIBRATION_BINS}, "
+            ctx.report(path, f"converted with measurement.bins: {_SRM_V1_CALIBRATION_BINS}, "
                            "a value opensrm/v1 does not declare; check it")
-            _report_extra_keys(path, cfg, "FlatCalibrationSLO", ctx)
+            _keys("FlatCalibrationSLO", path, cfg, ctx)
         else:  # feedback_latency
             cfg = _mapping(path, cfg)
             bounds = {f"maximum_{p}": _duration(f"{path}.{p}", cfg[p]) for p in ("p50", "p90") if p in cfg}
-            _report_extra_keys(path, cfg, "FeedbackLatencySLO", ctx)
+            _keys("FeedbackLatencySLO", path, cfg, ctx)
             if not bounds:
-                ctx.skip(path, "declares neither p50 nor p90, so there is no bound to convert")
+                ctx.report(path, "declares neither p50 nor p90, so there is no bound to convert")
                 continue
             entries.append(threshold_to_v2_entry(JudgmentThreshold(type="feedback_latency", bounds=bounds)))
     if entries:
         out["judgment_threshold"] = entries
 
-
-_SECTIONS["Contract"] = (frozenset({"availability", "latency", "throughput"}),
-                         {"judgment": "v2 contracts[].promise has availability, latency_p99 and throughput only (AUTHORING §7.4)"})
-_SECTIONS["ContractLatency"] = (frozenset({"p99"}), dict.fromkeys(
-    ("p50", "p999"), "v2 contracts[].promise has latency_p99 only (AUTHORING §7.4)"))
-_SECTIONS["ContractThroughput"] = (frozenset({"max_rps"}),
-                                   {"burst": "v2 contracts[].promise.throughput is a single rate (AUTHORING §7.4)"})
-_SECTIONS["Dependency"] = (frozenset({"service", "type", "expects"}), {
-    "critical": "v2 expresses this as a fallback, which only the author can choose (AUTHORING §7.5)",
-    "manifest": "v2 resolves dependencies through the catalogue (AUTHORING §7.5)"})
-# spec/v1/schema.json Dependency.expects and its inline latency object.
-_SECTIONS["Dependency.expects"] = (frozenset({"availability", "latency"}), {})
-_SECTIONS["Dependency.expects.latency"] = (frozenset({"p99"}), {})
-_SECTIONS["Ownership"] = (frozenset({"team", "slack", "escalation", "pagerduty", "runbook", "documentation"}), {
-    "email": "no v2 field or AUTHORING §7.2 annotation key",
-    "oncall_required": "no v2 field"})
-# spec/v1/schema.json Ownership.pagerduty (inline).
-_SECTIONS["Ownership.pagerduty"] = (frozenset({"service_id"}), {
-    "escalation_policy_id": "no AUTHORING §7.2 annotation key"})
-_SECTIONS["Observability"] = (frozenset(), {
-    "metrics": "v2 instrumentation needs a type per metric (AUTHORING §7.7 step 6)",
-    "dashboards": "no v2 equivalent (AUTHORING §7.6)",
-    "alerts": "no v2 equivalent (AUTHORING §7.6)",
-    "tracing": "no v2 equivalent (AUTHORING §7.6)"})
-_SECTIONS["Instrumentation"] = (frozenset({"events"}), {"attributes": "v2 instrumentation has no attribute list"})
-# spec/v1/schema.json Instrumentation.events: each key maps to an event-name string.
-_SECTIONS["Instrumentation.events"] = (frozenset({"decision", "reversal", "outcome", "audit_result"}), {})
 
 _RESOURCE_TYPES = ("database", "cache", "queue")
 _OWNERSHIP_ANNOTATIONS = {   # AUTHORING §7.2
@@ -450,20 +460,6 @@ _OWNERSHIP_ANNOTATIONS = {   # AUTHORING §7.2
     "runbook": "opensrm.nthlayer.io/runbook",
     "documentation": "opensrm.nthlayer.io/documentation",
 }
-
-
-def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> list[str]:
-    """Report the unmapped and unknown keys of *value*; return the converted ones, in order."""
-    converted, unmapped = _SECTIONS[section]
-    keep = []
-    for key in value:
-        if key in unmapped:
-            ctx.skip(f"{path}.{key}", unmapped[key])
-        elif key not in converted:
-            ctx.skip(f"{path}.{key}", _NOT_IN_SCHEMA)
-        else:
-            keep.append(key)
-    return keep
 
 
 def _annotate(ctx: _Ctx, key: str, value: object, path: str) -> None:
@@ -565,7 +561,13 @@ def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> N
             out["instrumentation"] = {"required_events": required}
 
 
-_SPEC_HANDLERS.update(
-    slos=_convert_slos, contract=_convert_contract, dependencies=_convert_dependencies, ownership=_convert_ownership,
-    observability=_convert_observability, instrumentation=_convert_instrumentation,
-)
+
+
+_SPEC_HANDLERS: dict[str, Callable[[object, dict[str, Any], _Ctx], None]] = {
+    "slos": _convert_slos,
+    "contract": _convert_contract,
+    "dependencies": _convert_dependencies,
+    "ownership": _convert_ownership,
+    "observability": _convert_observability,
+    "instrumentation": _convert_instrumentation,
+}

@@ -38,7 +38,7 @@ def test_judgment_slos_are_reported_unmapped(key):
     r = convert_opensrm_v1_to_v2(_v1({key: {"target": 0.03, "window": "30d"}}))
     assert "judgment_slo" not in r.manifest["spec"]
     assert [f.path for f in r.unmapped] == [f"spec.slos.judgment.{key}"]
-    assert "a742" in r.unmapped[0].reason
+    assert "new capability, not migration" in r.unmapped[0].reason
 
 
 def test_a_non_ai_gate_manifest_reports_the_whole_judgment_block():
