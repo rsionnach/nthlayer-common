@@ -6,7 +6,8 @@ may not claim a key the schema does not define.
 
 A ``_SECTIONS`` key is a schema definition name, optionally followed by a
 dotted path of inline properties (``"Instrumentation.events"`` is the
-``events`` property of the ``Instrumentation`` definition).
+``events`` property of the ``Instrumentation`` definition; a ``[]`` suffix
+names an array property's item object, ``"SLOs.openslo[]"``).
 """
 import json
 from pathlib import Path
@@ -30,14 +31,17 @@ def _schema_properties(section: str) -> set[str]:
     head, *rest = section.split(".")
     node = _deref(DEFINITIONS[head])
     for key in rest:
-        node = _deref(node["properties"][key])
+        items = key.endswith("[]")  # "openslo[]" is the item object of the openslo array
+        node = _deref(node["properties"][key.removesuffix("[]")])
+        if items:
+            node = _deref(node["items"])
     return set(node.get("properties", {}))
 
 
 def test_the_v1_schema_is_present_and_the_sections_are_not_vacuous():
     # Every section resolving in the schema is asserted per section below.
     assert V1_SCHEMA.is_file()
-    assert len(_SECTIONS) >= 23
+    assert len(_SECTIONS) == 24
 
 
 @pytest.mark.parametrize("section", sorted(_SECTIONS))
@@ -54,6 +58,7 @@ def test_the_sections_the_spec_names_are_covered(definition):
 
 
 @pytest.mark.parametrize("section", ["Ownership.pagerduty", "Dependency.expects",
-                                     "Dependency.expects.latency", "Instrumentation.events"])
+                                     "Dependency.expects.latency", "Instrumentation.events",
+                                     "SLOs.openslo[]"])
 def test_the_inline_sections_the_converter_walks_are_covered(section):
     assert section in _SECTIONS

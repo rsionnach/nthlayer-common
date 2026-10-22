@@ -72,6 +72,31 @@ def test_example_converts_validates_and_parses(name):
     parse_opensrm_v2(r.manifest)
 
 
+def _document_paths(node, prefix=""):
+    """Every dotted path in *node*, depth-first in the file's key order, parents first."""
+    if isinstance(node, dict):
+        items = [(f"{prefix}.{k}" if prefix else k, v) for k, v in node.items()]
+    elif isinstance(node, list):
+        items = [(f"{prefix}[{i}]", v) for i, v in enumerate(node)]
+    else:
+        return
+    for path, child in items:
+        yield path
+        yield from _document_paths(child, path)
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_unmapped_is_in_document_order_depth_first(name):
+    """Users read the list against their file top to bottom. The expected order
+    is the example's own key order, filtered to the paths EXPECTED names."""
+    service_type, unmapped = EXPECTED[name]
+    doc = yaml.safe_load((EXAMPLES / name).read_text())
+    expected = [p for p in _document_paths(doc) if p in set(unmapped)]
+    assert sorted(expected) == sorted(unmapped), "an expected path is not in the file"
+    r = convert_opensrm_v1_to_v2(doc, service_type=service_type)
+    assert [f.path for f in r.unmapped] == expected
+
+
 @pytest.mark.parametrize("name", sorted(EXPECTED))
 def test_load_manifest_rejects_every_example(name):
     with pytest.raises(ManifestLoadError, match="nthlayer migrate-manifest"):

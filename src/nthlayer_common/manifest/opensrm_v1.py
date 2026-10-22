@@ -14,7 +14,7 @@ nthlayer front door.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -116,6 +116,7 @@ _SECTIONS: dict[str, tuple[frozenset[str], dict[str, str]]] = {
         frozenset({"calibration", "feedback_latency"}),
         {"reversal_rate": _JUDGMENT_SLO_WHY, "high_confidence_failure": _JUDGMENT_SLO_WHY},
     ),
+    "SLOs.openslo[]": (frozenset({"path"}), {}),
     "FlatCalibrationSLO": (frozenset({"target", "window"}), {}),
     "FeedbackLatencySLO": (frozenset({"p50", "p90"}), {}),
     "Contract": (
@@ -177,6 +178,8 @@ class UnmappedField:
 
 @dataclass(frozen=True)
 class MigrationResult:
+    """*unmapped* is in document order, depth-first: the order the fields appear in the v1 file."""
+
     manifest: dict[str, Any]
     unmapped: tuple[UnmappedField, ...]
 
@@ -218,18 +221,22 @@ def _string_map(path: str, value: object) -> dict[str, str]:
     return dict(m)
 
 
-def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> list[str]:
-    """Report the unmapped and unknown keys of *value*; return the converted ones, in order."""
+def _keys(section: str, path: str, value: dict[str, Any], ctx: _Ctx) -> Iterator[str]:
+    """Walk *value*'s keys in document order, yielding the converted ones.
+
+    Unmapped and unknown keys are reported as the walk reaches them, so a caller
+    that handles each yielded key before asking for the next gets
+    ``MigrationResult.unmapped`` in document order, depth-first. A caller with
+    nothing to convert must still exhaust it: ``list(_keys(...))``.
+    """
     converted, unmapped = _SECTIONS[section]
-    keep = []
     for key in value:
         if key in unmapped:
             ctx.report(f"{path}.{key}", unmapped[key])
         elif key not in converted:
             ctx.report(f"{path}.{key}", _NOT_IN_SCHEMA)
         else:
-            keep.append(key)
-    return keep
+            yield key
 
 
 def _service_type(declared: object, supplied: str | None) -> str:
@@ -295,7 +302,7 @@ def convert_opensrm_v1_to_v2(
     if "annotations" in metadata:
         ctx.annotations.update(_string_map("metadata.annotations", metadata["annotations"]))
 
-    _keys("Metadata", "metadata", metadata, ctx)
+    list(_keys("Metadata", "metadata", metadata, ctx))
 
     team = _entity_name("metadata.team", metadata.get("team"))
     service: dict[str, Any] = {"name": name, "type": _service_type(spec.get("type"), service_type)}
@@ -347,7 +354,7 @@ def _openslo(key: str, cfg: object, ctx: _Ctx) -> dict[str, Any]:
     path = f"spec.slos.{key}"
     cfg = _mapping(path, cfg)
     defn = _DEFN_FOR_KEY[key]
-    _keys(defn, path, cfg, ctx)  # reports percentiles and unknown keys
+    list(_keys(defn, path, cfg, ctx))  # reports percentiles and unknown keys
     target = _ratio(f"{path}.target", cfg.get("target"))
     window = _duration(f"{path}.window", cfg.get("window", _V1_SLO_WINDOW_DEFAULT))
     slo_type = _CLASSICAL[key]
@@ -403,9 +410,7 @@ def _convert_slos(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
                 raise ValueError(f"spec.slos.openslo must be a list, got {type(cfg).__name__}")
             for i, item in enumerate(cfg):
                 item = _mapping(f"spec.slos.openslo[{i}]", item)
-                for extra in item:
-                    if extra != "path":
-                        ctx.report(f"spec.slos.openslo[{i}].{extra}", _NOT_IN_SCHEMA)
+                list(_keys("SLOs.openslo[]", f"spec.slos.openslo[{i}]", item, ctx))
                 ref = item.get("path")
                 if not isinstance(ref, str) or not ref:
                     raise ValueError(f"spec.slos.openslo[{i}].path must be a non-empty string")
@@ -440,12 +445,12 @@ def _convert_judgment(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             )
             entries.append(threshold_to_v2_entry(threshold))
             ctx.report(path, f"converted with measurement.bins: {_SRM_V1_CALIBRATION_BINS}, "
-                           "a value opensrm/v1 does not declare; check it")
-            _keys("FlatCalibrationSLO", path, cfg, ctx)
+                       "a value opensrm/v1 does not declare; check it")
+            list(_keys("FlatCalibrationSLO", path, cfg, ctx))
         else:  # feedback_latency
             cfg = _mapping(path, cfg)
             bounds = {f"maximum_{p}": _duration(f"{path}.{p}", cfg[p]) for p in ("p50", "p90") if p in cfg}
-            _keys("FeedbackLatencySLO", path, cfg, ctx)
+            list(_keys("FeedbackLatencySLO", path, cfg, ctx))
             if not bounds:
                 ctx.report(path, "declares neither p50 nor p90, so there is no bound to convert")
                 continue
@@ -478,11 +483,11 @@ def _convert_contract(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             promise["availability"] = _ratio("spec.contract.availability", contract[key])
         elif key == "latency":
             latency = _mapping("spec.contract.latency", contract[key])
-            if "p99" in _keys("ContractLatency", "spec.contract.latency", latency, ctx):
+            for _ in _keys("ContractLatency", "spec.contract.latency", latency, ctx):  # p99
                 promise["latency_p99"] = _duration("spec.contract.latency.p99", latency["p99"])
         else:  # throughput
             throughput = _mapping("spec.contract.throughput", contract[key])
-            if "max_rps" in _keys("ContractThroughput", "spec.contract.throughput", throughput, ctx):
+            for _ in _keys("ContractThroughput", "spec.contract.throughput", throughput, ctx):  # max_rps
                 rps = throughput["max_rps"]
                 if isinstance(rps, bool) or not isinstance(rps, int) or rps < 1:
                     raise ValueError(f"spec.contract.throughput.max_rps must be an integer >= 1, got {rps!r}")
@@ -499,7 +504,6 @@ def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None
     for i, raw in enumerate(value):
         path = f"spec.dependencies[{i}]"
         dep = _mapping(path, raw)
-        keys = _keys("Dependency", path, dep, ctx)
         name = _entity_name(f"{path}.service", dep.get("service"))
         dtype = dep.get("type", "service")
         if dtype in _RESOURCE_TYPES:
@@ -511,14 +515,16 @@ def _convert_dependencies(value: object, out: dict[str, Any], ctx: _Ctx) -> None
         else:
             raise ValueError(f"{path}.type must be one of service, database, cache, queue, external; got {dtype!r}")
         entry: dict[str, Any] = {"service": ref}
-        if "expects" in keys:
+        for dep_key in _keys("Dependency", path, dep, ctx):
+            if dep_key != "expects":
+                continue  # service and type are already in the ref
             expects = _mapping(f"{path}.expects", dep["expects"])
             for key in _keys("Dependency.expects", f"{path}.expects", expects, ctx):
                 if key == "availability":
                     entry["expected_availability"] = _ratio(f"{path}.expects.availability", expects[key])
                 else:  # latency
                     latency = _mapping(f"{path}.expects.latency", expects[key])
-                    if "p99" in _keys("Dependency.expects.latency", f"{path}.expects.latency", latency, ctx):
+                    for _ in _keys("Dependency.expects.latency", f"{path}.expects.latency", latency, ctx):  # p99
                         entry["expected_latency_p99"] = _duration(f"{path}.expects.latency.p99", latency["p99"])
         deps.append(entry)
     if deps:
@@ -537,19 +543,19 @@ def _convert_ownership(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
             out["owner"]["escalation"] = f"group:default/{_entity_name(path, own[key])}"
         elif key == "pagerduty":
             pd = _mapping(path, own[key])
-            if "service_id" in _keys("Ownership.pagerduty", path, pd, ctx):
+            for _ in _keys("Ownership.pagerduty", path, pd, ctx):  # service_id
                 _annotate(ctx, "pagerduty.com/service-id", pd["service_id"], f"{path}.service_id")
         else:
             _annotate(ctx, _OWNERSHIP_ANNOTATIONS[key], own[key], path)
 
 
 def _convert_observability(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
-    _keys("Observability", "spec.observability", _mapping("spec.observability", value), ctx)
+    list(_keys("Observability", "spec.observability", _mapping("spec.observability", value), ctx))
 
 
 def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> None:
     inst = _mapping("spec.instrumentation", value)
-    if "events" in _keys("Instrumentation", "spec.instrumentation", inst, ctx):
+    for _ in _keys("Instrumentation", "spec.instrumentation", inst, ctx):  # events
         path = "spec.instrumentation.events"
         events = _mapping(path, inst["events"])
         required = []
@@ -559,7 +565,6 @@ def _convert_instrumentation(value: object, out: dict[str, Any], ctx: _Ctx) -> N
             required.append({"type": events[key]})
         if required:
             out["instrumentation"] = {"required_events": required}
-
 
 
 
