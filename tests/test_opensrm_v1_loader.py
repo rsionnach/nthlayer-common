@@ -22,7 +22,7 @@ def test_opensrm_v1_is_rejected_with_the_migrate_command(tmp_path, fmt):
             load_manifest(path, format=fmt)
     msg = str(exc.value)
     assert "opensrm/v1" in msg and "nthlayer-generate migrate-manifest" in msg
-    assert " nthlayer migrate-manifest" not in msg  # bare script is ambiguous (opensrm-dww5)
+    assert " nthlayer migrate-manifest" not in msg  # bare script is ambiguous (opensrm-dww5); leading space so it cannot match inside "nthlayer-generate migrate-manifest"
     assert "service.name is required" not in msg
 
 

@@ -238,9 +238,9 @@ Implements C-X.2 (manifest format migration).
   `MigrationResult.lossy` is True only when something was dropped; assumed
   entries are informational, so they alone must not force `--allow-lossy`.
   Unconvertible input raises `OpenSRMV1MigrationError(ValueError)`.
-  `OPENSRM_V1_REJECTION` is the loader's message template. `load_manifest` raises `ManifestLoadError` naming
-  `nthlayer-generate migrate-manifest` for any `opensrm/v1` document, whatever `format=`
-  says (opensrm-pnmv).
+  `OPENSRM_V1_REJECTION` is the loader's message template. `load_manifest`
+  raises `ManifestLoadError` naming `nthlayer-generate migrate-manifest` for
+  any `opensrm/v1` document, whatever `format=` says (opensrm-pnmv).
 
 **Scanning a mixed directory** (`manifest/scan.py`). `load_manifest`
 raises for any YAML it cannot parse as a manifest, including files that
