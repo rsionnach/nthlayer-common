@@ -1,4 +1,6 @@
 """load_manifest rejects opensrm/v1 clearly (opensrm-pnmv)."""
+import re
+import shlex
 import warnings
 
 import pytest
@@ -21,7 +23,10 @@ def test_opensrm_v1_is_rejected_with_the_migrate_command(tmp_path, fmt):
         with pytest.raises(ManifestLoadError) as exc:
             load_manifest(path, format=fmt)
     msg = str(exc.value)
-    assert "opensrm/v1" in msg and "nthlayer migrate-manifest" in msg
+    assert "opensrm/v1" in msg and "nthlayer-generate migrate-manifest" in msg
+    # Bare script is ambiguous (opensrm-dww5). The lookbehind keeps this from
+    # matching inside "nthlayer-generate migrate-manifest".
+    assert re.search(r"(?<![\w-])nthlayer migrate-manifest", msg) is None
     assert "service.name is required" not in msg
 
 
@@ -42,14 +47,14 @@ def test_exported_rejection_is_the_one_the_loader_raises(tmp_path):
     path.write_text(yaml.safe_dump(_DOC))
     with pytest.raises(ManifestLoadError) as exc:
         load_manifest(path)
-    assert str(exc.value) == manifest.OPENSRM_V1_REJECTION.format(path=path)
+    assert str(exc.value) == manifest.OPENSRM_V1_REJECTION.format(path=shlex.quote(str(path)))
 
 
 def test_is_manifest_file_counts_opensrm_v1_so_scans_reach_the_rejection(tmp_path):
     path = tmp_path / "svc.yaml"          # not *.reliability.yaml, not service.yaml
     path.write_text(yaml.safe_dump(_DOC))
     assert manifest.is_manifest_file(path)
-    with pytest.raises(ManifestLoadError, match="nthlayer migrate-manifest"):
+    with pytest.raises(ManifestLoadError, match="nthlayer-generate migrate-manifest"):
         load_manifest(path)
 
 
@@ -57,3 +62,18 @@ def test_foreign_yaml_reason_does_not_treat_opensrm_v1_as_foreign(tmp_path):
     path = tmp_path / "svc.yaml"
     path.write_text(yaml.safe_dump(_DOC))
     assert manifest.foreign_yaml_reason(path) is None
+
+
+def test_rejection_command_is_shell_safe_and_ends_the_message(tmp_path):
+    d = tmp_path / "my dir"
+    d.mkdir()
+    path = d / "svc.yaml"
+    path.write_text(yaml.safe_dump(_DOC))
+    with pytest.raises(ManifestLoadError) as exc:
+        load_manifest(path)
+    msg = str(exc.value)
+    marker = "nthlayer-generate migrate-manifest "
+    assert msg.count(marker) == 1
+    tail = msg.split(marker)[1]          # nothing may follow the quoted path
+    assert shlex.split(tail) == [str(path)]
+    assert msg.endswith(tail)
