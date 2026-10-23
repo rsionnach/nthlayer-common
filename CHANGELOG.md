@@ -4,6 +4,13 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.3.1](https://github.com/rsionnach/nthlayer-common/compare/v5.3.0...v5.3.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **manifest:** opensrm/v1 rejection names nthlayer-generate migrate-manifest (opensrm-dww5) ([aeebabc](https://github.com/rsionnach/nthlayer-common/commit/aeebabc9b9817d7f0e6974c2a0a887f223cddc7c))
+
 ## [5.3.0](https://github.com/rsionnach/nthlayer-common/compare/v5.2.0...v5.3.0) (2026-10-22)
 
 
