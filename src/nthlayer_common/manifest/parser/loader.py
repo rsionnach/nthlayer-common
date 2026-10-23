@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import contextlib
+import shlex
 import warnings
 from pathlib import Path
 from typing import Any, Literal
@@ -89,7 +90,7 @@ def load_manifest(
     # into a parser that misreads it (opensrm-pnmv). See
     # docs/superpowers/decisions/opensrm-v1-support.md in the nthlayer front door.
     if is_opensrm_v1_format(data):
-        raise ManifestLoadError(OPENSRM_V1_REJECTION.format(path=file_path))
+        raise ManifestLoadError(OPENSRM_V1_REJECTION.format(path=shlex.quote(str(file_path))))
 
     # Detect format
     detected_format = _detect_format(data)
