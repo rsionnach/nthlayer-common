@@ -218,7 +218,7 @@ def test_unmapped_is_in_document_order_depth_first(name):
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))
 def test_load_manifest_rejects_every_example(name):
-    with pytest.raises(ManifestLoadError, match="nthlayer migrate-manifest"):
+    with pytest.raises(ManifestLoadError, match="nthlayer-generate migrate-manifest"):
         load_manifest(EXAMPLES / name)
 
 

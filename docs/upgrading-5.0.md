@@ -140,7 +140,7 @@ no `method`, `frequency` or `sampling`.
   does not know, so a reader survives a newer writer. `Status`, `MissingReason`
   and `ResultReason` are exported for typing.
 - **New in 5.3.0:** `load_manifest` rejects `apiVersion: opensrm/v1` (the
-  published v1 schema) with an error naming `nthlayer migrate-manifest`, instead
+  published v1 schema) with an error naming `nthlayer-generate migrate-manifest`, instead (the bare `nthlayer` script is ambiguous when nthlayer-core is installed alongside; opensrm-dww5)
   of "service.name is required". `convert_opensrm_v1_to_v2(data, *,
   service_type=None) -> MigrationResult(manifest, unmapped)` converts it to v2
   following AUTHORING §7. `unmapped` lists every field not carried over

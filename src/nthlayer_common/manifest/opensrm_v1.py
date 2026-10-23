@@ -44,7 +44,7 @@ _NOT_IN_SCHEMA = "not part of the opensrm/v1 schema"
 OPENSRM_V1_REJECTION = (
     "{path}: apiVersion 'opensrm/v1' is the published OpenSRM v1 schema, which "
     "NthLayer does not load. NthLayer reads opensrm.nthlayer.io/v2 (and srm/v1, "
-    "its own v1 dialect). Convert it with: nthlayer migrate-manifest {path}"
+    "its own v1 dialect). Convert it with: nthlayer-generate migrate-manifest {path}"
 )
 
 UnmappedKind = Literal["dropped", "assumed"]

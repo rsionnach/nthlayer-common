@@ -21,7 +21,8 @@ def test_opensrm_v1_is_rejected_with_the_migrate_command(tmp_path, fmt):
         with pytest.raises(ManifestLoadError) as exc:
             load_manifest(path, format=fmt)
     msg = str(exc.value)
-    assert "opensrm/v1" in msg and "nthlayer migrate-manifest" in msg
+    assert "opensrm/v1" in msg and "nthlayer-generate migrate-manifest" in msg
+    assert " nthlayer migrate-manifest" not in msg  # bare script is ambiguous (opensrm-dww5)
     assert "service.name is required" not in msg
 
 
@@ -49,7 +50,7 @@ def test_is_manifest_file_counts_opensrm_v1_so_scans_reach_the_rejection(tmp_pat
     path = tmp_path / "svc.yaml"          # not *.reliability.yaml, not service.yaml
     path.write_text(yaml.safe_dump(_DOC))
     assert manifest.is_manifest_file(path)
-    with pytest.raises(ManifestLoadError, match="nthlayer migrate-manifest"):
+    with pytest.raises(ManifestLoadError, match="nthlayer-generate migrate-manifest"):
         load_manifest(path)
 
 
