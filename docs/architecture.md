@@ -355,8 +355,8 @@ a fourth directory walk** — three existed before this was shared
   `target`, `window`, `unit`, `description` and `labels` (opensrm-1rnr). See
   `docs/upgrading-4.0.md` and `docs/upgrading-5.0.md`.
 - `ReliabilityManifest.authored_type` — the service type as written, before alias
-  resolution (opensrm-z3ab invariant; set by every parser). Use it for `${type}`
-  substitution into user PromQL; compare against `type`.
+  resolution (opensrm-z3ab invariant; set by every parser). Use `authored_type` for `${type}`
+  substitution into user PromQL; use `type` for comparisons.
 - v1→v2 compat helpers in `v1_compat.py`:
   `default_statistical_requirements`, `default_measurement`,
   `convert_v1_contract`, `convert_v1_to_v2(v1_data: dict) -> dict`.

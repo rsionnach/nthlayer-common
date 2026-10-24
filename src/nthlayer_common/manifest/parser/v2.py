@@ -161,7 +161,7 @@ def parse_opensrm_v2(
     # model's ValueError — so two spellings of the same authoring mistake
     # arrived as different exception types, and the ValueError escaped every
     # caller that catches only OpenSRMV2ParseError.
-    authored_type = service_type
+    authored_type = service_type  # as written; `service_type` stays raw from here
     resolved_type = resolve_service_type(service_type)
     if resolved_type is None:
         raise OpenSRMV2ParseError(
@@ -185,10 +185,10 @@ def parse_opensrm_v2(
     #
     # judgment_threshold shares the rule (schema.json ServiceManifest.allOf, opensrm-l33e).
     for judgment_key in ("judgment_slo", "judgment_threshold"):
-        if judgment_key in spec and service_type != "ai-gate":
+        if judgment_key in spec and resolved_type != "ai-gate":
             raise OpenSRMV2ParseError(
                 f"spec.{judgment_key} is only permitted on an 'ai-gate' service, "
-                f"but spec.service.type is '{service_type}'. Judgment SLOs and "
+                f"but spec.service.type is '{resolved_type}'. Judgment SLOs and "
                 f"thresholds measure decision quality and are only meaningful on "
                 f"a decision-making service. Remove the {judgment_key} block, or "
                 f"declare the service as an ai-gate if it does make decisions."
@@ -267,7 +267,7 @@ def parse_opensrm_v2(
         name=service_name,
         team=team,
         tier=tier,
-        type=service_type,
+        type=resolved_type,
         authored_type=authored_type,
         namespace=namespace,
         description=description,

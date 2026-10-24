@@ -1,10 +1,10 @@
 """ReliabilityManifest.authored_type keeps the spelling the author wrote.
 
-The invariant is opensrm-z3ab's (nthlayer-generate specs/models.py:74-92):
+The invariant is opensrm-z3ab's (see the `type`/`authored_type` handling in nthlayer-generate's specs/models.py):
 `type` is resolved for internal comparisons; `authored_type` is what `${type}`
 substitutes into generated PromQL, where rewriting `web` to `x-web` selects
 zero series in the operator's Prometheus. Alias spellings are common's
-SERVICE_TYPE_ALIASES (models.py:75), the documented input conveniences; the
+SERVICE_TYPE_ALIASES in nthlayer_common.manifest.models, the documented input conveniences; the
 extension spelling is opensrm/spec/v2/examples/x-service-type.yaml's.
 """
 import dataclasses
@@ -68,7 +68,8 @@ def test_the_spec_extension_example_keeps_its_type(tmp_path):
     # Provenance: copy of opensrm/spec/v2/examples/x-service-type.yaml at opensrm
     # 859424a. The ONLY change is injecting metadata.labels.tier: critical, because
     # the shipped example omits it and common's v2 parser requires it (a spec/parser
-    # divergence tracked as opensrm-ta0m). spec.service.type (x-web) is read from
+    # divergence tracked as opensrm-ta0m). x-web is a canonical value (the alias
+    # target of `web`), so this exercises the no-alias path. spec.service.type is read from
     # the file, not restated here.
     doc = yaml.safe_load(X_TYPE_EXAMPLE.read_text())
     declared = doc["spec"]["service"]["type"]

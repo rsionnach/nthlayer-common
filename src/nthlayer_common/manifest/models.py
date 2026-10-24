@@ -1010,7 +1010,7 @@ class ReliabilityManifest:
     # (opensrm-z3ab, opensrm-wo62.1). `type` is resolved for comparisons;
     # this is what `${type}` substitutes into user-authored PromQL, where
     # `web` -> `x-web` would select zero series. Declared, not set as a bare
-    # attribute, so dataclasses.replace() keeps it. None = "derive from type".
+    # attribute, so dataclasses.replace() keeps it. None = "derive from type"; never None after construction.
     # replace(m, type=...) keeps the OLD authored_type: pass authored_type too.
     authored_type: str | None = None
 
