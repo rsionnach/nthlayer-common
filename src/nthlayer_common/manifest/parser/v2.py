@@ -161,6 +161,7 @@ def parse_opensrm_v2(
     # model's ValueError — so two spellings of the same authoring mistake
     # arrived as different exception types, and the ValueError escaped every
     # caller that catches only OpenSRMV2ParseError.
+    authored_type = service_type
     resolved_type = resolve_service_type(service_type)
     if resolved_type is None:
         raise OpenSRMV2ParseError(
@@ -267,6 +268,7 @@ def parse_opensrm_v2(
         team=team,
         tier=tier,
         type=service_type,
+        authored_type=authored_type,
         namespace=namespace,
         description=description,
         labels=labels,
