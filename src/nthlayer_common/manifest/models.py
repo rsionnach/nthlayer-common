@@ -1006,8 +1006,23 @@ class ReliabilityManifest:
     source_file: str | None = None
     raw_data: dict[str, Any] = field(default_factory=dict)
 
+    # The service type exactly as authored, before alias resolution
+    # (opensrm-z3ab, opensrm-wo62.1). `type` is resolved for comparisons;
+    # this is what `${type}` substitutes into user-authored PromQL, where
+    # `web` -> `x-web` would select zero series. Declared, not set as a bare
+    # attribute, so dataclasses.replace() keeps it. None = "derive from type";
+    # never None after construction. When given, it must be a spelling that
+    # resolves to `type`, so replace(m, type=...) must pass authored_type too
+    # (otherwise it raises rather than keep a stale spelling). compare=False:
+    # manifests differing only in alias spelling stay equal, as before 5.4.0.
+    authored_type: str | None = field(default=None, compare=False)
+
     def __post_init__(self) -> None:
         """Validate and normalise the manifest."""
+        authored_given = self.authored_type is not None
+        if not authored_given:
+            self.authored_type = self.type
+
         # DELIBERATELY NOT resolve_service_type(), despite that helper's
         # docstring saying to prefer it. Resolution and validation are split
         # here so the "Service type is required" guard below can sit between
@@ -1046,6 +1061,17 @@ class ReliabilityManifest:
                 f"Must be one of: {valid_service_types_phrase()}."
             )
             raise ValueError(msg)
+
+        if authored_given and (
+            # Redundant with resolve_service_type (None for non-str); kept for a clearer error.
+            not isinstance(self.authored_type, str)
+            or resolve_service_type(self.authored_type) != self.type
+        ):
+            raise ValueError(
+                f"authored_type {self.authored_type!r} does not resolve to "
+                f"type '{self.type}'. authored_type must be a spelling of the "
+                f"same service type; pass it explicitly when changing type."
+            )
 
     def is_ai_gate(self) -> bool:
         """Check if this is an AI gate service."""
