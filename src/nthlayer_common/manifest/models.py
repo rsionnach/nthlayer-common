@@ -1011,6 +1011,7 @@ class ReliabilityManifest:
     # this is what `${type}` substitutes into user-authored PromQL, where
     # `web` -> `x-web` would select zero series. Declared, not set as a bare
     # attribute, so dataclasses.replace() keeps it. None = "derive from type".
+    # replace(m, type=...) keeps the OLD authored_type: pass authored_type too.
     authored_type: str | None = None
 
     def __post_init__(self) -> None:
