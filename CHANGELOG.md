@@ -4,6 +4,19 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.4.0](https://github.com/rsionnach/nthlayer-common/compare/v5.3.1...v5.4.0) (2026-10-24)
+
+
+### Features
+
+* **manifest:** ReliabilityManifest.authored_type keeps the authored service type (opensrm-wo62.1) ([9830cac](https://github.com/rsionnach/nthlayer-common/commit/9830cac6e24148e718e88eff2330c8d3f1d79e91))
+
+
+### Documentation
+
+* bare nthlayer belongs to nthlayer-generate from core 4.0.0 (opensrm-dww5) ([ee69714](https://github.com/rsionnach/nthlayer-common/commit/ee69714fc57f9319405c35b630adc126eb74543a))
+* **manifest:** document ReliabilityManifest.authored_type (opensrm-wo62.1) ([2b24161](https://github.com/rsionnach/nthlayer-common/commit/2b2416186e26e9d26acb87af8866556296663e97))
+
 ## [5.3.1](https://github.com/rsionnach/nthlayer-common/compare/v5.3.0...v5.3.1) (2026-10-23)
 
 
