@@ -1063,6 +1063,7 @@ class ReliabilityManifest:
             raise ValueError(msg)
 
         if authored_given and (
+            # Redundant with resolve_service_type (None for non-str); kept for a clearer error.
             not isinstance(self.authored_type, str)
             or resolve_service_type(self.authored_type) != self.type
         ):

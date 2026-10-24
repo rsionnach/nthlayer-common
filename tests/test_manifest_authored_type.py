@@ -14,12 +14,15 @@ import pytest
 import yaml
 
 from nthlayer_common.manifest import ReliabilityManifest, load_manifest
+from nthlayer_common.manifest.models import SERVICE_TYPE_ALIASES
 from nthlayer_common.manifest.parser.loader import ManifestLoadError
 from nthlayer_common.manifest.parser.v1 import OpenSRMParseError, parse_srm_v1
 from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError, parse_opensrm_v2
 
 OPENSRM = Path(__file__).resolve().parents[2] / "opensrm"
 X_TYPE_EXAMPLE = OPENSRM / "spec" / "v2" / "examples" / "x-service-type.yaml"
+# Literal on purpose (spec-facing fixture); test_aliases_fixture_covers_every_alias
+# fails when a new alias is added to SERVICE_TYPE_ALIASES without coverage here.
 ALIASES = [("web", "x-web"), ("background-job", "worker"), ("pipeline", "batch")]
 
 
@@ -156,3 +159,7 @@ def test_equality_ignores_authored_type_but_repr_shows_it():
 
 def test_authored_type_none_means_derive_from_type():
     assert _m(type="web", authored_type=None).authored_type == "web"
+
+
+def test_aliases_fixture_covers_every_alias():
+    assert dict(ALIASES) == SERVICE_TYPE_ALIASES
