@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'emscripten'",
@@ -150,21 +150,21 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.120.0"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "distro" },
     { name = "docstring-parser" },
-    { name = "httpx" },
+    { name = "httpx2" },
     { name = "jiter" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/5c/3331da4fc009d448008a50c78d86cc929e8c937cd1442245ce3f80561c4e/anthropic-0.120.0.tar.gz", hash = "sha256:6ba6007dc9b00365b20f6101a6618f5196ac1ceef81512e4b5cc0e7436d4975d", size = 1008042, upload-time = "2026-07-24T16:32:52.384Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/4a/70da82b54cdfda7c4bf089f9e895dc2d559b26e76daf367d124e5d9ec71c/anthropic-2.0.0.tar.gz", hash = "sha256:f063562a869be5642046fa112ba3326259bf156f51d6f66a06d15e9e543b9522", size = 1764549, upload-time = "2026-10-21T15:51:52.694Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/8a/8522bdf809e1f95f0d9c936540987a3f6afba01d2921a2bf488dedf836a8/anthropic-0.120.0-py3-none-any.whl", hash = "sha256:591bd531563ec7b63a1e138f5c11f14cb94edda99623b349c2ce2ece8e08b8a5", size = 1022602, upload-time = "2026-07-24T16:32:50.506Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/e9/5b31953d8f9adf03a253c918c66eedf3cb79d98f5821f3123482cf0b2e5c/anthropic-2.0.0-py3-none-any.whl", hash = "sha256:6b866360b0ad26af29bf6282af6a5f9fe74414dbc1a77ad68c16047348a8958d", size = 2101520, upload-time = "2026-10-21T15:51:54.549Z" },
 ]
 
 [[package]]
@@ -476,8 +476,8 @@ name = "httpcore2"
 version = "2.13.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "truststore", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "h11" },
+    { name = "truststore" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cb/f3/1db7aa2bc2524062192bb0e0323969492d1883152a232fe36eea65f4e35c/httpcore2-2.13.1.tar.gz", hash = "sha256:e0aa977abe17e69a3b820a24542a6fa88702676d83880b8d194dcd18408e5103", size = 68071, upload-time = "2026-09-23T07:47:22.372Z" }
 wheels = [
