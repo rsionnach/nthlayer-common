@@ -9,8 +9,9 @@ their judgment rules.
 
 Fixture provenance:
 
-- The legacy document follows the shape of
-  ``nthlayer-generate/examples/uat/payment-api.yaml`` — top-level
+- The legacy document follows the shape of ``tests/fixtures/legacy-payment-api.yaml``,
+  vendored verbatim from nthlayer-generate ``examples/uat/payment-api.yaml``
+  at 6e71305 — top-level
   ``service: {name, team, tier, type}`` (all four required by
   ``_parse_legacy_to_manifest``) and ``resources:`` entries of
   ``kind: SLO`` with ``spec.objective`` / ``spec.window`` / ``spec.indicator``
@@ -20,7 +21,7 @@ Fixture provenance:
   case under test is hand-built: the resource names come from the shared
   ``V2_JUDGMENT_SLO_TYPES`` / ``SRM_V1_JUDGMENT_THRESHOLD_TYPES`` constants
   that srm/v1 also dispatches on. ``test_shipped_legacy_example_unaffected``
-  loads the real payment-api.yaml to show the shipped shape is unchanged.
+  loads that vendored fixture to show the shipped shape is unchanged.
 - The srm/v1 comparison document is built independently from the srm/v1 shape
   used by ``tests/test_manifest_parser.py::v1_ai_gate_data`` — flat
   ``spec.slos`` mapping keyed by SLO name with ``target`` / ``window`` — not
@@ -165,7 +166,7 @@ def test_legacy_non_judgment_slo_unchanged(legacy_manifest):
 # ai_gate:feedback_latency:* for them in legacy manifests too. Legacy must lift
 # them the same way rather than load them as availability SLOs.
 #
-# Legacy shape: nthlayer-generate/examples/uat/payment-api.yaml's kind: SLO
+# Legacy shape: tests/fixtures/legacy-payment-api.yaml's kind: SLO
 # resources (spec.objective, spec.window). The legacy ``unit`` key has no
 # shipped source: no committed legacy manifest uses it. It traces to the
 # loader's pre-existing ``spec.get("unit")`` read in
@@ -253,7 +254,7 @@ def test_legacy_unliftable_threshold_names_unchanged(tmp_path, name):
 
 def _calibration_with_indicator_doc() -> dict:
     # Legacy SLO resources normally carry spec.indicator
-    # (nthlayer-generate/examples/uat/payment-api.yaml).
+    # (tests/fixtures/legacy-payment-api.yaml).
     doc = _legacy_doc()
     doc["resources"].append({
         "kind": "SLO",
@@ -371,14 +372,13 @@ def test_legacy_feedback_latency_non_30d_window_raises(tmp_path):
 # Shipped legacy example (regression)
 # =============================================================================
 
-PAYMENT_API_EXAMPLE = (
-    Path(__file__).resolve().parents[2]
-    / "nthlayer-generate" / "examples" / "uat" / "payment-api.yaml"
-)
+# Vendored from nthlayer-generate examples/uat/payment-api.yaml (see the
+# file's header): common's CI checks out only opensrm beside the repo.
+PAYMENT_API_EXAMPLE = Path(__file__).resolve().parent / "fixtures" / "legacy-payment-api.yaml"
 
 
 def test_shipped_legacy_example_unaffected():
-    # Asserted, not skipped: a missing sibling must fail loudly.
+    # Asserted, not skipped: a missing fixture must fail loudly.
     assert PAYMENT_API_EXAMPLE.is_file(), f"missing {PAYMENT_API_EXAMPLE}"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
