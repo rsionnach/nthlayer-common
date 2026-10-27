@@ -31,6 +31,7 @@ import yaml
 
 from nthlayer_common.manifest import ManifestLoadError, load_manifest
 from nthlayer_common.manifest.models import SourceFormat
+from nthlayer_common.manifest.parser.loader import LegacyFormatWarning
 from nthlayer_common.manifest.parser.v1 import parse_srm_v1
 
 JUDGMENT_NAMES = ("reversal_rate", "high_confidence_failure")
@@ -234,3 +235,42 @@ def test_legacy_unliftable_threshold_names_unchanged(tmp_path, name):
     assert slo.judgment_type is None
     assert slo.slo_type == "availability"
     assert legacy.get_judgment_thresholds() == []
+
+
+def test_legacy_threshold_indicator_dropped_with_warning(tmp_path):
+    # Legacy SLO resources normally carry spec.indicator (payment-api.yaml);
+    # judgment thresholds don't use it, so the lift drops it and warns
+    # instead of failing a manifest that loads today.
+    doc = _legacy_doc()
+    doc["resources"].append({
+        "kind": "SLO",
+        "name": "calibration",
+        "spec": {
+            "objective": 0.05,
+            "window": "30d",
+            "indicator": {"type": "availability", "query": "sum(rate(x[5m]))"},
+        },
+    })
+    path = tmp_path / "fraud-detect.yaml"
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with pytest.warns(LegacyFormatWarning) as record:
+        legacy = load_manifest(path, suppress_deprecation_warning=True)
+
+    indicator_warnings = [w for w in record if "indicator" in str(w.message)]
+    assert len(indicator_warnings) == 1
+    assert "calibration" in str(indicator_warnings[0].message)
+
+    expected = {t.type: t for t in parse_srm_v1(_srm_v1_threshold_doc()).get_judgment_thresholds()}
+    assert legacy.get_judgment_thresholds() == [expected["calibration"]]
+    assert "calibration" not in {s.name for s in legacy.slos}
+
+
+def test_legacy_threshold_other_rejected_key_still_raises(tmp_path):
+    doc = _legacy_doc()
+    doc["resources"].append({
+        "kind": "SLO",
+        "name": "calibration",
+        "spec": {"objective": 0.05, "percentile": 99, "indicator": {"type": "availability"}},
+    })
+    with pytest.raises(ManifestLoadError, match="percentile"):
+        _load_legacy(tmp_path, doc)

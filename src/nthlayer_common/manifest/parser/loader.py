@@ -348,12 +348,25 @@ def _legacy_threshold(name: str, spec: dict[str, Any], target: Any) -> JudgmentT
     Renames legacy's ``objective`` to srm/v1's ``target`` and hands every
     other spec key to thresholds.srm_v1_threshold unchanged, so legacy accepts
     exactly what srm/v1 accepts (window, unit, description, labels; no unit on
-    calibration) and a key the lift cannot carry is an error, not dropped.
+    calibration) and a key the lift cannot carry is an error, not dropped —
+    except ``indicator``. Legacy SLO resources normally carry one, and judgment
+    thresholds do not use it, so rejecting it would fail most legacy
+    calibration/feedback_latency resources in a patch release; it is dropped
+    with a LegacyFormatWarning naming the resource instead.
     Only these two names are lifted: srm/v1 rejects segments, stability and
     audit_backlog, and doing so here would break legacy manifests that load
     today, so they stay classical SLOs.
     """
-    config = {k: v for k, v in spec.items() if k not in ("objective", "target")}
+    if "indicator" in spec:
+        warnings.warn(
+            f"Legacy SLO resource '{name}' is a judgment threshold; its "
+            f"spec.indicator is not used by judgment thresholds and is ignored.",
+            LegacyFormatWarning,
+            stacklevel=2,
+        )
+    config = {
+        k: v for k, v in spec.items() if k not in ("objective", "target", "indicator")
+    }
     config["target"] = target
     try:
         return srm_v1_threshold(name, config)
