@@ -226,6 +226,11 @@ class PagerDutyConfig:
 
     service_id: str | None = None
     escalation_policy_id: str | None = None
+    # Legacy-format PagerDuty resource keys (opensrm-wo62.4.1), read by
+    # nthlayer-generate's setup-pagerduty. srm/v1 and v2 never set them.
+    urgency: str | None = None
+    auto_resolve_timeout: int | None = None
+    create_escalation_policy: dict[str, Any] | None = None
 
 
 @dataclass

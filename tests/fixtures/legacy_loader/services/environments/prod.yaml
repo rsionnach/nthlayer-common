@@ -1,0 +1,10 @@
+# Minimal copy of nthlayer-generate examples/environments/prod.yaml
+# (opensrm-wo62.4.1). Metadata is trimmed to two keys.
+
+environment: prod
+
+service:
+  tier: critical
+  metadata:
+    environment: prod
+    monitoring_level: comprehensive

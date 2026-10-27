@@ -1,0 +1,43 @@
+# opensrm.nthlayer.io/v2 manifest copied from the v2_manifest_data fixture
+# in tests/test_manifest_parser.py (opensrm-wo62.4.1), with the service
+# description changed to carry a literal ${team}. Used to prove the
+# legacy-only preprocessing does not touch v2.
+
+apiVersion: opensrm.nthlayer.io/v2
+kind: ServiceManifest
+metadata:
+  name: payment-service
+  namespace: payments
+  labels:
+    tier: critical
+    type: api
+spec:
+  owner:
+    group: group:default/sre-payments
+  service:
+    name: payment-service
+    type: api
+    description: "Payments for ${team}"
+  slo:
+    - apiVersion: openslo/v1
+      kind: SLO
+      metadata:
+        name: payment-availability
+      spec:
+        indicator:
+          metadata:
+            name: availability
+          spec:
+            ratioMetric:
+              total:
+                metricSource:
+                  type: Prometheus
+                  spec:
+                    query: rate(http_requests_total[5m])
+              good:
+                metricSource:
+                  type: Prometheus
+                  spec:
+                    query: 'rate(http_requests_total{status=~"2.."}[5m])'
+        objectives:
+          - target: 0.9999

@@ -1,0 +1,9 @@
+# Copy of nthlayer-generate examples/services/payment-api-with-envs.yaml
+# (opensrm-wo62.4.1), unchanged below this header.
+
+service:
+  name: payment-api
+  team: payments
+  tier: critical
+  type: api
+  template: critical-api

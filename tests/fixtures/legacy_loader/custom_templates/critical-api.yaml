@@ -1,0 +1,22 @@
+# Adapted from nthlayer-generate src/nthlayer_generate/specs/builtin_templates/critical-api.yaml
+# (opensrm-wo62.4.1): an organisation's custom override of the built-in.
+# Availability objective 99.9 -> 99.95 and the description changed; the
+# latency SLO and PagerDuty resource are dropped. A custom template is
+# registered by its `name` field, not its file name (generate
+# custom_templates.py / template_loader.py), so this file is installed
+# under a different file name by the tests.
+
+name: critical-api
+description: Org-wide critical API with 99.95% availability
+tier: critical
+type: api
+
+resources:
+  - kind: SLO
+    name: availability
+    spec:
+      objective: 99.95
+      window: 30d
+      indicator:
+        type: availability
+        query: sum(rate(http_requests_total{service="${service}"}[5m]))

@@ -1,0 +1,21 @@
+# Adapted from nthlayer-generate tests/test_cli_pagerduty.py, fixture
+# service_with_full_pagerduty (opensrm-wo62.4.1). Only change: tier
+# "tier-1" -> "critical", because nthlayer-common's manifest model rejects
+# tier-1 and the PagerDuty spec is what this fixture is for.
+
+service:
+  name: critical-api
+  team: platform-team
+  tier: critical
+  type: api
+resources:
+  - kind: PagerDuty
+    name: primary
+    spec:
+      escalation_policy: platform-oncall
+      urgency: high
+      auto_resolve_timeout: 14400
+      create_escalation_policy:
+        name: auto-created-policy
+        users:
+          - user@example.com

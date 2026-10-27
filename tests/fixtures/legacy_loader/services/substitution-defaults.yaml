@@ -1,0 +1,18 @@
+# Adapted from nthlayer-generate examples/services/email-worker.yaml
+# (opensrm-wo62.4.1). language, framework and template are removed so the
+# defaults apply, and one SLO's description names the variables whose
+# value is a default or the authored (unresolved) type.
+
+service:
+  name: email-worker
+  team: notifications
+  tier: standard
+  type: background-job
+
+resources:
+  - kind: SLO
+    name: success-rate
+    spec:
+      objective: 99.0
+      window: 30d
+      description: "${type}|${support_model}|${language}|${framework}"

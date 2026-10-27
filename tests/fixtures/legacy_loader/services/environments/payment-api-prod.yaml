@@ -1,0 +1,52 @@
+# Minimal copy of nthlayer-generate examples/environments/payment-api-prod.yaml
+# (opensrm-wo62.4.1). Metadata is trimmed to two keys, the latency-p95/p99
+# SLOs and PagerDuty resource are unchanged, and the Dependencies resource
+# keeps one database.
+
+environment: prod
+
+service:
+  tier: critical
+  metadata:
+    criticality: mission-critical
+    compliance: pci-dss
+
+resources:
+  - kind: SLO
+    name: availability
+    spec:
+      objective: 99.99
+      window: 30d
+      indicator:
+        success_rate:
+          total_query: 'sum(rate(http_requests_total{service="payment-api"}[5m]))'
+          error_query: 'sum(rate(http_requests_total{service="payment-api",status=~"5.."}[5m]))'
+
+  - kind: SLO
+    name: latency-p95
+    spec:
+      objective: 99.5
+      window: 30d
+      threshold_ms: 300
+
+  - kind: SLO
+    name: latency-p99
+    spec:
+      objective: 99.0
+      window: 30d
+      threshold_ms: 500
+
+  - kind: Dependencies
+    name: databases
+    spec:
+      databases:
+        - type: postgres
+          instance: payment-db-prod
+
+  - kind: PagerDuty
+    name: primary
+    spec:
+      escalation_policy: payment-critical
+      urgency: high
+      auto_resolve: false
+      acknowledgement_timeout: 5m

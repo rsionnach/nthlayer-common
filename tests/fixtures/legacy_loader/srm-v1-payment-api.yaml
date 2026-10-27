@@ -1,0 +1,26 @@
+# srm/v1 manifest copied from the v1_manifest_data fixture in
+# tests/test_manifest_parser.py (opensrm-wo62.4.1), plus an
+# ownership.pagerduty block (srm/v1 parser shape, parser/v1.py
+# _parse_ownership) and a literal ${service} in the indicator query.
+# Used to prove the legacy-only preprocessing does not touch srm/v1.
+
+apiVersion: srm/v1
+kind: ServiceReliabilityManifest
+metadata:
+  name: payment-api
+  team: payments
+  tier: critical
+spec:
+  type: api
+  slos:
+    availability:
+      target: 99.99
+      window: 30d
+      indicator:
+        type: availability
+        query: 'sum(rate(http_requests_total{service="${service}",status=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))'
+  ownership:
+    team: payments
+    pagerduty:
+      service_id: PABC123
+      escalation_policy_id: PEP456

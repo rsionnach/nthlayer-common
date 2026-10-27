@@ -1,0 +1,19 @@
+# Adapted from nthlayer-generate examples/environments/payment-api-dev.yaml
+# (opensrm-wo62.4.1): environment renamed to canary (so that no step 1 or
+# step 2 file exists), metadata trimmed to one key plus one ${env}
+# reference, and the availability SLO kept unchanged.
+
+environment: canary
+
+service:
+  tier: standard
+  metadata:
+    testing_mode: true
+    deployment: "${service}-${env}"
+
+resources:
+  - kind: SLO
+    name: availability
+    spec:
+      objective: 99.0
+      window: 7d

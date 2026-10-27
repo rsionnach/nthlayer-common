@@ -1,0 +1,19 @@
+# Minimal copy of nthlayer-generate examples/services/email-worker.yaml
+# (opensrm-wo62.4.1). The Dependencies resource is dropped; the service
+# block and the SLO override are unchanged.
+
+service:
+  name: email-worker
+  team: notifications
+  tier: standard
+  type: background-job
+  language: python
+  framework: celery
+  template: background-job
+
+resources:
+  # Override: Email sending can take longer than default 60s
+  - kind: SLO
+    name: processing-latency-p95
+    spec:
+      threshold_ms: 120000
