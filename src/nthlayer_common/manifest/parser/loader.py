@@ -33,10 +33,10 @@ from nthlayer_common.manifest.models import (
     SourceFormat,
 )
 from nthlayer_common.manifest.opensrm_v1 import OPENSRM_V1_REJECTION, is_opensrm_v1_format
+from nthlayer_common.manifest.parser._shared import judgment_slo_fields
 from nthlayer_common.manifest.parser.v1 import (
     OpenSRMParseError,
     is_srm_v1_format,
-    judgment_slo_fields,
     parse_srm_v1,
     resolve_template,
 )
@@ -299,7 +299,7 @@ def _extract_slos_from_resources(
     thresholds, lifted exactly as srm/v1 lifts its ``spec.slos`` entries of
     the same names (see _legacy_threshold).
     """
-    slos = []
+    slos: list[SLODefinition] = []
     thresholds: list[JudgmentThreshold] = []
 
     for resource in resources:
@@ -313,6 +313,10 @@ def _extract_slos_from_resources(
         if target is None:
             continue
 
+        # Only calibration and feedback_latency are lifted [opensrm-wo62.1].
+        # srm/v1 rejects segments, stability and audit_backlog, but doing so
+        # here would break legacy manifests that load today, so they stay
+        # classical SLOs.
         if name in SRM_V1_JUDGMENT_THRESHOLD_TYPES:
             thresholds.append(_legacy_threshold(name, spec, target))
             continue
@@ -345,24 +349,26 @@ def _extract_slos_from_resources(
 def _legacy_threshold(name: str, spec: dict[str, Any], target: Any) -> JudgmentThreshold:
     """Lift a legacy calibration/feedback_latency SLO resource [opensrm-wo62.1].
 
-    Renames legacy's ``objective`` to srm/v1's ``target`` and hands every
-    other spec key to thresholds.srm_v1_threshold unchanged, so legacy accepts
-    exactly what srm/v1 accepts (window, unit, description, labels; no unit on
-    calibration) and a key the lift cannot carry is an error, not dropped —
-    except ``indicator``. Legacy SLO resources normally carry one, and judgment
-    thresholds do not use it, so rejecting it would fail most legacy
-    calibration/feedback_latency resources in a patch release; it is dropped
-    with a LegacyFormatWarning naming the resource instead.
-    Only these two names are lifted: srm/v1 rejects segments, stability and
-    audit_backlog, and doing so here would break legacy manifests that load
-    today, so they stay classical SLOs.
+    ``target`` is the resource's objective (or target), already None-checked
+    by the caller. It replaces both keys, and every other spec key goes to
+    thresholds.srm_v1_threshold unchanged, so legacy accepts exactly what
+    srm/v1 accepts (window, unit, description, labels; no unit on calibration).
+
+    The one exception is ``indicator``. Legacy SLO resources normally carry
+    one and judgment thresholds do not use it, so rejecting it would fail most
+    legacy calibration/feedback_latency resources in a patch release. It is
+    dropped with a LegacyFormatWarning naming the resource.
+
+    Raises ManifestLoadError for any other key the srm/v1 lift rejects.
     """
     if "indicator" in spec:
         warnings.warn(
             f"Legacy SLO resource '{name}' is a judgment threshold; its "
             f"spec.indicator is not used by judgment thresholds and is ignored.",
             LegacyFormatWarning,
-            stacklevel=2,
+            # _legacy_threshold -> _extract_slos_from_resources ->
+            # _parse_legacy_to_manifest -> load_manifest -> caller.
+            stacklevel=5,
         )
     config = {
         k: v for k, v in spec.items() if k not in ("objective", "target", "indicator")

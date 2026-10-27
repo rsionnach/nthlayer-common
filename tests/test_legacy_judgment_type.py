@@ -25,6 +25,7 @@ Fixture provenance:
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 
 import pytest
 import yaml
@@ -153,12 +154,14 @@ def test_legacy_non_judgment_slo_unchanged(legacy_manifest):
 # =============================================================================
 #
 # srm/v1 lifts these two names out of spec.slos into JudgmentThresholds via
-# thresholds.srm_v1_threshold (decision 3c, opensrm-l33e); before generate
+# thresholds.srm_v1_threshold, because they bound an error magnitude rather
+# than a success rate and so are thresholds, not SLOs; before generate
 # switched to judgment_type dispatch it emitted ai_gate:calibration:* and
 # ai_gate:feedback_latency:* for them in legacy manifests too. Legacy must lift
 # them the same way rather than load them as availability SLOs.
 #
-# Legacy shape: the payment-api.yaml resource shape above (spec.objective,
+# Legacy shape: nthlayer-generate/examples/uat/payment-api.yaml's kind: SLO
+# resources (spec.objective,
 # spec.window, spec.unit). srm/v1 shape: the keys srm_v1_threshold accepts
 # (_SRM_V1_THRESHOLD_KEYS = target, window, unit, description, labels;
 # calibration takes no unit; feedback_latency's unit defaults to s and its
@@ -181,12 +184,16 @@ def _srm_v1_threshold_doc() -> dict:
     return doc
 
 
-def _load_legacy(tmp_path, doc):
+def _load_legacy(tmp_path, doc, caught=None):
+    """Load ``doc`` as a legacy manifest; append any warnings to ``caught``."""
     path = tmp_path / "fraud-detect.yaml"
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return load_manifest(path)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        manifest = load_manifest(path)
+    if caught is not None:
+        caught.extend(record)
+    return manifest
 
 
 THRESHOLD_NAMES = ("calibration", "feedback_latency")
@@ -237,10 +244,9 @@ def test_legacy_unliftable_threshold_names_unchanged(tmp_path, name):
     assert legacy.get_judgment_thresholds() == []
 
 
-def test_legacy_threshold_indicator_dropped_with_warning(tmp_path):
-    # Legacy SLO resources normally carry spec.indicator (payment-api.yaml);
-    # judgment thresholds don't use it, so the lift drops it and warns
-    # instead of failing a manifest that loads today.
+def _calibration_with_indicator_doc() -> dict:
+    # Legacy SLO resources normally carry spec.indicator
+    # (nthlayer-generate/examples/uat/payment-api.yaml).
     doc = _legacy_doc()
     doc["resources"].append({
         "kind": "SLO",
@@ -251,12 +257,23 @@ def test_legacy_threshold_indicator_dropped_with_warning(tmp_path):
             "indicator": {"type": "availability", "query": "sum(rate(x[5m]))"},
         },
     })
-    path = tmp_path / "fraud-detect.yaml"
-    path.write_text(yaml.safe_dump(doc, sort_keys=False))
-    with pytest.warns(LegacyFormatWarning) as record:
-        legacy = load_manifest(path, suppress_deprecation_warning=True)
+    return doc
 
-    indicator_warnings = [w for w in record if "indicator" in str(w.message)]
+
+def _indicator_warnings(caught):
+    return [
+        w for w in caught
+        if issubclass(w.category, LegacyFormatWarning) and "indicator" in str(w.message)
+    ]
+
+
+def test_legacy_threshold_indicator_dropped_with_warning(tmp_path):
+    # Judgment thresholds don't use the indicator, so the lift drops it and
+    # warns instead of failing a manifest that loads today.
+    caught: list = []
+    legacy = _load_legacy(tmp_path, _calibration_with_indicator_doc(), caught)
+
+    indicator_warnings = _indicator_warnings(caught)
     assert len(indicator_warnings) == 1
     assert "calibration" in str(indicator_warnings[0].message)
 
@@ -265,7 +282,16 @@ def test_legacy_threshold_indicator_dropped_with_warning(tmp_path):
     assert "calibration" not in {s.name for s in legacy.slos}
 
 
-def test_legacy_threshold_other_rejected_key_still_raises(tmp_path):
+def test_legacy_threshold_indicator_warning_points_at_caller(tmp_path):
+    # stacklevel must attribute the warning to load_manifest's caller (here,
+    # _load_legacy in this file), not to a frame inside the loader.
+    caught: list = []
+    _load_legacy(tmp_path, _calibration_with_indicator_doc(), caught)
+    (warning,) = _indicator_warnings(caught)
+    assert Path(warning.filename).resolve() == Path(__file__).resolve()
+
+
+def test_legacy_threshold_unsupported_key_percentile_raises(tmp_path):
     doc = _legacy_doc()
     doc["resources"].append({
         "kind": "SLO",

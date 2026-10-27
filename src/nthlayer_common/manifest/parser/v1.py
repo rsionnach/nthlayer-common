@@ -27,7 +27,6 @@ from nthlayer_common.manifest.models import (
     DeploymentGates,
     ErrorBudgetGate,
     Instrumentation,
-    JudgmentMeasurement,
     JudgmentThreshold,
     ManifestEscalationStep,
     OnCallConfig,
@@ -42,10 +41,9 @@ from nthlayer_common.manifest.models import (
     SLOComplianceGate,
     SLODefinition,
     SourceFormat,
-    StatisticalRequirements,
     TelemetryEvent,
 )
-from nthlayer_common.manifest.parser._shared import parse_observability
+from nthlayer_common.manifest.parser._shared import judgment_slo_fields, parse_observability
 from nthlayer_common.manifest.target_validation import (
     check_finite,
     require_number,
@@ -53,8 +51,6 @@ from nthlayer_common.manifest.target_validation import (
 from nthlayer_common.manifest.thresholds import srm_v1_threshold
 from nthlayer_common.manifest.v1_compat import (
     convert_v1_contract,
-    default_measurement,
-    default_statistical_requirements,
 )
 
 logger = structlog.get_logger()
@@ -268,27 +264,6 @@ def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str
 # =============================================================================
 # Internal Parsing Functions
 # =============================================================================
-
-
-def judgment_slo_fields(
-    name: str, window: str
-) -> tuple[str | None, JudgmentMeasurement | None, StatisticalRequirements | None]:
-    """Return ``(judgment_type, measurement, statistical_requirements)`` for a flat SLO.
-
-    Formats that key judgment SLOs by name rather than declaring them
-    structurally — srm/v1's ``spec.slos`` mapping and legacy ``kind: SLO``
-    resources — detect them here, so the two cannot drift: a name in
-    ``V2_JUDGMENT_SLO_TYPES`` becomes a judgment SLO with the v1_compat
-    defaults; any other name yields ``(None, None, None)``. nthlayer-generate
-    dispatches judgment recording rules on ``judgment_type`` (opensrm-wo62.1).
-    """
-    if name not in V2_JUDGMENT_SLO_TYPES:
-        return None, None, None
-    return (
-        name,
-        default_measurement(name, window),
-        default_statistical_requirements(name),
-    )
 
 
 def _parse_slos(
