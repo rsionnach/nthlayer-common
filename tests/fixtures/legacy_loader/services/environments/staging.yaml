@@ -1,0 +1,24 @@
+# Copy of nthlayer-generate examples/services/environments/staging.yaml
+# (opensrm-wo62.4.1), unchanged below this header except comments removed.
+
+environment: staging
+
+service:
+  tier: standard
+
+resources:
+  - kind: SLO
+    name: availability
+    spec:
+      objective: 99.5
+
+  - kind: SLO
+    name: latency-p95
+    spec:
+      objective: 95.0
+      threshold_ms: 1000
+
+  - kind: PagerDuty
+    name: primary
+    spec:
+      urgency: low

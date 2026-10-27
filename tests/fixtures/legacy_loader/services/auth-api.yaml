@@ -1,0 +1,42 @@
+# Minimal copy of nthlayer-generate examples/services/auth-api.yaml
+# (opensrm-wo62.4.1). The Dependencies resource is trimmed to one service;
+# the SLO resources are unchanged.
+
+service:
+  name: auth-api
+  team: platform
+  tier: critical
+  type: api
+  language: go
+  framework: gin
+  template: critical-api
+
+resources:
+  # Override: Auth needs to be faster than default
+  - kind: SLO
+    name: latency-p95
+    spec:
+      threshold_ms: 200
+      objective: 99.5
+
+  # Add: Token generation latency
+  - kind: SLO
+    name: token-generation-latency
+    spec:
+      objective: 99.0
+      window: 30d
+      indicator:
+        type: latency
+        percentile: 95
+        threshold_ms: 100
+        query: |
+          histogram_quantile(0.95,
+            rate(token_generation_duration_seconds_bucket{service="${service}"}[5m])
+          )
+
+  - kind: Dependencies
+    name: upstream
+    spec:
+      services:
+        - name: user-service
+          criticality: critical

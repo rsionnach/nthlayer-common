@@ -1,0 +1,25 @@
+# Adapted from nthlayer-generate examples/services/payment-api-pagerduty-demo.yaml
+# (opensrm-wo62.4.1). The service block is unchanged except for the added
+# description; the availability SLO gains a description naming every legacy
+# substitution variable (nthlayer-generate specs/models.py
+# ServiceContext.to_dict, plus env) and one unknown variable.
+
+service:
+  name: payment-api
+  team: payments
+  tier: critical
+  type: api
+  support_model: shared
+  language: java
+  framework: spring-boot
+  description: "${team} own ${service}"
+
+resources:
+  - kind: SLO
+    name: availability
+    spec:
+      objective: 99.95
+      window: 30d
+      description: "${service}|${team}|${tier}|${type}|${support_model}|${language}|${framework}|${env}|${unknown}"
+      indicator:
+        type: availability

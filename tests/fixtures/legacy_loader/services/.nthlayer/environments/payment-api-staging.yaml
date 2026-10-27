@@ -1,0 +1,9 @@
+# Adapted from nthlayer-generate examples/environments/payment-api-dev.yaml
+# (opensrm-wo62.4.1): environment renamed to staging and tier set to low.
+# Lookup step 3 ({dir}/.nthlayer/environments/{stem}-{env}.yaml); it must
+# LOSE to step 2 (environments/staging.yaml), which sets tier standard.
+
+environment: staging
+
+service:
+  tier: low

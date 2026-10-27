@@ -1,0 +1,20 @@
+# Minimal copy of nthlayer-generate examples/services/payment-api-pagerduty-demo.yaml
+# (opensrm-wo62.4.1). Only the service block and the PagerDuty resource are
+# kept, unchanged.
+
+service:
+  name: payment-api
+  team: payments
+  tier: critical
+  type: api
+  support_model: shared
+  language: java
+  framework: spring-boot
+
+resources:
+  - kind: PagerDuty
+    name: primary
+    spec:
+      urgency: high
+      auto_resolve_timeout: 14400
+      auto_create: true

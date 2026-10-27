@@ -44,6 +44,12 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The legacy-format built-in templates are YAML package data, loaded via
+# importlib.resources (opensrm-wo62.4.1). Without this they are missing from
+# the wheel and every legacy `service.template` fails as unknown.
+[tool.setuptools.package-data]
+"nthlayer_common.manifest.legacy_templates" = ["*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

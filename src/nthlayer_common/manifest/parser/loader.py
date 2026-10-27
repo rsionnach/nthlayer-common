@@ -33,6 +33,7 @@ from nthlayer_common.manifest.models import (
     SourceFormat,
 )
 from nthlayer_common.manifest.opensrm_v1 import OPENSRM_V1_REJECTION, is_opensrm_v1_format
+from nthlayer_common.manifest.parser import legacy
 from nthlayer_common.manifest.parser._shared import judgment_slo_fields
 from nthlayer_common.manifest.parser.v1 import (
     OpenSRMParseError,
@@ -74,6 +75,12 @@ def load_manifest(
       - srm/v1 → v1 parser
       - opensrm.nthlayer.io/v2 → v2 parser
       - service: section → legacy parser
+
+    For the legacy format only, ``environment`` selects an overlay
+    (``environments/{stem}-{env}.yaml``, ``environments/{env}.yaml``,
+    ``.nthlayer/environments/{stem}-{env}.yaml``) deep-merged before parsing;
+    ``service.template`` is then expanded and ``${var}`` substituted
+    (parser/legacy.py, opensrm-wo62.4.1). srm/v1 and v2 only record it.
     """
     path = Path(file_path)
 
@@ -135,6 +142,14 @@ def load_manifest(
                 LegacyFormatWarning,
                 stacklevel=2,
             )
+        # Overlay, then template, then ${var} — generate's legacy order
+        # (opensrm-wo62.4.1). See parser/legacy.py.
+        try:
+            data = legacy.apply_environment_overlay(data, path, environment)
+            data = legacy.expand_template(data, path, _find_template_dir(path))
+            data = legacy.substitute_variables(data, environment)
+        except ValueError as e:
+            raise ManifestLoadError(str(e)) from e
         manifest = _parse_legacy_to_manifest(data, str(path), environment)
 
     # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits
@@ -510,6 +525,9 @@ def _extract_ownership(
             ownership.pagerduty = PagerDutyConfig(
                 service_id=spec.get("service_id"),
                 escalation_policy_id=spec.get("escalation_policy"),
+                urgency=spec.get("urgency"),
+                auto_resolve_timeout=spec.get("auto_resolve_timeout"),
+                create_escalation_policy=spec.get("create_escalation_policy"),
             )
             ownership.escalation = spec.get("escalation_policy")
             break

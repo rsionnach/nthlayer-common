@@ -1,0 +1,9 @@
+# Copy of nthlayer-generate examples/services/api-minimal.yaml
+# (opensrm-wo62.4.1), unchanged below this header.
+
+service:
+  name: api-minimal
+  team: platform
+  tier: critical
+  type: api
+  template: critical-api
