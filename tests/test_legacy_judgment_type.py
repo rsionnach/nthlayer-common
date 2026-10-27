@@ -300,3 +300,61 @@ def test_legacy_threshold_unsupported_key_percentile_raises(tmp_path):
     })
     with pytest.raises(ManifestLoadError, match="percentile"):
         _load_legacy(tmp_path, doc)
+
+
+# =============================================================================
+# Threshold objective handling (edge cases)
+# =============================================================================
+
+
+def _legacy_with(name: str, spec: dict) -> dict:
+    doc = _legacy_doc()
+    doc["resources"].append({"kind": "SLO", "name": name, "spec": spec})
+    return doc
+
+
+def _v1_threshold(name: str, entry: dict):
+    doc = _srm_v1_doc()
+    doc["spec"]["slos"][name] = entry
+    (threshold,) = parse_srm_v1(doc).get_judgment_thresholds()
+    return threshold
+
+
+def test_legacy_threshold_objective_zero_lifts(tmp_path):
+    # srm/v1 lifts target 0; a falsy objective must not fall through.
+    legacy = _load_legacy(tmp_path, _legacy_with("calibration", {"objective": 0}))
+    (threshold,) = legacy.get_judgment_thresholds()
+    assert threshold.bounds == {"maximum_expected_calibration_error": 0}
+    assert threshold == _v1_threshold("calibration", {"target": 0})
+
+
+@pytest.mark.parametrize("name", THRESHOLD_NAMES)
+def test_legacy_threshold_missing_objective_raises(tmp_path, name):
+    with pytest.raises(ManifestLoadError, match=f"{name}.*requires an objective"):
+        _load_legacy(tmp_path, _legacy_with(name, {"window": "30d"}))
+
+
+@pytest.mark.parametrize("name", THRESHOLD_NAMES)
+def test_legacy_threshold_objective_and_target_both_set_raises(tmp_path, name):
+    with pytest.raises(ManifestLoadError, match=f"{name}.*objective.*target"):
+        _load_legacy(tmp_path, _legacy_with(name, {"objective": 1, "target": 1}))
+
+
+@pytest.mark.parametrize(
+    ("target", "unit", "expected"),
+    [(60, "m", "60m"), (500, "ms", "500ms"), (24, "h", "24h")],
+)
+def test_legacy_feedback_latency_units_match_srm_v1(tmp_path, target, unit, expected):
+    legacy = _load_legacy(
+        tmp_path, _legacy_with("feedback_latency", {"objective": target, "unit": unit})
+    )
+    (threshold,) = legacy.get_judgment_thresholds()
+    assert threshold.bounds == {"maximum_p50": expected}
+    assert threshold == _v1_threshold("feedback_latency", {"target": target, "unit": unit})
+
+
+def test_legacy_feedback_latency_non_30d_window_raises(tmp_path):
+    with pytest.raises(ManifestLoadError, match="feedback_latency.*window"):
+        _load_legacy(
+            tmp_path, _legacy_with("feedback_latency", {"objective": 3600, "window": "7d"})
+        )
