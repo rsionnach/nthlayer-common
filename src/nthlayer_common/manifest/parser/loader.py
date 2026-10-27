@@ -34,6 +34,7 @@ from nthlayer_common.manifest.opensrm_v1 import OPENSRM_V1_REJECTION, is_opensrm
 from nthlayer_common.manifest.parser.v1 import (
     OpenSRMParseError,
     is_srm_v1_format,
+    judgment_slo_fields,
     parse_srm_v1,
     resolve_template,
 )
@@ -301,16 +302,24 @@ def _extract_slos_from_resources(resources: list[dict[str, Any]]) -> list[SLODef
             continue
 
         slo_type = _infer_legacy_slo_type(name, spec)
+        window = spec.get("window", "30d")
+        # Same name-keyed detection as srm/v1 [opensrm-wo62.1]: without it a
+        # legacy ai-gate manifest's judgment SLOs load as classical, and
+        # nthlayer-generate silently drops their judgment recording rules.
+        judgment_type, measurement, statistical_requirements = judgment_slo_fields(name, window)
 
         slo = SLODefinition(
             name=name,
             target=float(target),
             slo_type=slo_type,
-            window=spec.get("window", "30d"),
+            window=window,
             unit=spec.get("unit"),
             percentile=spec.get("percentile"),
             indicator_query=spec.get("indicator", {}).get("query"),
             description=spec.get("description"),
+            judgment_type=judgment_type,
+            measurement=measurement,
+            statistical_requirements=statistical_requirements,
         )
         slos.append(slo)
 

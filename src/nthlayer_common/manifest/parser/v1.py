@@ -27,6 +27,7 @@ from nthlayer_common.manifest.models import (
     DeploymentGates,
     ErrorBudgetGate,
     Instrumentation,
+    JudgmentMeasurement,
     JudgmentThreshold,
     ManifestEscalationStep,
     OnCallConfig,
@@ -41,6 +42,7 @@ from nthlayer_common.manifest.models import (
     SLOComplianceGate,
     SLODefinition,
     SourceFormat,
+    StatisticalRequirements,
     TelemetryEvent,
 )
 from nthlayer_common.manifest.parser._shared import parse_observability
@@ -268,6 +270,27 @@ def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str
 # =============================================================================
 
 
+def judgment_slo_fields(
+    name: str, window: str
+) -> tuple[str | None, JudgmentMeasurement | None, StatisticalRequirements | None]:
+    """Return ``(judgment_type, measurement, statistical_requirements)`` for a flat SLO.
+
+    Formats that key judgment SLOs by name rather than declaring them
+    structurally — srm/v1's ``spec.slos`` mapping and legacy ``kind: SLO``
+    resources — detect them here, so the two cannot drift: a name in
+    ``V2_JUDGMENT_SLO_TYPES`` becomes a judgment SLO with the v1_compat
+    defaults; any other name yields ``(None, None, None)``. nthlayer-generate
+    dispatches judgment recording rules on ``judgment_type`` (opensrm-wo62.1).
+    """
+    if name not in V2_JUDGMENT_SLO_TYPES:
+        return None, None, None
+    return (
+        name,
+        default_measurement(name, window),
+        default_statistical_requirements(name),
+    )
+
+
 def _parse_slos(
     slos_data: dict[str, Any],
     service_type: str,
@@ -304,16 +327,9 @@ def _parse_slos(
 
         slo_type = _infer_slo_type(name, config, service_type)
 
-        # Detect judgment SLOs and populate v2 fields
-        judgment_type = None
-        measurement = None
-        statistical_requirements = None
-
-        if name in V2_JUDGMENT_SLO_TYPES:
-            judgment_type = name
-            window = config.get("window", "30d")
-            measurement = default_measurement(judgment_type, window)
-            statistical_requirements = default_statistical_requirements(judgment_type)
+        judgment_type, measurement, statistical_requirements = judgment_slo_fields(
+            name, config.get("window", "30d")
+        )
 
         # Guarded the same way as the v2 classical path [opensrm-ocvu]. v1 was
         # the LAST unguarded writer of SLODefinition.target, and leaving it so
