@@ -357,6 +357,7 @@ a fourth directory walk** — three existed before this was shared
 - `ReliabilityManifest.authored_type` — the service type as written, before alias
   resolution (opensrm-z3ab invariant; set by every parser). Use `authored_type` for `${type}`
   substitution into user PromQL; use `type` for comparisons.
+- Legacy-format manifests parse judgment SLOs like srm/v1 [opensrm-wo62.1]: SLO resources named for a v2 judgment type get `judgment_type`, measurement and statistical requirements via `parser._shared.judgment_slo_fields`; resources named `calibration` / `feedback_latency` are lifted into `JudgmentThreshold`s through srm/v1's lift (`objective` → `target`; `spec.indicator` is dropped with a `LegacyFormatWarning`; any other key the lift cannot carry, a missing objective, or both `objective` and `target` raise `ManifestLoadError`).
 - v1→v2 compat helpers in `v1_compat.py`:
   `default_statistical_requirements`, `default_measurement`,
   `convert_v1_contract`, `convert_v1_to_v2(v1_data: dict) -> dict`.
