@@ -79,7 +79,9 @@ def load_manifest(
     For the legacy format only, ``environment`` selects an overlay
     (``environments/{stem}-{env}.yaml``, ``environments/{env}.yaml``,
     ``.nthlayer/environments/{stem}-{env}.yaml``) deep-merged before parsing;
-    ``service.template`` is then expanded and ``${var}`` substituted
+    ``service.template`` is then expanded (built-in templates, overridden by
+    custom ones from ``.nthlayer/templates`` found walking up from the
+    manifest, else a ``templates/`` dir beside it) and ``${var}`` substituted
     (parser/legacy.py, opensrm-wo62.4.1). srm/v1 and v2 only record it.
     """
     path = Path(file_path)

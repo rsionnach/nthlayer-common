@@ -65,6 +65,8 @@ PAYMENT_API_AVAILABILITY_QUERY = (
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
     """A private copy of the fixture tree; returns its services/ dir."""
+    # A tripwire, not an inventory: the files the lookup-order and template
+    # tests rely on. Others (substitution-*, *-pagerduty*) load directly.
     expected = [
         "services/payment-api.yaml",
         "services/payment-api-with-envs.yaml",
@@ -428,6 +430,8 @@ class TestTemplateExpansion:
 
 
 class TestBuiltinTemplatesShipAsPackageData:
+    # Checks the source tree; tests/smoke/test_package_data.py checks the
+    # installed wheel. Both, because package-data config can differ.
     def test_all_five_builtin_templates_are_package_resources(self):
         package = files("nthlayer_common.manifest.legacy_templates")
         names = {p.name for p in package.iterdir() if p.name.endswith(".yaml")}
@@ -508,6 +512,8 @@ class TestPagerDutyKeys:
         assert pd.auto_resolve_timeout is None
         assert pd.create_escalation_policy is None
 
+    # These fixtures set no template:, so loading in place cannot walk up
+    # into a .nthlayer/templates outside the test (unlike `tree` users).
     def test_urgency_and_auto_resolve_timeout(self):
         m = _load(FIXTURES / "services" / "payment-api-pagerduty-demo.yaml")
         assert m.ownership.pagerduty == PagerDutyConfig(

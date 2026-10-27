@@ -10,8 +10,11 @@ which is the order nthlayer-generate's ``specs/parser.py`` applied them:
    ``specs/environment_merger.py`` (deep merge).
 2. :func:`expand_template` — ports generate's ``specs/parser.py``
    ``_merge_resources`` and the template loading in ``template_loader.py``
-   / ``custom_templates.py``. One deliberate change: custom templates are
-   found by walking up from the manifest, not from the current directory.
+   / ``custom_templates.py``. Two deliberate changes, both from reusing the
+   loader's ``_find_template_dir`` (shared with srm/v1): custom templates are
+   found by walking up from the manifest to ``.nthlayer/templates``, not from
+   the current directory; and failing that, a ``templates/`` directory next
+   to the manifest is used. generate searched neither of these.
 3. :func:`substitute_variables` — ports generate's ``specs/template.py``
    over the context ``ServiceContext.to_dict`` built.
 
@@ -22,6 +25,7 @@ Errors are raised as ValueError; the loader wraps them in ManifestLoadError
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
@@ -45,6 +49,9 @@ BUILTIN_TEMPLATES_PACKAGE = "nthlayer_common.manifest.legacy_templates"
 _TEMPLATE_REQUIRED_FIELDS = ("name", "description", "tier", "type")
 
 ResourceKey = tuple[Any, Any]
+
+# YAML scalar types a (kind, name) merge key may hold.
+_SCALAR = (str, int, float, bool, type(None))
 
 
 # =============================================================================
@@ -125,24 +132,25 @@ def _load_overlay(path: Path) -> dict[str, Any]:
         raise malformed("'service' must be a mapping")
     if "resources" in overlay:
         # An overlay spec is deep-merged, so it must be a mapping.
-        _require_resource_list(overlay["resources"], malformed, spec_mapping=True)
+        _require_resources_shape(overlay["resources"], malformed, spec_mapping=True)
     return overlay
 
 
 def _require_mergeable_base(data: dict[str, Any], manifest_path: Path) -> None:
-    def malformed(why: str) -> ValueError:
-        return ValueError(f"{why} in {manifest_path}")
-
+    make_error = _manifest_error(manifest_path)
     if "service" in data and not isinstance(data["service"], dict):
-        raise malformed("'service' must be a mapping")
+        raise make_error("'service' must be a mapping")
     if data.get("resources") is not None:
-        _require_resource_list(data["resources"], malformed)
+        _require_resources_shape(data["resources"], make_error)
 
 
-_SCALAR = (str, int, float, bool, type(None))
+def _manifest_error(manifest_path: Path) -> Callable[[str], ValueError]:
+    return lambda why: ValueError(f"{why} in {manifest_path}")
 
 
-def _require_resource_list(resources: Any, error: Any, *, spec_mapping: bool = False) -> None:
+def _require_resources_shape(
+    resources: Any, make_error: Callable[[str], ValueError], *, spec_mapping: bool = False
+) -> None:
     """Reject shapes the merges cannot key or merge, as a ValueError naming the file.
 
     ``kind`` and ``name`` key the (kind, name) merges, so they must be
@@ -150,15 +158,15 @@ def _require_resource_list(resources: Any, error: Any, *, spec_mapping: bool = F
     naming the file.
     """
     if not isinstance(resources, list):
-        raise error("'resources' must be a list")
+        raise make_error("'resources' must be a list")
     for i, resource in enumerate(resources):
         if not isinstance(resource, dict):
-            raise error(f"resource {i} must be a mapping")
+            raise make_error(f"resource {i} must be a mapping")
         for field in ("kind", "name"):
             if not isinstance(resource.get(field), _SCALAR):
-                raise error(f"resource {i} '{field}' must be a scalar")
+                raise make_error(f"resource {i} '{field}' must be a scalar")
         if spec_mapping and "spec" in resource and not isinstance(resource["spec"], dict):
-            raise error(f"resource {i} 'spec' must be a mapping")
+            raise make_error(f"resource {i} 'spec' must be a mapping")
 
 
 def _merge_service_config(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -301,7 +309,7 @@ def expand_template(
     user_resources = data.get("resources")
     if user_resources is None:
         user_resources = []
-    _require_resource_list(user_resources, lambda why: ValueError(f"{why} in {manifest_path}"))
+    _require_resources_shape(user_resources, _manifest_error(manifest_path))
 
     result = dict(data)
     result["resources"] = _merge_template_resources(
