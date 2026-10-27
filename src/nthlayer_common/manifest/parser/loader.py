@@ -21,9 +21,11 @@ import structlog
 import yaml
 
 from nthlayer_common.manifest.models import (
+    SRM_V1_JUDGMENT_THRESHOLD_TYPES,
     Dependency,
     DependencyCriticality,
     DependencySLO,
+    JudgmentThreshold,
     Ownership,
     PagerDutyConfig,
     ReliabilityManifest,
@@ -47,6 +49,7 @@ from nthlayer_common.manifest.parser.v2 import (
 from nthlayer_common.manifest.target_validation import (
     warn_target_convention_mismatches,
 )
+from nthlayer_common.manifest.thresholds import srm_v1_threshold
 
 logger = structlog.get_logger()
 
@@ -258,7 +261,7 @@ def _parse_legacy_to_manifest(
     if not service_type:
         raise ManifestLoadError("service.type is required")
 
-    slos = _extract_slos_from_resources(resources_data)
+    slos, judgment_thresholds = _extract_slos_from_resources(resources_data)
     dependencies = _extract_dependencies_from_resources(resources_data)
     ownership = _extract_ownership(service_data, resources_data)
     alerting = _extract_alerting_from_resources(resources_data)
@@ -272,6 +275,7 @@ def _parse_legacy_to_manifest(
         labels=service_data.get("metadata", {}).get("labels", {}),
         annotations=service_data.get("metadata", {}).get("annotations", {}),
         slos=slos,
+        judgment_thresholds=judgment_thresholds,
         dependencies=dependencies,
         ownership=ownership,
         alerting=alerting,
@@ -286,9 +290,17 @@ def _parse_legacy_to_manifest(
     )
 
 
-def _extract_slos_from_resources(resources: list[dict[str, Any]]) -> list[SLODefinition]:
-    """Extract SLO definitions from legacy resource list."""
+def _extract_slos_from_resources(
+    resources: list[dict[str, Any]],
+) -> tuple[list[SLODefinition], list[JudgmentThreshold]]:
+    """Extract SLO definitions and judgment thresholds from legacy resources.
+
+    ``kind: SLO`` resources named calibration or feedback_latency are judgment
+    thresholds, lifted exactly as srm/v1 lifts its ``spec.slos`` entries of
+    the same names (see _legacy_threshold).
+    """
     slos = []
+    thresholds: list[JudgmentThreshold] = []
 
     for resource in resources:
         if resource.get("kind") != "SLO":
@@ -299,6 +311,10 @@ def _extract_slos_from_resources(resources: list[dict[str, Any]]) -> list[SLODef
 
         target = spec.get("objective") or spec.get("target")
         if target is None:
+            continue
+
+        if name in SRM_V1_JUDGMENT_THRESHOLD_TYPES:
+            thresholds.append(_legacy_threshold(name, spec, target))
             continue
 
         slo_type = _infer_legacy_slo_type(name, spec)
@@ -323,7 +339,26 @@ def _extract_slos_from_resources(resources: list[dict[str, Any]]) -> list[SLODef
         )
         slos.append(slo)
 
-    return slos
+    return slos, thresholds
+
+
+def _legacy_threshold(name: str, spec: dict[str, Any], target: Any) -> JudgmentThreshold:
+    """Lift a legacy calibration/feedback_latency SLO resource [opensrm-wo62.1].
+
+    Renames legacy's ``objective`` to srm/v1's ``target`` and hands every
+    other spec key to thresholds.srm_v1_threshold unchanged, so legacy accepts
+    exactly what srm/v1 accepts (window, unit, description, labels; no unit on
+    calibration) and a key the lift cannot carry is an error, not dropped.
+    Only these two names are lifted: srm/v1 rejects segments, stability and
+    audit_backlog, and doing so here would break legacy manifests that load
+    today, so they stay classical SLOs.
+    """
+    config = {k: v for k, v in spec.items() if k not in ("objective", "target")}
+    config["target"] = target
+    try:
+        return srm_v1_threshold(name, config)
+    except ValueError as exc:
+        raise ManifestLoadError(f"Legacy SLO resource '{name}': {exc}") from exc
 
 
 def _extract_dependencies_from_resources(
