@@ -767,3 +767,84 @@ def test_spec_substitution_reaches_list_items_but_not_keys(tree):
     spec = _resource(_load(manifest), "SLO", "availability")["spec"]
     assert spec["labels"] == ["lists", "critical"]
     assert spec["${tier}-note"] == "kept"
+
+
+_HEADER = "name: custom\ndescription: d\ntier: critical\ntype: api\n"
+
+
+class TestCustomTemplateEdges:
+    """More of generate's template loading (custom_templates.py, templates.py,
+    parser.py) that the iteration-3 kill check showed untested."""
+
+    def test_only_yaml_files_are_read_and_subdirectories_are_ignored(self, tree):
+        # custom_templates.py:50 globs *.yaml, so a .yml file is not a template
+        # and a subdirectory is never opened.
+        custom_dir = tree / ".nthlayer" / "templates"
+        (custom_dir / "nested").mkdir(parents=True)
+        (custom_dir / "custom.yml").write_text(_HEADER + _VALID_RESOURCE)
+        manifest = tree / "uses-yml.yaml"
+        manifest.write_text(
+            "service:\n  name: s\n  team: t\n  tier: critical\n  type: api\n  template: custom\n"
+        )
+        with pytest.raises(ManifestLoadError, match="Unknown template"):
+            _load(manifest)
+
+    @pytest.mark.parametrize(
+        "resources",
+        [
+            "resources:\n  - {kind: SLO, spec: {}}\n",  # no name (Resource needs one)
+            "resources:\n  - {kind: SLO, name: a, spec: null}\n",  # null spec
+            "resources: null\n",  # resources not a list
+        ],
+        ids=["no-name", "null-spec", "null-resources"],
+    )
+    def test_malformed_template_resources_are_skipped(self, tree, resources):
+        manifest = _custom_template(tree, _HEADER + resources)
+        with pytest.raises(ManifestLoadError, match="Unknown template"):
+            _load(manifest)
+
+    def test_non_string_template_name_is_skipped(self, tree):
+        manifest = _custom_template(
+            tree, "name: [custom]\ndescription: d\ntier: critical\ntype: api\n" + _VALID_RESOURCE
+        )
+        with pytest.raises(ManifestLoadError, match="Unknown template"):
+            _load(manifest)
+
+    def test_empty_template_name_is_a_no_op(self, tree):
+        # parser.py:141 expands only when service_context.template is truthy.
+        manifest = tree / "empty-template.yaml"
+        manifest.write_text(
+            "service:\n  name: s\n  team: t\n  tier: critical\n  type: api\n  template: ''\n"
+            + _VALID_RESOURCE
+        )
+        assert [s.name for s in _load(manifest).slos] == ["availability"]
+
+    def test_non_string_template_in_the_manifest_is_a_load_error(self, tree):
+        manifest = tree / "list-template.yaml"
+        manifest.write_text(
+            "service:\n  name: s\n  team: t\n  tier: critical\n  type: api\n  template: [a]\n"
+        )
+        with pytest.raises(ManifestLoadError):
+            _load(manifest)
+
+
+def test_env_pass_substitutes_a_missing_service_name_and_team_as_empty():
+    """variable_substitution.py VariableSubstitutor defaults service and team
+    to "". Tested on the pass itself: the loader rejects a manifest that still
+    lacks service.name, so this is reachable only before the parse."""
+    from nthlayer_common.manifest.parser import legacy
+
+    data = {"service": {"tier": "critical"}, "x": "${service}|${team}|${env}"}
+    assert legacy.substitute_environment(data, "prod")["x"] == "||prod"
+
+
+def test_environment_is_normalised_before_the_overlay_lookup(tree):
+    """environments.py: the lookup uses the lowercased, stripped name, so the
+    result does not depend on a case-insensitive filesystem."""
+    lower = _load(tree / "payment-api.yaml", "prod")
+    mixed = _load(tree / "payment-api.yaml", "  Prod  ")
+    assert _slos(mixed)["availability"].target == _slos(lower)["availability"].target
+    assert (
+        _slos(lower)["availability"].target
+        != _slos(_load(tree / "payment-api.yaml"))["availability"].target
+    )
