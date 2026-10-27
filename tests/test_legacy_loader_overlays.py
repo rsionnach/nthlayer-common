@@ -726,3 +726,44 @@ def test_malformed_base_with_an_overlay_names_the_manifest(tree):
     with pytest.raises(ManifestLoadError) as exc:
         _load(manifest, "prod")
     assert str(manifest) in str(exc.value)
+
+
+def test_scalar_base_service_with_an_overlay_names_the_manifest(tree):
+    """generate EnvironmentMerger cannot deep-merge into a scalar service block;
+    parse_service_file wrapped the failure in a ServiceParseError naming the file."""
+    manifest = tree / "scalar-service.yaml"
+    manifest.write_text("service: x\nresources: []\n")
+    assert (tree / "environments" / "prod.yaml").is_file()
+    with pytest.raises(ManifestLoadError) as exc:
+        _load(manifest, "prod")
+    assert str(manifest) in str(exc.value)
+
+
+def test_overlay_deep_merges_nested_service_mappings(tree):
+    """generate environment_merger.py _merge_dict recurses into nested
+    mappings, so an overlay's service.metadata keeps the base's other keys."""
+    manifest = tree / "nested.yaml"
+    manifest.write_text(
+        "service:\n  name: nested\n  team: t\n  tier: critical\n  type: api\n"
+        "  metadata:\n    owner: base-owner\n    region: eu\n"
+    )
+    (tree / "environments" / "nested-qa.yaml").write_text(
+        "environment: qa\nservice:\n  metadata:\n    owner: qa-owner\n"
+    )
+    metadata = _load(manifest, "qa").raw_data["service"]["metadata"]
+    assert metadata == {"owner": "qa-owner", "region": "eu"}
+
+
+def test_spec_substitution_reaches_list_items_but_not_keys(tree):
+    """generate specs/template.py:42-44 substitutes values, recursing into
+    dict values and list items; dict keys are never substituted."""
+    manifest = tree / "lists.yaml"
+    manifest.write_text(
+        "service:\n  name: lists\n  team: t\n  tier: critical\n  type: api\n"
+        "resources:\n  - kind: SLO\n    name: availability\n    spec:\n"
+        "      objective: 99.9\n      labels: ['${service}', '${tier}']\n"
+        "      '${tier}-note': kept\n"
+    )
+    spec = _resource(_load(manifest), "SLO", "availability")["spec"]
+    assert spec["labels"] == ["lists", "critical"]
+    assert spec["${tier}-note"] == "kept"
