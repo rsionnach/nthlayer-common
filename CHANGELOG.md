@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.6.0](https://github.com/rsionnach/nthlayer-common/compare/v5.5.0...v5.6.0) (2026-10-27)
+
+
+### Features
+
+* legacy loader applies env overlays, expands templates, substitutes ${var} (opensrm-wo62.4.1) ([b50bad8](https://github.com/rsionnach/nthlayer-common/commit/b50bad8da4c2372257470d9a076d4ae0c15fd8f4))
+* legacy loader applies env overlays, expands templates, substitutes ${var} (opensrm-wo62.4.1) ([a2c8b22](https://github.com/rsionnach/nthlayer-common/commit/a2c8b226feebae2497da469cc4f38daf02fc581d))
+
 ## [5.5.0](https://github.com/rsionnach/nthlayer-common/compare/v5.4.0...v5.5.0) (2026-10-27)
 
 
