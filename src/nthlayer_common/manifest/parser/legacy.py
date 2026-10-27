@@ -15,8 +15,11 @@ which is the order nthlayer-generate's ``specs/parser.py`` applied them:
    found by walking up from the manifest to ``.nthlayer/templates``, not from
    the current directory; and failing that, a ``templates/`` directory next
    to the manifest is used. generate searched neither of these.
-3. :func:`substitute_variables` — ports generate's ``specs/template.py``
-   over the context ``ServiceContext.to_dict`` built.
+3. :func:`substitute_environment` then :func:`substitute_resource_specs` —
+   generate's two ``${var}`` passes: with an environment, ``${env}``,
+   ``${service}`` and ``${team}`` across the document before template
+   lookup (``parser.py``); then every variable of ``ServiceContext.to_dict``
+   in each resource ``spec`` (``render_resource_spec`` / ``template.py``).
 
 Errors are raised as ValueError; the loader wraps them in ManifestLoadError
 (this module cannot import it without a cycle).
@@ -279,6 +282,8 @@ def _parse_template(text: str, origin: str) -> tuple[str, list[dict[str, Any]]]:
         spec = resource.get("spec", {})
         if not resource.get("kind") or not resource.get("name") or spec is None:
             raise ValueError(f"Resource {i} needs kind, name and spec in template: {origin}")
+        if not isinstance(resource["kind"], _SCALAR) or not isinstance(resource["name"], _SCALAR):
+            raise ValueError(f"Resource {i} kind and name must be scalars in template: {origin}")
         # Only kind, name and spec survive, as generate's Resource kept them.
         resources.append({"kind": resource["kind"], "name": resource["name"], "spec": spec})
     return data["name"], resources
@@ -336,8 +341,30 @@ def _merge_template_resources(
 # =============================================================================
 
 
-def substitute_variables(data: dict[str, Any], environment: str | None) -> dict[str, Any]:
-    """Replace ``${var}`` throughout ``data`` (values only, not keys).
+def substitute_environment(data: dict[str, Any], environment: str | None) -> dict[str, Any]:
+    """generate's first pass (parser.py:100-108), run before template lookup.
+
+    Only with an environment: ``${env}``, ``${service}`` and ``${team}``
+    (the latter two from the raw service block, ``""`` when unset) are
+    replaced throughout ``data``, values only. So a service named
+    ``api-${env}`` is ``api-prod`` before the context the second pass uses
+    is built, and ``template: ${env}-api`` selects ``prod-api``.
+    """
+    if not environment:
+        return data
+    service = data.get("service")
+    if not isinstance(service, dict):
+        service = {}
+    context = {
+        "env": environment,
+        "service": service.get("name") or "",
+        "team": service.get("team") or "",
+    }
+    return _substitute(data, context)
+
+
+def substitute_resource_specs(data: dict[str, Any], environment: str | None) -> dict[str, Any]:
+    """generate's second pass (render_resource_spec): each resource's ``spec`` only.
 
     Variables are generate's ServiceContext.to_dict: service, team, tier,
     type (as authored, not alias-resolved), support_model (default
@@ -359,7 +386,15 @@ def substitute_variables(data: dict[str, Any], environment: str | None) -> dict[
     }
     if environment:
         context["env"] = environment
-    return _substitute(data, context)
+    resources = data.get("resources")
+    if not isinstance(resources, list):
+        return data
+    result = dict(data)
+    result["resources"] = [
+        {**r, "spec": _substitute(r["spec"], context)} if isinstance(r, dict) and "spec" in r else r
+        for r in resources
+    ]
+    return result
 
 
 def _substitute(value: Any, context: dict[str, Any]) -> Any:

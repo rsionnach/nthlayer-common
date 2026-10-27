@@ -393,6 +393,21 @@ class TestTemplateExpansion:
         m = _load(tree / "api-minimal.yaml")
         assert _slos(m)["availability"].target == 99.95
 
+    def test_custom_template_with_unhashable_kind_is_skipped(self, tree):
+        """R5 edge-cases: it raised a raw TypeError; generate skipped bad templates."""
+        custom_dir = tree / ".nthlayer" / "templates"
+        custom_dir.mkdir()
+        (custom_dir / "bad.yaml").write_text(
+            "name: bad-kind\ndescription: d\ntier: critical\ntype: api\n"
+            "resources:\n  - {kind: [SLO], name: a, spec: {}}\n"
+        )
+        manifest = tree / "uses-bad.yaml"
+        manifest.write_text(
+            "service:\n  name: x\n  team: t\n  tier: critical\n  type: api\n  template: bad-kind\n"
+        )
+        with pytest.raises(ManifestLoadError, match="Unknown template"):
+            _load(manifest)
+
     def test_invalid_custom_template_is_skipped(self, tree):
         custom_dir = tree / ".nthlayer" / "templates"
         custom_dir.mkdir()
@@ -470,9 +485,42 @@ class TestSubstitution:
         m = _load(tree / "substitution-demo.yaml", "QA")
         assert "|QA|" in _slos(m)["availability"].description
 
-    def test_service_block_is_substituted(self, tree):
-        m = _load(tree / "substitution-demo.yaml")
+    def test_service_block_is_substituted_only_with_an_environment(self, tree):
+        """generate parser.py:100-108: only the environment pass reaches the
+        service block, and only for ${env}/${service}/${team}. Without an
+        environment, generate substituted resource specs alone
+        (render_resource_spec), so the service block stays literal."""
+        assert _load(tree / "substitution-demo.yaml").description == "${team} own ${service}"
+        m = _load(tree / "substitution-demo.yaml", "qa")
         assert m.description == "payments own payment-api"
+
+    def test_env_in_service_name_reaches_every_query(self, tree):
+        """R5 edge-cases. generate parser.py:100-108 substitutes ${env} in
+        service.name before ServiceContext is built, so render_resource_spec's
+        ${service} is the substituted name. A one-pass substitution leaked
+        a literal ${env} into every PromQL selector."""
+        manifest = tree / "env-named.yaml"
+        manifest.write_text(
+            "service:\n  name: api-${env}\n  team: t\n  tier: standard\n  type: api\n"
+            "  template: standard-api\n"
+        )
+        m = _load(manifest, "prod")
+        assert m.name == "api-prod"
+        queries = [s.indicator_query for s in m.slos if s.indicator_query]
+        assert queries
+        for query in queries:
+            assert "${" not in query
+            assert 'service="api-prod"' in query
+
+    def test_env_in_template_name_selects_the_template(self, tree):
+        """generate's environment pass runs before template lookup."""
+        manifest = tree / "env-template.yaml"
+        manifest.write_text(
+            "service:\n  name: x\n  team: t\n  tier: critical\n  type: api\n"
+            "  template: ${env}-api\n"
+        )
+        m = _load(manifest, "critical")
+        assert [s.name for s in m.slos] == ["availability", "latency-p95"]
 
     def test_type_as_authored_and_defaults(self, tree):
         m = _load(tree / "substitution-defaults.yaml")
@@ -486,14 +534,19 @@ class TestSubstitution:
         m = _load(tree / "payment-api.yaml", "canary")
         assert m.raw_data["service"]["metadata"]["deployment"] == "payment-api-canary"
 
-    def test_tier_after_overlay_is_substituted(self, tree):
-        # Substitution runs after the overlay, so ${tier} is the merged tier.
+    def test_tier_after_overlay_is_substituted_in_resource_specs(self, tree):
+        # The spec pass runs after the overlay, so ${tier} is the merged
+        # tier. In the service block ${tier} stays literal: generate's
+        # environment pass knows only env, service and team.
         overlay = tree / "environments" / "qa.yaml"
         overlay.write_text(
             "environment: qa\nservice:\n  tier: low\n  metadata:\n    t: '${tier}'\n"
+            "resources:\n  - kind: SLO\n    name: availability\n"
+            "    spec:\n      description: '${tier}'\n"
         )
         m = _load(tree / "payment-api.yaml", "qa")
-        assert m.raw_data["service"]["metadata"]["t"] == "low"
+        assert _resource(m, "SLO", "availability")["spec"]["description"] == "low"
+        assert m.raw_data["service"]["metadata"]["t"] == "${tier}"
 
     def test_non_string_values_are_untouched(self, tree):
         m = _load(tree / "substitution-demo.yaml", "qa")

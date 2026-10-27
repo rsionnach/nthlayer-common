@@ -144,12 +144,13 @@ def load_manifest(
                 LegacyFormatWarning,
                 stacklevel=2,
             )
-        # Overlay, then template, then ${var} — generate's legacy order
-        # (opensrm-wo62.4.1). See parser/legacy.py.
+        # generate's legacy order (opensrm-wo62.4.1, parser/legacy.py):
+        # overlay, environment pass, template, then the per-spec pass.
         try:
             data = legacy.apply_environment_overlay(data, path, environment)
+            data = legacy.substitute_environment(data, environment)
             data = legacy.expand_template(data, path, _find_template_dir(path))
-            data = legacy.substitute_variables(data, environment)
+            data = legacy.substitute_resource_specs(data, environment)
         except ValueError as e:
             raise ManifestLoadError(str(e)) from e
         manifest = _parse_legacy_to_manifest(data, str(path), environment)
