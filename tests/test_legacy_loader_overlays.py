@@ -709,8 +709,8 @@ class TestCustomTemplateValidation:
             " spec: {objective: 99.9, description: 'in ${env}'}}\n",
         )
         assert (
-            _resource(_load(manifest, "QA"), "SLO", "availability")["spec"]["description"]
-            == "in QA"
+            _resource(_load(manifest, "  Qa "), "SLO", "availability")["spec"]["description"]
+            == "in   Qa "
         )
 
 
