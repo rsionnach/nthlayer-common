@@ -16,6 +16,11 @@ Fixture provenance:
   ``kind: SLO`` with ``spec.objective`` / ``spec.window`` / ``spec.indicator``
   (the keys ``_extract_slos_from_resources`` reads). Only ``service.type`` and
   the SLO resource names differ: ``ai-gate`` and the judgment names.
+- No committed legacy artefact uses a judgment or threshold SLO name, so the
+  case under test is hand-built: the resource names come from the shared
+  ``V2_JUDGMENT_SLO_TYPES`` / ``SRM_V1_JUDGMENT_THRESHOLD_TYPES`` constants
+  that srm/v1 also dispatches on. ``test_shipped_legacy_example_unaffected``
+  loads the real payment-api.yaml to show the shipped shape is unchanged.
 - The srm/v1 comparison document is built independently from the srm/v1 shape
   used by ``tests/test_manifest_parser.py::v1_ai_gate_data`` — flat
   ``spec.slos`` mapping keyed by SLO name with ``target`` / ``window`` — not
@@ -161,8 +166,10 @@ def test_legacy_non_judgment_slo_unchanged(legacy_manifest):
 # them the same way rather than load them as availability SLOs.
 #
 # Legacy shape: nthlayer-generate/examples/uat/payment-api.yaml's kind: SLO
-# resources (spec.objective,
-# spec.window, spec.unit). srm/v1 shape: the keys srm_v1_threshold accepts
+# resources (spec.objective, spec.window). The legacy ``unit`` key has no
+# shipped source: no committed legacy manifest uses it. It traces to the
+# loader's pre-existing ``spec.get("unit")`` read in
+# _extract_slos_from_resources, which mirrors srm/v1's ``unit``. srm/v1 shape: the keys srm_v1_threshold accepts
 # (_SRM_V1_THRESHOLD_KEYS = target, window, unit, description, labels;
 # calibration takes no unit; feedback_latency's unit defaults to s and its
 # window must be 30d or absent).
@@ -358,3 +365,25 @@ def test_legacy_feedback_latency_non_30d_window_raises(tmp_path):
         _load_legacy(
             tmp_path, _legacy_with("feedback_latency", {"objective": 3600, "window": "7d"})
         )
+
+
+# =============================================================================
+# Shipped legacy example (regression)
+# =============================================================================
+
+PAYMENT_API_EXAMPLE = (
+    Path(__file__).resolve().parents[2]
+    / "nthlayer-generate" / "examples" / "uat" / "payment-api.yaml"
+)
+
+
+def test_shipped_legacy_example_unaffected():
+    # Asserted, not skipped: a missing sibling must fail loudly.
+    assert PAYMENT_API_EXAMPLE.is_file(), f"missing {PAYMENT_API_EXAMPLE}"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        manifest = load_manifest(PAYMENT_API_EXAMPLE)
+    assert manifest.source_format == SourceFormat.LEGACY
+    assert manifest.slos  # the example's classical SLOs still load
+    assert all(slo.judgment_type is None for slo in manifest.slos)
+    assert manifest.get_judgment_thresholds() == []
