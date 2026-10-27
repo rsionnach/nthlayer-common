@@ -4,6 +4,21 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.5.0](https://github.com/rsionnach/nthlayer-common/compare/v5.4.0...v5.5.0) (2026-10-27)
+
+
+### Features
+
+* **manifest:** legacy manifests parse judgment SLOs and thresholds like srm/v1 (opensrm-wo62.1) ([3a8b960](https://github.com/rsionnach/nthlayer-common/commit/3a8b960207572376350e646a1977db512605edde))
+
+
+### Bug Fixes
+
+* **manifest:** legacy judgment thresholds ignore indicator with a warning (opensrm-wo62.1) ([9813b34](https://github.com/rsionnach/nthlayer-common/commit/9813b3477c922c23ead76b8dfc5d8d379b3eb2d6))
+* **manifest:** legacy judgment thresholds require exactly one objective (opensrm-wo62.1) ([89dfba5](https://github.com/rsionnach/nthlayer-common/commit/89dfba5f39b380e61c45b98969112181d9984f39))
+* **manifest:** legacy parser lifts calibration/feedback_latency into thresholds (opensrm-wo62.1) ([a8d1b17](https://github.com/rsionnach/nthlayer-common/commit/a8d1b170447dcc40b88fbbeffa1fc1cbb132b5aa))
+* **manifest:** legacy parser sets judgment_type like srm/v1 (opensrm-wo62.1) ([95db69c](https://github.com/rsionnach/nthlayer-common/commit/95db69c00e2cf6b091853efb6b86655124e1adc9))
+
 ## [5.4.0](https://github.com/rsionnach/nthlayer-common/compare/v5.3.1...v5.4.0) (2026-10-24)
 
 
