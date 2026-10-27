@@ -43,7 +43,7 @@ from nthlayer_common.manifest.models import (
     SourceFormat,
     TelemetryEvent,
 )
-from nthlayer_common.manifest.parser._shared import parse_observability
+from nthlayer_common.manifest.parser._shared import judgment_slo_fields, parse_observability
 from nthlayer_common.manifest.target_validation import (
     check_finite,
     require_number,
@@ -51,8 +51,6 @@ from nthlayer_common.manifest.target_validation import (
 from nthlayer_common.manifest.thresholds import srm_v1_threshold
 from nthlayer_common.manifest.v1_compat import (
     convert_v1_contract,
-    default_measurement,
-    default_statistical_requirements,
 )
 
 logger = structlog.get_logger()
@@ -304,16 +302,9 @@ def _parse_slos(
 
         slo_type = _infer_slo_type(name, config, service_type)
 
-        # Detect judgment SLOs and populate v2 fields
-        judgment_type = None
-        measurement = None
-        statistical_requirements = None
-
-        if name in V2_JUDGMENT_SLO_TYPES:
-            judgment_type = name
-            window = config.get("window", "30d")
-            measurement = default_measurement(judgment_type, window)
-            statistical_requirements = default_statistical_requirements(judgment_type)
+        judgment_type, measurement, statistical_requirements = judgment_slo_fields(
+            name, config.get("window", "30d")
+        )
 
         # Guarded the same way as the v2 classical path [opensrm-ocvu]. v1 was
         # the LAST unguarded writer of SLODefinition.target, and leaving it so

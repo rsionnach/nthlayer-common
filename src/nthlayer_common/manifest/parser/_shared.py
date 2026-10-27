@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from nthlayer_common.manifest.models import Observability
+from nthlayer_common.manifest.models import (
+    V2_JUDGMENT_SLO_TYPES,
+    JudgmentMeasurement,
+    Observability,
+    StatisticalRequirements,
+)
+from nthlayer_common.manifest.v1_compat import (
+    default_measurement,
+    default_statistical_requirements,
+)
 
 
 def parse_observability(obs_data: dict[str, Any] | None) -> Observability | None:
@@ -73,3 +82,24 @@ def extract_declared_dependencies(
         ]
         for m in (from_dicts or []) if m.get("name")
     }
+
+
+def judgment_slo_fields(
+    name: str, window: str
+) -> tuple[str | None, JudgmentMeasurement | None, StatisticalRequirements | None]:
+    """Return ``(judgment_type, measurement, statistical_requirements)`` for a flat SLO.
+
+    Formats that key judgment SLOs by name rather than declaring them
+    structurally — srm/v1's ``spec.slos`` mapping and legacy ``kind: SLO``
+    resources — detect them here, so the two cannot drift: a name in
+    ``V2_JUDGMENT_SLO_TYPES`` becomes a judgment SLO with the v1_compat
+    defaults; any other name yields ``(None, None, None)``. nthlayer-generate
+    dispatches judgment recording rules on ``judgment_type`` [opensrm-wo62.1].
+    """
+    if name not in V2_JUDGMENT_SLO_TYPES:
+        return None, None, None
+    return (
+        name,
+        default_measurement(name, window),
+        default_statistical_requirements(name),
+    )
