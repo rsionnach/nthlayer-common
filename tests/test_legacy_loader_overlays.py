@@ -636,3 +636,93 @@ class TestOtherFormatsUnaffected:
     @pytest.mark.parametrize("name", ["../prod", "prod_eu"])
     def test_v2_does_not_validate_environment_name(self, v2, name):
         assert _load(v2, name).source_format == SourceFormat.OPENSRM_V2
+
+
+# =============================================================================
+# R5 provenance: ported generate behaviour that had no test
+# =============================================================================
+
+
+def _custom_template(tree: Path, body: str) -> Path:
+    """Install one custom template named `custom` and a manifest that uses it."""
+    custom_dir = tree / ".nthlayer" / "templates"
+    custom_dir.mkdir(exist_ok=True)
+    (custom_dir / "custom.yaml").write_text(body)
+    manifest = tree / "uses-custom.yaml"
+    manifest.write_text(
+        "service:\n  name: svc\n  team: t\n  tier: critical\n  type: api\n  template: custom\n"
+    )
+    return manifest
+
+
+_VALID_RESOURCE = "resources:\n  - {kind: SLO, name: availability, spec: {objective: 99.9}}\n"
+
+
+class TestCustomTemplateValidation:
+    """generate specs/templates.py ServiceTemplate.__post_init__ and Resource
+    reject these; generate's loader then skipped the file with a warning, so
+    the template is unknown when a manifest asks for it."""
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            # templates.py:35: tier must be one of TIER_NAMES.
+            "name: custom\ndescription: d\ntier: ultra\ntype: api\n",
+            # templates.py: type must resolve to a manifest service type.
+            "name: custom\ndescription: d\ntier: critical\ntype: spaceship\n",
+        ],
+        ids=["invalid-tier", "invalid-type"],
+    )
+    def test_invalid_template_header_is_skipped(self, tree, header):
+        manifest = _custom_template(tree, header + _VALID_RESOURCE)
+        with pytest.raises(ManifestLoadError, match="Unknown template"):
+            _load(manifest)
+
+    def test_template_resource_without_kind_is_skipped(self, tree):
+        manifest = _custom_template(
+            tree,
+            "name: custom\ndescription: d\ntier: critical\ntype: api\n"
+            "resources:\n  - {name: availability, spec: {}}\n",
+        )
+        with pytest.raises(ManifestLoadError, match="Unknown template"):
+            _load(manifest)
+
+    def test_template_resources_keep_only_kind_name_and_spec(self, tree):
+        """generate's Resource had only kind, name and spec (+ context)."""
+        manifest = _custom_template(
+            tree,
+            "name: custom\ndescription: d\ntier: critical\ntype: api\n"
+            "resources:\n  - {kind: SLO, name: availability, spec: {objective: 99.9},"
+            " labels: {x: y}}\n",
+        )
+        (resource,) = _load(manifest).raw_data["resources"]
+        assert set(resource) == {"kind", "name", "spec"}
+
+    def test_env_from_a_custom_template_is_the_environment_as_given(self, tree):
+        """The environment pass runs before templates expand, so ${env} in a
+        template reaches only the per-spec pass (render_resource_spec), whose
+        env is the environment exactly as passed."""
+        manifest = _custom_template(
+            tree,
+            "name: custom\ndescription: d\ntier: critical\ntype: api\n"
+            "resources:\n  - {kind: SLO, name: availability,"
+            " spec: {objective: 99.9, description: 'in ${env}'}}\n",
+        )
+        assert (
+            _resource(_load(manifest, "QA"), "SLO", "availability")["spec"]["description"]
+            == "in QA"
+        )
+
+
+def test_malformed_base_with_an_overlay_names_the_manifest(tree):
+    """generate EnvironmentMerger could not merge into these; parse_service_file
+    wrapped the failure in a ServiceParseError naming the file."""
+    manifest = tree / "bad-base.yaml"
+    manifest.write_text(
+        "service:\n  name: bad-base\n  team: t\n  tier: critical\n  type: api\n"
+        "resources:\n  kind: SLO\n"
+    )
+    assert (tree / "environments" / "prod.yaml").is_file()  # the shared overlay applies
+    with pytest.raises(ManifestLoadError) as exc:
+        _load(manifest, "prod")
+    assert str(manifest) in str(exc.value)
