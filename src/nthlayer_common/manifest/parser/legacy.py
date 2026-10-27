@@ -124,7 +124,8 @@ def _load_overlay(path: Path) -> dict[str, Any]:
     if "service" in overlay and not isinstance(overlay["service"], dict):
         raise malformed("'service' must be a mapping")
     if "resources" in overlay:
-        _require_resource_list(overlay["resources"], malformed)
+        # An overlay spec is deep-merged, so it must be a mapping.
+        _require_resource_list(overlay["resources"], malformed, spec_mapping=True)
     return overlay
 
 
@@ -138,12 +139,26 @@ def _require_mergeable_base(data: dict[str, Any], manifest_path: Path) -> None:
         _require_resource_list(data["resources"], malformed)
 
 
-def _require_resource_list(resources: Any, error: Any) -> None:
+_SCALAR = (str, int, float, bool, type(None))
+
+
+def _require_resource_list(resources: Any, error: Any, *, spec_mapping: bool = False) -> None:
+    """Reject shapes the merges cannot key or merge, as a ValueError naming the file.
+
+    ``kind`` and ``name`` key the (kind, name) merges, so they must be
+    scalars. Legacy wrapped every such failure in a ServiceParseError
+    naming the file.
+    """
     if not isinstance(resources, list):
         raise error("'resources' must be a list")
     for i, resource in enumerate(resources):
         if not isinstance(resource, dict):
             raise error(f"resource {i} must be a mapping")
+        for field in ("kind", "name"):
+            if not isinstance(resource.get(field), _SCALAR):
+                raise error(f"resource {i} '{field}' must be a scalar")
+        if spec_mapping and "spec" in resource and not isinstance(resource["spec"], dict):
+            raise error(f"resource {i} 'spec' must be a mapping")
 
 
 def _merge_service_config(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

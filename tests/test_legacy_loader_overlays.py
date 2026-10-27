@@ -253,6 +253,11 @@ class TestOverlayErrors:
             "environment: broken\nservice:\n",  # service null
             "environment: broken\nresources:\n  kind: SLO\n",  # resources not a list
             "environment: broken\nresources:\n  - SLO\n",  # resource not a mapping
+            # R5 correctness: these raised raw AttributeError/TypeError.
+            "resources:\n  - {kind: SLO, name: availability, spec: null}\n",
+            "resources:\n  - {kind: SLO, name: availability, spec: [1, 2]}\n",
+            "resources:\n  - {kind: [SLO], name: availability, spec: {}}\n",
+            "resources:\n  - {kind: SLO, name: {a: 1}, spec: {}}\n",
         ],
         ids=[
             "invalid-yaml",
@@ -262,6 +267,10 @@ class TestOverlayErrors:
             "service-null",
             "resources-mapping",
             "resource-scalar",
+            "spec-null",
+            "spec-list",
+            "kind-list",
+            "name-mapping",
         ],
     )
     def test_malformed_overlay_names_the_overlay_file(self, tree, content):
@@ -270,6 +279,18 @@ class TestOverlayErrors:
         with pytest.raises(ManifestLoadError) as exc:
             _load(tree / "payment-api.yaml", "broken")
         assert str(overlay) in str(exc.value)
+
+    def test_unhashable_resource_name_in_the_manifest_names_the_manifest(self, tree):
+        """R5 correctness: a template merge keyed on a mapping name raised a raw TypeError."""
+        manifest = tree / "bad-name.yaml"
+        manifest.write_text(
+            "service:\n  name: bad-name\n  team: t\n  tier: critical\n  type: api\n"
+            "  template: critical-api\n"
+            "resources:\n  - {kind: SLO, name: {a: 1}, spec: {}}\n"
+        )
+        with pytest.raises(ManifestLoadError) as exc:
+            _load(manifest)
+        assert str(manifest) in str(exc.value)
 
     @pytest.mark.parametrize(
         "name",
