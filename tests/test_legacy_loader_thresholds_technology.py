@@ -34,6 +34,7 @@ from nthlayer_common.manifest import (
     SLODefinition,
     load_manifest,
 )
+from nthlayer_common.manifest.parser import legacy
 
 
 def _load(path: Path) -> ReliabilityManifest:
@@ -318,3 +319,30 @@ def test_overlay_threshold_keeps_the_rest_of_the_indicator(tmp_path):
 
     slo = _slo_in(path, "prod")
     assert (slo.threshold_ms, slo.indicator_query) == (300.0, query)
+
+
+# =============================================================================
+# lookup_path: shared by R1 and R4
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        pytest.param({"indicator": "latency"}, id="str-step"),
+        pytest.param({"indicator": [{"threshold_ms": 500}]}, id="list-step"),
+        pytest.param({}, id="missing-step"),
+    ],
+)
+def test_lookup_path_returns_none_through_a_non_mapping(spec):
+    """Unreachable through load_manifest today (a non-mapping indicator fails
+    earlier, in slo-type inference), so pinned directly: R1 and R4 both rely
+    on a non-mapping step meaning "not declared"."""
+    assert legacy.lookup_path(spec, ("indicator", "threshold_ms")) is None
+
+
+def test_lookup_path_empty_path_is_the_spec_itself():
+    """R4 strips a top-level key by looking up its parent, the empty path."""
+    spec = {"threshold_ms": 300}
+
+    assert legacy.lookup_path(spec, ()) is spec
