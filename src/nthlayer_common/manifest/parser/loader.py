@@ -243,17 +243,6 @@ def is_manifest_file(file_path: str | Path) -> bool:
 # =============================================================================
 
 
-# Where legacy files declare a latency threshold, most specific first
-# [opensrm-wo62.4.7, R1]. generate's legacy builders disagreed: sloth read only
-# indicator.threshold_ms, recording rules only latency_threshold, and the
-# top-level threshold_ms that `nthlayer setup` writes was read by neither.
-_LEGACY_THRESHOLD_KEYS = (
-    ("indicator", "threshold_ms"),
-    ("threshold_ms",),
-    ("latency_threshold",),
-)
-
-
 def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
     """The first declared latency threshold in *spec*, in milliseconds, or None.
 
@@ -261,11 +250,8 @@ def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
     never read. Raises ManifestLoadError, naming the SLO, if it is not a
     finite positive number.
     """
-    for path in _LEGACY_THRESHOLD_KEYS:
-        # Walk *path* into spec; a missing or non-dict step yields None.
-        node: Any = spec
-        for key in path:
-            node = node.get(key) if isinstance(node, dict) else None
+    for path in legacy.LATENCY_THRESHOLD_KEYS:
+        node = legacy.lookup_path(spec, path)
         if node is None:
             continue
         key_path = ".".join(path)

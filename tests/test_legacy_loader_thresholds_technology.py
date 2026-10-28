@@ -239,3 +239,82 @@ def test_database_type_unchanged(tmp_path):
     deps = _deps(tmp_path, {"databases": [{"name": "orders-db", "type": "postgresql"}]})
 
     assert deps["orders-db"].database_type == "postgresql"
+
+
+# =============================================================================
+# R4: an environment overlay's threshold replaces the base's
+# =============================================================================
+#
+# Rob, 2026-10-28, after the edge-cases review: the overlay is deep-merged into
+# the base SLO spec, so without this the base's indicator.threshold_ms outranked
+# the overlay's top-level threshold_ms under R1's order. Shapes from generate's
+# examples/services/payment-api.yaml and examples/environments/payment-api-prod.yaml
+# ("threshold_ms: 300  # Stricter than default 500ms").
+
+
+def _with_overlay(tmp_path: Path, base_spec: dict, overlay_spec: dict) -> Path:
+    path = _write(tmp_path, [_latency(base_spec["extra"], base_spec["indicator"])])
+    (tmp_path / "environments").mkdir()
+    (tmp_path / "environments" / "svc-prod.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "environment": "prod",
+                "resources": [{"kind": "SLO", "name": "latency-p95", "spec": overlay_spec}],
+            }
+        )
+    )
+    return path
+
+
+def _slo_in(path: Path, environment: str | None) -> SLODefinition:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        manifest = load_manifest(path, environment=environment)
+    return {s.name: s for s in manifest.slos}["latency-p95"]
+
+
+@pytest.mark.parametrize(
+    ("overlay_spec", "expected"),
+    [
+        pytest.param({"objective": 99.5, "threshold_ms": 300}, 300.0, id="spec.threshold_ms"),
+        pytest.param({"latency_threshold": 200}, 200.0, id="spec.latency_threshold"),
+        pytest.param({"indicator": {"threshold_ms": 250}}, 250.0, id="indicator.threshold_ms"),
+    ],
+)
+def test_overlay_threshold_replaces_the_base(tmp_path, overlay_spec, expected):
+    path = _with_overlay(tmp_path, {"extra": {}, "indicator": {"threshold_ms": 500}}, overlay_spec)
+
+    assert _slo_in(path, None).threshold_ms == 500.0
+    assert _slo_in(path, "prod").threshold_ms == expected
+
+
+def test_overlay_threshold_replaces_a_lower_priority_base_key(tmp_path):
+    """Every base key goes, not just indicator.threshold_ms: a surviving base
+    threshold_ms would outrank the overlay's latency_threshold under R1."""
+    path = _with_overlay(
+        tmp_path, {"extra": {"threshold_ms": 500}, "indicator": {}}, {"latency_threshold": 200}
+    )
+
+    assert _slo_in(path, "prod").threshold_ms == 200.0
+
+
+def test_overlay_without_threshold_keeps_the_base(tmp_path):
+    path = _with_overlay(
+        tmp_path, {"extra": {}, "indicator": {"threshold_ms": 500}}, {"objective": 99.5}
+    )
+
+    slo = _slo_in(path, "prod")
+    assert (slo.target, slo.threshold_ms) == (99.5, 500.0)
+
+
+def test_overlay_threshold_keeps_the_rest_of_the_indicator(tmp_path):
+    """Only threshold keys are removed from the base; the query survives."""
+    query = "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))"
+    path = _with_overlay(
+        tmp_path,
+        {"extra": {}, "indicator": {"threshold_ms": 500, "query": query}},
+        {"threshold_ms": 300},
+    )
+
+    slo = _slo_in(path, "prod")
+    assert (slo.threshold_ms, slo.indicator_query) == (300.0, query)

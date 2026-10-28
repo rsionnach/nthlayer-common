@@ -195,6 +195,35 @@ def _merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
+# Where legacy files declare a latency threshold, most specific first
+# [opensrm-wo62.4.7, R1]. generate's legacy builders disagreed: sloth read only
+# indicator.threshold_ms, recording rules only latency_threshold, and the
+# top-level threshold_ms that `nthlayer setup` writes was read by neither.
+LATENCY_THRESHOLD_KEYS: tuple[tuple[str, ...], ...] = (
+    ("indicator", "threshold_ms"),
+    ("threshold_ms",),
+    ("latency_threshold",),
+)
+
+
+def lookup_path(spec: Any, path: tuple[str, ...]) -> Any:
+    """The value at *path* in *spec*, or None if any step is missing or not a mapping."""
+    node = spec
+    for key in path:
+        node = node.get(key) if isinstance(node, dict) else None
+    return node
+
+
+def _without_latency_thresholds(spec: dict[str, Any]) -> dict[str, Any]:
+    """*spec* minus every key in LATENCY_THRESHOLD_KEYS; the rest is untouched."""
+    result = deepcopy(spec)
+    for path in LATENCY_THRESHOLD_KEYS:
+        parent = lookup_path(result, path[:-1])
+        if isinstance(parent, dict):
+            parent.pop(path[-1], None)
+    return result
+
+
 def _key(resource: dict[str, Any]) -> ResourceKey:
     return (resource.get("kind"), resource.get("name"))
 
@@ -202,12 +231,13 @@ def _key(resource: dict[str, Any]) -> ResourceKey:
 def _merge_overlay_resources(
     base: list[dict[str, Any]], overlay: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """generate EnvironmentMerger._merge_resources.
+    """generate EnvironmentMerger._merge_resources, plus R4.
 
     Resources match on (kind, name). A matched resource has its ``spec``
     deep-merged and every other overlay key ignored; an unmatched overlay
     resource is appended. Base order is kept, new resources follow in
-    overlay order.
+    overlay order. One departure from generate: an overlay declaring a
+    latency threshold first removes the base's threshold keys.
     """
     indexed: dict[ResourceKey, dict[str, Any]] = {_key(r): deepcopy(r) for r in base}
     for resource in overlay:
@@ -215,7 +245,16 @@ def _merge_overlay_resources(
         if key not in indexed:
             indexed[key] = deepcopy(resource)
         elif "spec" in resource:
-            indexed[key]["spec"] = _merge_dict(indexed[key].get("spec") or {}, resource["spec"])
+            base_spec = indexed[key].get("spec") or {}
+            # R4 (Rob, 2026-10-28): an overlay that declares a latency threshold
+            # replaces the base's, whichever key either uses. A plain deep merge
+            # would keep both, and R1's order could then pick the base value
+            # [opensrm-wo62.4.7]. Not in generate's merger, which lost it too.
+            if any(
+                lookup_path(resource["spec"], path) is not None for path in LATENCY_THRESHOLD_KEYS
+            ):
+                base_spec = _without_latency_thresholds(base_spec)
+            indexed[key]["spec"] = _merge_dict(base_spec, resource["spec"])
 
     base_keys = [_key(r) for r in base]
     seen = set(base_keys)
