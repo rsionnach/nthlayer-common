@@ -75,6 +75,9 @@ SERVICE_TYPE_EXTENSION_PATTERN = re.compile(r"x-[a-z][a-z0-9-]*")
 SERVICE_TYPE_ALIASES = {
     "background-job": "worker",
     "pipeline": "batch",
+    # Used by generate's legacy example corpus (analytics-stream);
+    # opensrm-wo62.4.7.
+    "stream-processor": "stream",
     "web": "x-web",
 }
 
@@ -490,6 +493,9 @@ class SLODefinition:
     # Type-specific fields
     unit: str | None = None  # For latency: ms, s; for throughput: rps
     percentile: str | None = None  # For latency: p50, p95, p99
+    # Legacy format only: the latency bound, separate from the 0-100 target
+    # (opensrm-wo62.4.7). srm/v1 puts the bound in target itself, with unit.
+    threshold_ms: float | None = None
 
     # Indicator queries
     indicator_query: str | None = None  # Single PromQL or composed ratio
@@ -634,7 +640,9 @@ class Dependency:
     slo: DependencySLO | None = None
     manifest: str | None = None  # URL to dependency's manifest
 
-    # Database-specific
+    # The dependency's technology (postgresql, redis, rabbitmq, ...). Named
+    # for databases, where srm/v1 sets it; the legacy loader also fills it for
+    # caches and queues (opensrm-wo62.4.7). An NthLayer extension, not spec.
     database_type: str | None = None
 
     # v2 fields

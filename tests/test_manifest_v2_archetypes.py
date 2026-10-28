@@ -247,7 +247,7 @@ _PARITY_PROBES = [
     # extension branch — near misses
     "x-", "x-1a", "x-Web", "X-web", "xweb", "x_web", "x-web!",
     # aliases: accepted as INPUT by resolve_service_type, never valid types
-    "web", "background-job", "pipeline",
+    "web", "background-job", "pipeline", "stream-processor",
     # the newline cases: `$` matches before a trailing newline in Python's
     # re but not in ECMA-262, which is why the predicate uses fullmatch and
     # the schema carries a `not: {pattern: "\n"}` guard

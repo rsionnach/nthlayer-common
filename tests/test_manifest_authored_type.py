@@ -23,7 +23,12 @@ OPENSRM = Path(__file__).resolve().parents[2] / "opensrm"
 X_TYPE_EXAMPLE = OPENSRM / "spec" / "v2" / "examples" / "x-service-type.yaml"
 # Literal on purpose (spec-facing fixture); test_aliases_fixture_covers_every_alias
 # fails when a new alias is added to SERVICE_TYPE_ALIASES without coverage here.
-ALIASES = [("web", "x-web"), ("background-job", "worker"), ("pipeline", "batch")]
+ALIASES = [
+    ("web", "x-web"),
+    ("background-job", "worker"),
+    ("pipeline", "batch"),
+    ("stream-processor", "stream"),
+]
 
 
 def _v1(service_type: str) -> dict:

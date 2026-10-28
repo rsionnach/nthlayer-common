@@ -219,7 +219,12 @@ def test_trailing_newline_rejected_in_extension_type():
 
 @pytest.mark.parametrize(
     ("alias", "canonical"),
-    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+    [
+        ("background-job", "worker"),
+        ("pipeline", "batch"),
+        ("stream-processor", "stream"),
+        ("web", "x-web"),
+    ],
 )
 def test_aliases_normalise_on_construction(alias: str, canonical: str):
     """Aliases are an nthlayer-common input convenience with no spec standing.
@@ -265,7 +270,12 @@ def test_v1_upconversion_no_longer_writes_labels_type():
 
 @pytest.mark.parametrize(
     ("v1_type", "expected"),
-    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+    [
+        ("background-job", "worker"),
+        ("pipeline", "batch"),
+        ("stream-processor", "stream"),
+        ("web", "x-web"),
+    ],
 )
 def test_v1_upconversion_normalises_aliases(v1_type: str, expected: str):
     """Upconversion must emit a SCHEMA-valid value.
@@ -524,7 +534,12 @@ def test_non_dict_service_block_raises_domain_error(bad: object):
 
 @pytest.mark.parametrize(
     ("alias", "canonical"),
-    [("background-job", "worker"), ("pipeline", "batch"), ("web", "x-web")],
+    [
+        ("background-job", "worker"),
+        ("pipeline", "batch"),
+        ("stream-processor", "stream"),
+        ("web", "x-web"),
+    ],
 )
 def test_parser_resolves_aliases_before_validating(alias: str, canonical: str):
     """Aliases must survive the PARSER, not just ReliabilityManifest.
@@ -582,6 +597,7 @@ def test_non_dict_judgment_slo_entry_raises_domain_error(bad: object):
         ("web", "x-web"),
         ("background-job", "worker"),
         ("pipeline", "batch"),
+        ("stream-processor", "stream"),
     ],
 )
 def test_resolve_service_type_returns_canonical(raw: str, expected: str):
