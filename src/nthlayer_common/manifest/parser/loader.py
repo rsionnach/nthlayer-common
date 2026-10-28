@@ -255,22 +255,28 @@ _LEGACY_THRESHOLD_KEYS = (
 
 
 def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
-    """The first declared latency threshold in *spec*, in milliseconds, or None."""
+    """The first declared latency threshold in *spec*, in milliseconds, or None.
+
+    Only that first value is validated; a lower-priority key beside it is
+    never read. Raises ManifestLoadError, naming the SLO, if it is not a
+    finite positive number.
+    """
     for path in _LEGACY_THRESHOLD_KEYS:
-        value: Any = spec
+        # Walk *path* into spec; a missing or non-dict step yields None.
+        node: Any = spec
         for key in path:
-            value = value.get(key) if isinstance(value, dict) else None
-        if value is None:
+            node = node.get(key) if isinstance(node, dict) else None
+        if node is None:
             continue
-        field = ".".join(path)
+        key_path = ".".join(path)
         try:
-            threshold = require_number(name, value, what=f"Latency {field}")
-            check_finite(name, threshold, what=f"Latency {field}")
+            threshold = require_number(name, node, what=f"Latency {key_path}")
+            check_finite(name, threshold, what=f"Latency {key_path}")
         except ValueError as e:
             raise ManifestLoadError(str(e)) from e
         if threshold <= 0:
             raise ManifestLoadError(
-                f"Latency {field} for '{name}' must be positive, got {value!r}"
+                f"Latency {key_path} for '{name}' must be positive, got {node!r}"
             )
         return threshold
     return None

@@ -27,10 +27,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from nthlayer_common.manifest import ManifestLoadError, load_manifest
+from nthlayer_common.manifest import (
+    Dependency,
+    ManifestLoadError,
+    ReliabilityManifest,
+    SLODefinition,
+    load_manifest,
+)
 
 
-def _load(path: Path):
+def _load(path: Path) -> ReliabilityManifest:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return load_manifest(path)
@@ -55,7 +61,7 @@ def _latency(spec_extra: dict, indicator_extra: dict | None = None) -> dict:
     }
 
 
-def _slo(path: Path, name: str = "latency-p95"):
+def _slo(path: Path, name: str = "latency-p95") -> SLODefinition:
     return {s.name: s for s in _load(path).slos}[name]
 
 
@@ -107,7 +113,8 @@ def test_objective_is_not_mistaken_for_the_threshold(tmp_path):
 
 
 def test_setup_scaffold_shape(tmp_path):
-    """``nthlayer setup`` writes the threshold beside, not inside, the indicator."""
+    """The literal shape ``nthlayer setup`` writes (generate cli/setup.py): a
+    latency-p99 SLO with the threshold beside an indicator that has none."""
     resource = {
         "kind": "SLO",
         "name": "latency-p99",
@@ -199,7 +206,7 @@ def test_override_replacing_a_template_slo_keeps_its_own_threshold(tmp_path):
 # =============================================================================
 
 
-def _deps(tmp_path: Path, spec: dict):
+def _deps(tmp_path: Path, spec: dict) -> dict[str, Dependency]:
     path = _write(tmp_path, [{"kind": "Dependencies", "name": "upstream", "spec": spec}])
     return {d.name: d for d in _load(path).dependencies}
 
