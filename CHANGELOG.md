@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.7.0](https://github.com/rsionnach/nthlayer-common/compare/v5.6.0...v5.7.0) (2026-10-28)
+
+
+### Features
+
+* legacy loader carries latency threshold and cache/queue technology (opensrm-wo62.4.7) ([d187d66](https://github.com/rsionnach/nthlayer-common/commit/d187d660a6f3326c0ea0e1312262554ce4c6ab27))
+* legacy loader carries latency threshold and cache/queue technology (opensrm-wo62.4.7) ([8315ce6](https://github.com/rsionnach/nthlayer-common/commit/8315ce646113bab5032d35aff2a215997393a53d))
+
 ## [5.6.0](https://github.com/rsionnach/nthlayer-common/compare/v5.5.0...v5.6.0) (2026-10-27)
 
 
