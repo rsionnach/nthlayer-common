@@ -205,7 +205,11 @@ class TestOverlayMerge:
         spec = _resource(m, "SLO", "latency-p95")["spec"]
         assert spec["objective"] == 99.5
         assert spec["threshold_ms"] == 300
-        assert spec["indicator"] == {"type": "latency", "percentile": 95, "threshold_ms": 500}
+        # The overlay declares a threshold, so the base's indicator.threshold_ms
+        # is removed before the merge (R4, opensrm-wo62.4.7); its other nested
+        # keys survive.
+        assert spec["indicator"] == {"type": "latency", "percentile": 95}
+        assert _slos(m)["latency-p95"].threshold_ms == 300.0
 
     def test_overlay_pagerduty_spec_is_merged(self, tree):
         m = _load(tree / "payment-api.yaml", "prod")

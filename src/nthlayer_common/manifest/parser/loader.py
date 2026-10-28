@@ -48,6 +48,8 @@ from nthlayer_common.manifest.parser.v2 import (
     resolve_v2_template,
 )
 from nthlayer_common.manifest.target_validation import (
+    check_finite,
+    require_number,
     warn_target_convention_mismatches,
 )
 from nthlayer_common.manifest.thresholds import srm_v1_threshold
@@ -83,6 +85,11 @@ def load_manifest(
     custom ones from ``.nthlayer/templates`` found walking up from the
     manifest, else a ``templates/`` dir beside it) and ``${var}`` substituted
     (parser/legacy.py, opensrm-wo62.4.1). srm/v1 and v2 only record it.
+
+    Legacy SLOs also carry a latency ``threshold_ms`` (from
+    ``indicator.threshold_ms``, else ``threshold_ms``, else
+    ``latency_threshold``), and legacy caches and queues carry their declared
+    ``type`` in ``Dependency.database_type`` (opensrm-wo62.4.7).
     """
     path = Path(file_path)
 
@@ -236,6 +243,31 @@ def is_manifest_file(file_path: str | Path) -> bool:
 # =============================================================================
 
 
+def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
+    """The first declared latency threshold in *spec*, in milliseconds, or None.
+
+    Only that first value is validated; a lower-priority key beside it is
+    never read. Raises ManifestLoadError, naming the SLO, if it is not a
+    finite positive number.
+    """
+    for path in legacy.LATENCY_THRESHOLD_KEYS:
+        node = legacy.lookup_path(spec, path)
+        if node is None:
+            continue
+        key_path = ".".join(path)
+        try:
+            threshold = require_number(name, node, what=f"Latency {key_path}")
+            check_finite(name, threshold, what=f"Latency {key_path}")
+        except ValueError as e:
+            raise ManifestLoadError(str(e)) from e
+        if threshold <= 0:
+            raise ManifestLoadError(
+                f"Latency {key_path} for '{name}' must be positive, got {node!r}"
+            )
+        return threshold
+    return None
+
+
 def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
     """Infer slo_type for a legacy SLO resource."""
     indicator = spec.get("indicator", {})
@@ -353,6 +385,7 @@ def _extract_slos_from_resources(
             window=window,
             unit=spec.get("unit"),
             percentile=spec.get("percentile"),
+            threshold_ms=_legacy_threshold_ms(name, spec),
             indicator_query=spec.get("indicator", {}).get("query"),
             description=spec.get("description"),
             judgment_type=judgment_type,
@@ -472,11 +505,14 @@ def _extract_dependencies_from_resources(
                 critical=False,
             ))
 
+        # The declared technology rides in database_type, as for databases
+        # [opensrm-wo62.4.7, R2]; generate's legacy dashboard read it from here.
         for cache in spec.get("caches", []):
             dependencies.append(Dependency(
                 name=cache.get("name", ""),
                 type="cache",
                 critical=cache.get("criticality") in ("critical", "high"),
+                database_type=cache.get("type"),
             ))
 
         for queue in spec.get("queues", []):
@@ -484,6 +520,7 @@ def _extract_dependencies_from_resources(
                 name=queue.get("name", ""),
                 type="queue",
                 critical=queue.get("criticality") in ("critical", "high"),
+                database_type=queue.get("type"),
             ))
 
         # Also handle flat services list (newer legacy format)
