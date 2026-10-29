@@ -26,6 +26,7 @@ from nthlayer_common.manifest.models import (
     DependencyCriticality,
     DependencySLO,
     JudgmentThreshold,
+    Observability,
     Ownership,
     PagerDutyConfig,
     ReliabilityManifest,
@@ -34,7 +35,7 @@ from nthlayer_common.manifest.models import (
 )
 from nthlayer_common.manifest.opensrm_v1 import OPENSRM_V1_REJECTION, is_opensrm_v1_format
 from nthlayer_common.manifest.parser import legacy
-from nthlayer_common.manifest.parser._shared import judgment_slo_fields
+from nthlayer_common.manifest.parser._shared import judgment_slo_fields, parse_observability
 from nthlayer_common.manifest.parser.v1 import (
     OpenSRMParseError,
     is_srm_v1_format,
@@ -315,6 +316,7 @@ def _parse_legacy_to_manifest(
     dependencies = _extract_dependencies_from_resources(resources_data)
     ownership = _extract_ownership(service_data, resources_data)
     alerting = _extract_alerting_from_resources(resources_data)
+    observability = _extract_observability(resources_data)
 
     return ReliabilityManifest(
         name=name,
@@ -329,6 +331,7 @@ def _parse_legacy_to_manifest(
         dependencies=dependencies,
         ownership=ownership,
         alerting=alerting,
+        observability=observability,
         language=service_data.get("language"),
         framework=service_data.get("framework"),
         template=service_data.get("template"),
@@ -543,6 +546,42 @@ def _extract_alerting_from_resources(resources: list[dict[str, Any]]) -> Any:
     return None
 
 
+def _extract_observability(resources: list[dict[str, Any]]) -> Observability | None:
+    """Map the first legacy ``kind: Observability`` resource.
+
+    generate's legacy detector plans a dashboard for any Observability
+    resource, whatever its spec, so an empty or missing spec still yields
+    ``Observability()``: presence is the signal. The legacy spec keys
+    (metrics, logs, health) have no Observability field and are not read.
+    A non-mapping spec is likewise only presence: it is warned about and
+    ignored rather than failing a load that succeeded before this resource
+    was read (malformed-spec errors are opensrm-wo62.4.10).
+    """
+    for resource in resources:
+        if resource.get("kind") == "Observability":
+            spec = resource.get("spec")
+            if spec is not None and not isinstance(spec, dict):
+                logger.warning("legacy_observability_spec_not_mapping", spec_type=type(spec).__name__)
+                spec = None
+            return parse_observability(spec) or Observability()
+    return None
+
+
+def _legacy_service_pagerduty(service_data: dict[str, Any]) -> dict[str, Any]:
+    """Return ``service.pagerduty`` as a mapping (``{}`` when unset).
+
+    It was never read before opensrm-wo62.4.13, so a non-mapping value is
+    warned about and ignored rather than failing a load that used to succeed.
+    """
+    value = service_data.get("pagerduty")
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        logger.warning("legacy_service_pagerduty_not_mapping", value_type=type(value).__name__)
+        return {}
+    return value
+
+
 def _extract_ownership(
     service_data: dict[str, Any],
     resources: list[dict[str, Any]],
@@ -559,15 +598,22 @@ def _extract_ownership(
         runbook=service_data.get("runbook_url"),
     )
 
+    # The config is built only for a PagerDuty resource (generate plans
+    # pagerduty only then); service.pagerduty keys alone add nothing.
     for resource in resources:
         if resource.get("kind") == "PagerDuty":
             spec = resource.get("spec", {})
+            service_pagerduty = _legacy_service_pagerduty(service_data)
             ownership.pagerduty = PagerDutyConfig(
                 service_id=spec.get("service_id"),
                 escalation_policy_id=spec.get("escalation_policy"),
                 urgency=spec.get("urgency"),
                 auto_resolve_timeout=spec.get("auto_resolve_timeout"),
                 create_escalation_policy=spec.get("create_escalation_policy"),
+                timezone=service_pagerduty.get("timezone"),
+                sre_escalation_policy_id=service_pagerduty.get("sre_escalation_policy_id"),
+                integration_key=spec.get("integration_key"),
+                sre_integration_key=spec.get("sre_integration_key"),
             )
             ownership.escalation = spec.get("escalation_policy")
             break
