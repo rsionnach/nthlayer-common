@@ -607,10 +607,15 @@ class TestPagerDutyKeys:
         }
 
 
-class TestPagerDutySreAndIntegrationKeys:
-    """opensrm-wo62.4.13: the keys PagerDutyHandler.generate reads."""
+# =============================================================================
+# P1, P2, P4, P5 — PagerDuty SRE/integration keys (opensrm-wo62.4.13)
+# =============================================================================
 
-    def test_new_fields_default_to_none(self):
+
+class TestPagerDutySreAndIntegrationKeys:
+    """The keys PagerDutyHandler.generate reads."""
+
+    def test_sre_and_integration_fields_default_to_none(self):
         pd = PagerDutyConfig()
         assert pd.timezone is None
         assert pd.sre_escalation_policy_id is None
@@ -695,7 +700,7 @@ class TestPagerDutySreAndIntegrationKeys:
 
 
 # =============================================================================
-# opensrm-wo62.4.13 — Observability resource
+# P3 — Observability resource (opensrm-wo62.4.13)
 # =============================================================================
 
 

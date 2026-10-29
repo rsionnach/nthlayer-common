@@ -576,9 +576,9 @@ def _extract_ownership(
         runbook=service_data.get("runbook_url"),
     )
 
-    # Built only for a PagerDuty resource (generate plans pagerduty only
-    # then); service.pagerduty alone adds nothing.
     service_pagerduty = service_data.get("pagerduty") or {}
+    # The config is built only for a PagerDuty resource (generate plans
+    # pagerduty only then); service.pagerduty keys alone add nothing.
     for resource in resources:
         if resource.get("kind") == "PagerDuty":
             spec = resource.get("spec", {})
