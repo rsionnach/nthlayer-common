@@ -640,9 +640,13 @@ class TestPagerDutySreAndIntegrationKeys:
     def test_unset_timezone_is_not_defaulted(self):
         # P4: generate applies America/New_York itself; common carries what
         # was authored.
-        m = _load(FIXTURES / "services" / "payment-api-pagerduty-demo.yaml")
+        # The demo is the common real shape: a PagerDuty resource and no
+        # service.pagerduty. Unset is not malformed, so nothing is warned.
+        with capture_logs() as logs:
+            m = _load(FIXTURES / "services" / "payment-api-pagerduty-demo.yaml")
         assert m.ownership.pagerduty.timezone is None
         assert m.ownership.pagerduty.sre_escalation_policy_id is None
+        assert logs == []
 
     def test_service_pagerduty_without_resource_builds_nothing(self, tree):
         # P5: generate's detector plans pagerduty only for a PagerDuty
@@ -676,10 +680,12 @@ class TestPagerDutySreAndIntegrationKeys:
             "resources:\n  - kind: PagerDuty\n    name: primary\n"
             "    spec:\n      urgency: high\n"
         )
-        pd = _load(path).ownership.pagerduty
+        with capture_logs() as logs:
+            pd = _load(path).ownership.pagerduty
         assert pd.urgency == "high"
         assert pd.timezone is None
         assert pd.sre_escalation_policy_id is None
+        assert logs == []
 
     @pytest.mark.parametrize(
         "value", ["foo", "[a, b]", "[]", "false"], ids=["scalar", "list", "empty-list", "false"]
