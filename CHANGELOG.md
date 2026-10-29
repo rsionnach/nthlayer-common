@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.8.0](https://github.com/rsionnach/nthlayer-common/compare/v5.7.0...v5.8.0) (2026-10-29)
+
+
+### Features
+
+* **manifest:** legacy loader carries PagerDuty SRE/integration keys and Observability ([fe2797d](https://github.com/rsionnach/nthlayer-common/commit/fe2797d76020eb33db9b4e1e8c0f621e45f821b9))
+* **manifest:** legacy loader carries PagerDuty SRE/integration keys and Observability ([6d2ea23](https://github.com/rsionnach/nthlayer-common/commit/6d2ea2392eded8df7c191f596d39e8052e3bb090))
+
 ## [5.7.0](https://github.com/rsionnach/nthlayer-common/compare/v5.6.0...v5.7.0) (2026-10-28)
 
 
