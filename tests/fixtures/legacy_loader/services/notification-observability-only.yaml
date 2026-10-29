@@ -1,0 +1,32 @@
+# Copy of nthlayer-generate tests/golden/fixtures/legacy/notification-observability-only.yaml
+# (opensrm-wo62.4.13): an Observability resource and no Dependencies, the
+# shape whose dashboard rests on Observability presence alone. Unchanged
+# below this header except the original's comment block removed.
+
+service:
+  name: notification-observability-only
+  team: platform
+  tier: high
+  type: worker
+  description: Background worker for email, SMS, and push notifications
+  owner: platform-team@company.com
+
+resources:
+  - kind: SLO
+    name: delivery-success
+    spec:
+      objective: 99.5
+      window: 30d
+      indicators:
+        - type: availability
+          success_ratio:
+            total_query: sum(rate(notifications_sent_total{service="notification-observability-only"}[5m]))
+            good_query: sum(rate(notifications_sent_total{service="notification-observability-only",status="delivered"}[5m]))
+
+  - kind: Observability
+    name: observability
+    spec:
+      metrics:
+        - notifications_sent_total
+        - notifications_failed_total
+        - notification_processing_duration_seconds

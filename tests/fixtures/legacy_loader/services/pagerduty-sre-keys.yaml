@@ -1,0 +1,31 @@
+# TEST-ONLY fixture (opensrm-wo62.4.13); no shipped example sets these keys.
+#
+# Derived from nthlayer-generate examples/services/payment-api-pagerduty-demo.yaml
+# (service block and PagerDuty resource) plus the keys generate's legacy
+# PagerDutyHandler reads (orchestration/handlers.py, PagerDutyHandler.generate):
+#   service.pagerduty.timezone, service.pagerduty.sre_escalation_policy_id,
+#   resource spec.integration_key, resource spec.sre_integration_key.
+# The two integration keys are the demo's commented-out lines, uncommented;
+# ${PAGERDUTY_*} is not a substitution variable, so it stays literal.
+
+service:
+  name: payment-api
+  team: payments
+  tier: critical
+  type: api
+  support_model: shared
+  language: java
+  framework: spring-boot
+  pagerduty:
+    timezone: Europe/Dublin
+    sre_escalation_policy_id: PSRE001
+
+resources:
+  - kind: PagerDuty
+    name: primary
+    spec:
+      integration_key: ${PAGERDUTY_INTEGRATION_KEY}
+      sre_integration_key: ${PAGERDUTY_SRE_INTEGRATION_KEY}
+      urgency: high
+      auto_resolve_timeout: 14400
+      auto_create: true

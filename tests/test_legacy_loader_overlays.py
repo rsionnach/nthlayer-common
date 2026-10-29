@@ -1,5 +1,7 @@
 """Legacy-format load: environment overlays, template expansion, ${var}
-substitution and PagerDuty keys (opensrm-wo62.4.1, rulings D1-D4).
+substitution and PagerDuty keys (opensrm-wo62.4.1, rulings D1-D4), plus the
+PagerDuty SRE/integration keys and the Observability resource
+(opensrm-wo62.4.13, rulings P1-P5).
 
 Every expected value below is derived from nthlayer-generate's legacy
 semantics, not from nthlayer-common's implementation:
@@ -17,7 +19,14 @@ semantics, not from nthlayer-common's implementation:
   an invalid template file is skipped);
 - substitution: generate specs/template.py over ServiceContext.to_dict
   (type as authored, support_model default "self", language/framework ""
-  when unset, env only when an environment is given; unknown left as-is).
+  when unset, env only when an environment is given; unknown left as-is);
+- PagerDuty SRE/integration keys: generate orchestration/handlers.py
+  (PagerDutyHandler.generate reads service.pagerduty.timezone and
+  .sre_escalation_policy_id, and the first PagerDuty resource's
+  spec.integration_key and spec.sre_integration_key);
+- Observability: generate orchestrator.py (ResourceDetector.detect plans a
+  dashboard when any `kind: Observability` resource exists, whatever its
+  spec).
 
 The fixture tree (tests/fixtures/legacy_loader) is copied into tmp_path
 for each test so that the .nthlayer/templates walk-up cannot reach a
@@ -33,7 +42,12 @@ from pathlib import Path
 
 import pytest
 
-from nthlayer_common.manifest import ManifestLoadError, PagerDutyConfig, load_manifest
+from nthlayer_common.manifest import (
+    ManifestLoadError,
+    Observability,
+    PagerDutyConfig,
+    load_manifest,
+)
 from nthlayer_common.manifest.models import SourceFormat
 from nthlayer_common.manifest.parser.loader import _find_template_dir
 
@@ -593,6 +607,152 @@ class TestPagerDutyKeys:
         }
 
 
+class TestPagerDutySreAndIntegrationKeys:
+    """opensrm-wo62.4.13: the keys PagerDutyHandler.generate reads."""
+
+    def test_new_fields_default_to_none(self):
+        pd = PagerDutyConfig()
+        assert pd.timezone is None
+        assert pd.sre_escalation_policy_id is None
+        assert pd.integration_key is None
+        assert pd.sre_integration_key is None
+
+    def test_service_and_resource_keys_are_read(self):
+        m = _load(FIXTURES / "services" / "pagerduty-sre-keys.yaml")
+        assert m.ownership.pagerduty == PagerDutyConfig(
+            service_id=None,
+            escalation_policy_id=None,
+            urgency="high",
+            auto_resolve_timeout=14400,
+            create_escalation_policy=None,
+            timezone="Europe/Dublin",
+            sre_escalation_policy_id="PSRE001",
+            integration_key="${PAGERDUTY_INTEGRATION_KEY}",
+            sre_integration_key="${PAGERDUTY_SRE_INTEGRATION_KEY}",
+        )
+
+    def test_unset_timezone_is_not_defaulted(self):
+        # P4: generate applies America/New_York itself; common carries what
+        # was authored.
+        m = _load(FIXTURES / "services" / "payment-api-pagerduty-demo.yaml")
+        assert m.ownership.pagerduty.timezone is None
+        assert m.ownership.pagerduty.sre_escalation_policy_id is None
+
+    def test_service_pagerduty_without_resource_builds_nothing(self, tree):
+        # P5: generate's detector plans pagerduty only for a PagerDuty
+        # resource, so service.pagerduty alone must not create a config.
+        path = tree / "pd-service-only.yaml"
+        path.write_text(
+            "service:\n  name: svc\n  team: t\n  tier: critical\n  type: api\n"
+            "  pagerduty:\n    timezone: Europe/Dublin\n"
+            "    sre_escalation_policy_id: PSRE001\n"
+        )
+        m = _load(path)
+        assert m.ownership.pagerduty is None
+
+    def test_null_service_pagerduty_reads_as_unset(self, tree):
+        path = tree / "pd-null.yaml"
+        path.write_text(
+            "service:\n  name: svc\n  team: t\n  tier: critical\n  type: api\n"
+            "  pagerduty:\n"
+            "resources:\n  - kind: PagerDuty\n    name: primary\n"
+            "    spec:\n      urgency: high\n"
+        )
+        pd = _load(path).ownership.pagerduty
+        assert pd.urgency == "high"
+        assert pd.timezone is None
+        assert pd.sre_escalation_policy_id is None
+
+    def test_template_provided_resource_takes_service_keys(self, tree):
+        # The builtin critical-api template supplies the PagerDuty resource;
+        # the service-block keys still apply (handler reads them from
+        # service_def regardless of where the resource came from).
+        path = tree / "pd-templated.yaml"
+        path.write_text(
+            "service:\n  name: api-minimal\n  team: platform\n  tier: critical\n"
+            "  type: api\n  template: critical-api\n"
+            "  pagerduty:\n    timezone: Europe/Dublin\n"
+        )
+        pd = _load(path).ownership.pagerduty
+        assert pd.urgency == "high"  # from the template's resource
+        assert pd.timezone == "Europe/Dublin"
+
+    def test_overlay_service_pagerduty_is_merged(self, tree):
+        # The overlay deep-merges the service block (generate
+        # merge_service_config), so an env can change the timezone and keep
+        # the base's SRE policy.
+        overlay = tree / "environments" / "pagerduty-sre-keys-qa.yaml"
+        overlay.write_text(
+            "environment: qa\nservice:\n  pagerduty:\n    timezone: UTC\n"
+            "resources:\n  - kind: PagerDuty\n    name: primary\n"
+            "    spec:\n      integration_key: qa-key\n"
+        )
+        pd = _load(tree / "pagerduty-sre-keys.yaml", "qa").ownership.pagerduty
+        assert pd.timezone == "UTC"
+        assert pd.sre_escalation_policy_id == "PSRE001"
+        assert pd.integration_key == "qa-key"
+        assert pd.sre_integration_key == "${PAGERDUTY_SRE_INTEGRATION_KEY}"
+
+
+# =============================================================================
+# opensrm-wo62.4.13 — Observability resource
+# =============================================================================
+
+
+def _with_observability(tree: Path, resource_yaml: str) -> Path:
+    path = tree / "obs.yaml"
+    path.write_text(
+        "service:\n  name: obs\n  team: t\n  tier: high\n  type: worker\n"
+        "resources:\n" + resource_yaml
+    )
+    return path
+
+
+class TestObservabilityResource:
+    def test_observability_only_fixture_carries_presence(self):
+        # The legacy spec keys (metrics, logs, health) have no Observability
+        # field, so presence is all that carries; that is what the legacy
+        # dashboard detection keys on.
+        m = _load(FIXTURES / "services" / "notification-observability-only.yaml")
+        assert m.observability == Observability()
+
+    def test_no_observability_resource_is_none(self):
+        m = _load(FIXTURES / "services" / "payment-api-pagerduty-demo.yaml")
+        assert m.observability is None
+
+    def test_shared_keys_are_mapped(self, tree):
+        path = _with_observability(
+            tree,
+            "  - kind: Observability\n    name: observability\n    spec:\n"
+            "      metrics_prefix: obs\n      prometheus_job: obs-job\n"
+            "      labels:\n        env: prod\n",
+        )
+        assert _load(path).observability == Observability(
+            metrics_prefix="obs", prometheus_job="obs-job", labels={"env": "prod"}
+        )
+
+    @pytest.mark.parametrize(
+        "spec_yaml",
+        ["    spec: {}\n", "    spec:\n", ""],
+        ids=["empty", "null", "missing"],
+    )
+    def test_empty_or_missing_spec_still_carries_presence(self, tree, spec_yaml):
+        # P3: the legacy detector plans a dashboard for any Observability
+        # resource, so an empty spec must not read as "no observability".
+        path = _with_observability(
+            tree, "  - kind: Observability\n    name: observability\n" + spec_yaml
+        )
+        assert _load(path).observability == Observability()
+
+    def test_first_observability_resource_wins(self, tree):
+        path = _with_observability(
+            tree,
+            "  - kind: Observability\n    name: a\n    spec:\n      metrics_prefix: first\n"
+            "  - kind: Observability\n    name: b\n    spec:\n      metrics_prefix: second\n",
+        )
+        assert _load(path).observability.metrics_prefix == "first"
+
+
 # =============================================================================
 # srm/v1 and v2 are unaffected
 # =============================================================================
@@ -623,6 +783,26 @@ class TestOtherFormatsUnaffected:
 
     def test_v1_pagerduty_has_no_legacy_keys(self, v1):
         m = _load(v1)
+        assert m.ownership.pagerduty == PagerDutyConfig(
+            service_id="PABC123", escalation_policy_id="PEP456"
+        )
+
+    def test_v1_pagerduty_ignores_legacy_service_keys(self, tree):
+        # P1: the four wo62.4.13 keys are legacy-only; v1 does not define them.
+        path = tree / "v1-pd.yaml"
+        text = (FIXTURES / "srm-v1-payment-api.yaml").read_text()
+        anchor = "      escalation_policy_id: PEP456\n"
+        assert text.count(anchor) == 1
+        path.write_text(
+            text.replace(
+                anchor,
+                anchor + "      timezone: Europe/Dublin\n"
+                "      sre_escalation_policy_id: PSRE001\n"
+                "      integration_key: k\n      sre_integration_key: s\n",
+            )
+        )
+        m = _load(path)
+        assert m.source_format == SourceFormat.SRM_V1
         assert m.ownership.pagerduty == PagerDutyConfig(
             service_id="PABC123", escalation_policy_id="PEP456"
         )
