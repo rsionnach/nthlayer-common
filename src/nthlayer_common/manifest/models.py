@@ -237,7 +237,8 @@ class PagerDutyConfig:
     # Legacy-format keys read by generate's PagerDutyHandler
     # (opensrm-wo62.4.13): timezone and sre_escalation_policy_id from
     # service.pagerduty, the integration keys from the resource spec. Stored
-    # as authored, so timezone is None when unset (generate owns the default).
+    # as authored and not type-checked, so timezone is None when unset
+    # (generate owns the default).
     timezone: str | None = None
     sre_escalation_policy_id: str | None = None
     integration_key: str | None = None

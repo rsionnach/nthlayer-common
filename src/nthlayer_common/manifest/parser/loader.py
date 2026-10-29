@@ -553,10 +553,17 @@ def _extract_observability(resources: list[dict[str, Any]]) -> Observability | N
     resource, whatever its spec, so an empty or missing spec still yields
     ``Observability()``: presence is the signal. The legacy spec keys
     (metrics, logs, health) have no Observability field and are not read.
+    A non-mapping spec is likewise only presence: it is warned about and
+    ignored rather than failing a load that succeeded before this resource
+    was read (malformed-spec errors are opensrm-wo62.4.10).
     """
     for resource in resources:
         if resource.get("kind") == "Observability":
-            return parse_observability(resource.get("spec")) or Observability()
+            spec = resource.get("spec")
+            if spec is not None and not isinstance(spec, dict):
+                logger.warning("legacy_observability_spec_not_mapping", spec_type=type(spec).__name__)
+                spec = None
+            return parse_observability(spec) or Observability()
     return None
 
 
@@ -576,7 +583,15 @@ def _extract_ownership(
         runbook=service_data.get("runbook_url"),
     )
 
+    # service.pagerduty was never read before opensrm-wo62.4.13, so a
+    # non-mapping value is warned about and ignored rather than failing a
+    # load that used to succeed.
     service_pagerduty = service_data.get("pagerduty") or {}
+    if not isinstance(service_pagerduty, dict):
+        logger.warning(
+            "legacy_service_pagerduty_not_mapping", value_type=type(service_pagerduty).__name__
+        )
+        service_pagerduty = {}
     # The config is built only for a PagerDuty resource (generate plans
     # pagerduty only then); service.pagerduty keys alone add nothing.
     for resource in resources:

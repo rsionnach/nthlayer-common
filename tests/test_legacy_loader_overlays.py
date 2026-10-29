@@ -41,6 +41,7 @@ from importlib.resources import files
 from pathlib import Path
 
 import pytest
+from structlog.testing import capture_logs
 
 from nthlayer_common.manifest import (
     ManifestLoadError,
@@ -668,6 +669,24 @@ class TestPagerDutySreAndIntegrationKeys:
         assert pd.timezone is None
         assert pd.sre_escalation_policy_id is None
 
+    @pytest.mark.parametrize("value", ["foo", "[a, b]"], ids=["scalar", "list"])
+    def test_non_mapping_service_pagerduty_is_ignored_with_warning(self, tree, value):
+        # service.pagerduty was never read before wo62.4.13; a malformed one
+        # must not turn a load that succeeded into a crash.
+        path = tree / "pd-malformed.yaml"
+        path.write_text(
+            "service:\n  name: svc\n  team: t\n  tier: critical\n  type: api\n"
+            f"  pagerduty: {value}\n"
+            "resources:\n  - kind: PagerDuty\n    name: primary\n"
+            "    spec:\n      urgency: high\n"
+        )
+        with capture_logs() as logs:
+            pd = _load(path).ownership.pagerduty
+        assert pd.urgency == "high"
+        assert pd.timezone is None
+        assert pd.sre_escalation_policy_id is None
+        assert [e["event"] for e in logs] == ["legacy_service_pagerduty_not_mapping"]
+
     def test_template_provided_resource_takes_service_keys(self, tree):
         # The builtin critical-api template supplies the PagerDuty resource;
         # the service-block keys still apply (handler reads them from
@@ -748,6 +767,20 @@ class TestObservabilityResource:
             tree, "  - kind: Observability\n    name: observability\n" + spec_yaml
         )
         assert _load(path).observability == Observability()
+
+    @pytest.mark.parametrize(
+        "spec_yaml", ["    spec: [a, b]\n", "    spec: hello\n"], ids=["list", "scalar"]
+    )
+    def test_non_mapping_spec_is_presence_with_warning(self, tree, spec_yaml):
+        # The legacy detector never reads the spec, so a malformed one still
+        # plans a dashboard; common must not crash where it used to load.
+        path = _with_observability(
+            tree, "  - kind: Observability\n    name: observability\n" + spec_yaml
+        )
+        with capture_logs() as logs:
+            obs = _load(path).observability
+        assert obs == Observability()
+        assert [e["event"] for e in logs] == ["legacy_observability_spec_not_mapping"]
 
     def test_first_observability_resource_wins(self, tree):
         path = _with_observability(
