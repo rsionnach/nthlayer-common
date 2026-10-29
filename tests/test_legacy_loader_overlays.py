@@ -656,6 +656,18 @@ class TestPagerDutySreAndIntegrationKeys:
         m = _load(path)
         assert m.ownership.pagerduty is None
 
+    def test_malformed_service_pagerduty_without_resource_is_not_warned(self, tree):
+        # Unused under P5, so a malformed value is not worth a warning.
+        path = tree / "pd-malformed-unused.yaml"
+        path.write_text(
+            "service:\n  name: svc\n  team: t\n  tier: critical\n  type: api\n"
+            "  pagerduty: foo\n"
+        )
+        with capture_logs() as logs:
+            m = _load(path)
+        assert m.ownership.pagerduty is None
+        assert logs == []
+
     def test_null_service_pagerduty_reads_as_unset(self, tree):
         path = tree / "pd-null.yaml"
         path.write_text(
@@ -669,7 +681,9 @@ class TestPagerDutySreAndIntegrationKeys:
         assert pd.timezone is None
         assert pd.sre_escalation_policy_id is None
 
-    @pytest.mark.parametrize("value", ["foo", "[a, b]"], ids=["scalar", "list"])
+    @pytest.mark.parametrize(
+        "value", ["foo", "[a, b]", "[]", "false"], ids=["scalar", "list", "empty-list", "false"]
+    )
     def test_non_mapping_service_pagerduty_is_ignored_with_warning(self, tree, value):
         # service.pagerduty was never read before wo62.4.13; a malformed one
         # must not turn a load that succeeded into a crash.

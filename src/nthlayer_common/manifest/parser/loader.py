@@ -567,6 +567,21 @@ def _extract_observability(resources: list[dict[str, Any]]) -> Observability | N
     return None
 
 
+def _legacy_service_pagerduty(service_data: dict[str, Any]) -> dict[str, Any]:
+    """Return ``service.pagerduty`` as a mapping (``{}`` when unset).
+
+    It was never read before opensrm-wo62.4.13, so a non-mapping value is
+    warned about and ignored rather than failing a load that used to succeed.
+    """
+    value = service_data.get("pagerduty")
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        logger.warning("legacy_service_pagerduty_not_mapping", value_type=type(value).__name__)
+        return {}
+    return value
+
+
 def _extract_ownership(
     service_data: dict[str, Any],
     resources: list[dict[str, Any]],
@@ -583,20 +598,12 @@ def _extract_ownership(
         runbook=service_data.get("runbook_url"),
     )
 
-    # service.pagerduty was never read before opensrm-wo62.4.13, so a
-    # non-mapping value is warned about and ignored rather than failing a
-    # load that used to succeed.
-    service_pagerduty = service_data.get("pagerduty") or {}
-    if not isinstance(service_pagerduty, dict):
-        logger.warning(
-            "legacy_service_pagerduty_not_mapping", value_type=type(service_pagerduty).__name__
-        )
-        service_pagerduty = {}
     # The config is built only for a PagerDuty resource (generate plans
     # pagerduty only then); service.pagerduty keys alone add nothing.
     for resource in resources:
         if resource.get("kind") == "PagerDuty":
             spec = resource.get("spec", {})
+            service_pagerduty = _legacy_service_pagerduty(service_data)
             ownership.pagerduty = PagerDutyConfig(
                 service_id=spec.get("service_id"),
                 escalation_policy_id=spec.get("escalation_policy"),
