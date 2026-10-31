@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.8.1](https://github.com/rsionnach/nthlayer-common/compare/v5.8.0...v5.8.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* ship the Apache-2.0 LICENSE and declare it in package metadata (opensrm-bqfj) ([c613f37](https://github.com/rsionnach/nthlayer-common/commit/c613f37cb44fa6ba993c19ebdfcf234c75e0a301))
+* ship the Apache-2.0 LICENSE and declare it in package metadata (opensrm-bqfj) ([ca3acdb](https://github.com/rsionnach/nthlayer-common/commit/ca3acdbba873d28f2d93f6f9578581f2622a85f9))
+
 ## [5.8.0](https://github.com/rsionnach/nthlayer-common/compare/v5.7.0...v5.8.0) (2026-10-29)
 
 
