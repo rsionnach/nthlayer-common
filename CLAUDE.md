@@ -57,9 +57,11 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
        - threshold evaluation (the exception to the list's "not
          re-exported") — `manifest/evaluation.py` (E1-E4 evaluator,
          outcome model, and the `Status`/`MissingReason`/`ResultReason`
-         types) and `manifest/threshold_series.py` (metric
-         contract) are public, re-exported from `manifest/__init__.py`,
-         and sit beside `manifest/thresholds.py`.
+         types), `manifest/threshold_series.py` (metric
+         contract) and `manifest/slo_series.py` (classical-SLO
+         recording-rule contract, opensrm-h0at) are public, re-exported
+         from `manifest/__init__.py`, and sit beside
+         `manifest/thresholds.py`.
        - domain guards, used on the CLASSICAL writers too, not just
          judgment — `require_number()` (numeric or a string spelling
          one; raises ValueError where a bare `float()` raised an
