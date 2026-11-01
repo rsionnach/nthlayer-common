@@ -4,6 +4,20 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.9.0](https://github.com/rsionnach/nthlayer-common/compare/v5.8.1...v5.9.0) (2026-11-01)
+
+
+### Features
+
+* model required_traces[].emitted_by (opensrm-5vil) ([4e3c563](https://github.com/rsionnach/nthlayer-common/commit/4e3c563056b83c670394a8a48d0e45c21469c927))
+* model required_traces[].emitted_by (opensrm-5vil) ([b9a0e20](https://github.com/rsionnach/nthlayer-common/commit/b9a0e20b9df59fe9ee73bc1a6ada4b299a0c5bdf))
+
+
+### Bug Fixes
+
+* emit gen_ai.provider.name, not the retired gen_ai.system (opensrm-yrxm) ([fa584ab](https://github.com/rsionnach/nthlayer-common/commit/fa584ab6a212f2e02004de8eb4d2ee320449843a))
+* emit gen_ai.provider.name, not the retired gen_ai.system (opensrm-yrxm) ([9ace047](https://github.com/rsionnach/nthlayer-common/commit/9ace047ab88dd4c12f6e832b38568d685e55bb8f))
+
 ## [5.8.1](https://github.com/rsionnach/nthlayer-common/compare/v5.8.0...v5.8.1) (2026-10-31)
 
 
