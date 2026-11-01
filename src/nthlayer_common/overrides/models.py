@@ -1,9 +1,10 @@
 """Override event data contract + privacy + webhook field mapping.
 
-Spec: ``NTHLAYER_MISSING_CAPABILITIES_SPEC.md`` § 4. The OTel canonical
-form is ``gen_ai.override`` with attributes ``gen_ai.override.*``. Field
-names here are the snake_case Python equivalents — ``to_otel_attributes()``
-flips them back to the dotted form on emission.
+Spec: ``NTHLAYER_MISSING_CAPABILITIES_SPEC.md`` § 4. The OTel form is the
+``nthlayer.reversal`` event of OpenSRM Addendum A1 §4.2, which retired the
+earlier ``gen_ai.override`` / ``gen_ai.override.*`` form (opensrm-1dua).
+Field names here are the HTTP wire's; ``to_otel_attributes()`` maps them to
+the A1 attributes on emission.
 """
 from __future__ import annotations
 
@@ -11,6 +12,10 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+# OTel name of the event an override is emitted as (OpenSRM Addendum A1 §4.2),
+# and the prefix of its attributes.
+REVERSAL_EVENT_NAME = "nthlayer.reversal"
 
 # Spec § 4: confidence > 0.85 increments the HCF judgment SLO counter.
 HIGH_CONFIDENCE_THRESHOLD = 0.85
@@ -50,7 +55,7 @@ class OverridePrivacyConfig:
 
 @dataclass
 class OverrideEvent:
-    """Canonical override event — the gen_ai.override OTel form.
+    """Canonical override event; emitted as an ``nthlayer.reversal`` (A1 §4.2).
 
     Required fields per spec § 4: ``decision_id``, ``service``,
     ``corrected_action``, ``reviewer``. Everything else is optional but
@@ -109,31 +114,42 @@ class OverrideEvent:
         )
 
     def to_otel_attributes(self) -> dict[str, Any]:
-        """None-valued fields are dropped so the emitted span event
-        matches the spec § 4 example shape.
+        """The ``nthlayer.reversal`` form of OpenSRM Addendum A1 §4.2.
+
+        Field mapping: ``reviewer`` -> ``actor``, ``corrected_action`` ->
+        ``new_value``; ``decision_id`` and ``reason`` keep their names.
+        ``type`` (``human_override``) and ``actor_type`` (``human``) are
+        constants: an override is a human's reversal.
+
+        ``service``, ``original_action``, ``confidence_at_decision`` and
+        ``source_system`` are not defined by A1 §4.2; they are carried as
+        implementation extensions under the same prefix (opensrm-1dua,
+        ruling R2). None-valued fields are dropped.
         """
+        prefix = REVERSAL_EVENT_NAME
+        # A1 §4.2.
         attrs: dict[str, Any] = {
-            "gen_ai.override.decision_id": self.decision_id,
-            "gen_ai.override.service": self.service,
-            "gen_ai.override.corrected_action": self.corrected_action,
-            "gen_ai.override.reviewer": self.reviewer,
+            f"{prefix}.decision_id": self.decision_id,
+            f"{prefix}.type": "human_override",
+            f"{prefix}.actor_type": "human",
+            f"{prefix}.actor": self.reviewer,
+            f"{prefix}.new_value": self.corrected_action,
         }
-        for name, otel_key in (
-            ("original_action", "gen_ai.override.original_action"),
-            ("reason", "gen_ai.override.reason"),
-            ("confidence_at_decision", "gen_ai.override.confidence_at_decision"),
-            ("source_system", "gen_ai.override.source_system"),
-        ):
+        if self.reason is not None:
+            attrs[f"{prefix}.reason"] = self.reason
+        # Implementation extensions (ruling R2).
+        attrs[f"{prefix}.service"] = self.service
+        for name in ("original_action", "confidence_at_decision", "source_system"):
             value = getattr(self, name)
             if value is not None:
-                attrs[otel_key] = value
+                attrs[f"{prefix}.{name}"] = value
         return attrs
 
     def to_dict(self) -> dict:
         """Canonical JSON-serializable dict for the HTTP wire (opensrm-jmy.18).
 
-        Distinct from to_otel_attributes (which prefixes keys with
-        gen_ai.override.*). Used by nthlayer-override-adapter when
+        Distinct from to_otel_attributes (which emits the A1
+        nthlayer.reversal.* form). Used by nthlayer-override-adapter when
         POSTing to POST /verdicts/{id}/override.
 
         None-valued optional fields are dropped (the receiver's

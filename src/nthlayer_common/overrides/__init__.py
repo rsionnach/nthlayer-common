@@ -1,6 +1,7 @@
 """Human override ingestion — canonical event schema, privacy, and verdict binding.
 
-Models the OTel ``gen_ai.override`` event and binds incoming overrides
+Models the override event (emitted as OpenSRM A1's
+``nthlayer.reversal``) and binds incoming overrides
 to the verdict store. nthlayer-measure consumes overrides via OTel;
 this module is what the consumer calls when an event arrives.
 
@@ -9,6 +10,7 @@ Canonical import: ``from nthlayer_common.overrides import OverrideEvent``.
 
 from nthlayer_common.overrides.ingestion import apply_override_to_verdict
 from nthlayer_common.overrides.models import (
+    REVERSAL_EVENT_NAME,
     OverrideEvent,
     OverridePrivacyConfig,
     hash_reviewer,
@@ -16,6 +18,7 @@ from nthlayer_common.overrides.models import (
 )
 
 __all__ = [
+    "REVERSAL_EVENT_NAME",
     "OverrideEvent",
     "OverridePrivacyConfig",
     "apply_override_to_verdict",

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from nthlayer_common.overrides import (
+    REVERSAL_EVENT_NAME,
     OverrideEvent,
     OverridePrivacyConfig,
     apply_override_to_verdict,
@@ -104,10 +105,48 @@ class TestOverrideEvent:
     def test_to_otel_attributes_drops_none(self):
         event = _event(reason=None, confidence_at_decision=None)
         attrs = event.to_otel_attributes()
-        assert attrs["gen_ai.override.decision_id"] == "vrd-test-1"
-        assert attrs["gen_ai.override.corrected_action"] == "escalate_to_review"
-        assert "gen_ai.override.reason" not in attrs
-        assert "gen_ai.override.confidence_at_decision" not in attrs
+        assert attrs["nthlayer.reversal.decision_id"] == "vrd-test-1"
+        assert attrs["nthlayer.reversal.new_value"] == "escalate_to_review"
+        assert "nthlayer.reversal.reason" not in attrs
+        assert "nthlayer.reversal.confidence_at_decision" not in attrs
+
+    def test_to_otel_attributes_is_the_a1_reversal_form(self):
+        """OpenSRM Addendum A1 §4.2 (opensrm-1dua).
+
+        A human override is an ``nthlayer.reversal`` with type
+        ``human_override``; the retired ``gen_ai.override.*`` form is gone.
+        """
+        event = _event(
+            original_action="approve",
+            reason="looked wrong",
+            confidence_at_decision=0.9,
+            source_system="slack",
+        )
+        attrs = event.to_otel_attributes()
+        # A1 §4.2 attributes.
+        assert attrs["nthlayer.reversal.decision_id"] == event.decision_id
+        assert attrs["nthlayer.reversal.type"] == "human_override"
+        assert attrs["nthlayer.reversal.actor_type"] == "human"
+        assert attrs["nthlayer.reversal.actor"] == event.reviewer
+        assert attrs["nthlayer.reversal.new_value"] == event.corrected_action
+        assert attrs["nthlayer.reversal.reason"] == "looked wrong"
+        # Implementation extensions (ruling R2): not defined by A1 §4.2.
+        assert attrs["nthlayer.reversal.service"] == event.service
+        assert attrs["nthlayer.reversal.original_action"] == "approve"
+        assert attrs["nthlayer.reversal.confidence_at_decision"] == 0.9
+        assert attrs["nthlayer.reversal.source_system"] == "slack"
+        assert not [k for k in attrs if k.startswith("gen_ai.")]
+        assert len(attrs) == 10  # 6 A1 + 4 extensions
+
+    def test_to_otel_attributes_boundaries(self):
+        # 0.0 is a confidence, not an absence: emitted (`is not None`, not truthiness).
+        attrs = _event(confidence_at_decision=0.0).to_otel_attributes()
+        assert attrs["nthlayer.reversal.confidence_at_decision"] == 0.0
+        # reason="" is normalised to None in __post_init__, so it is dropped.
+        assert "nthlayer.reversal.reason" not in _event(reason="").to_otel_attributes()
+
+    def test_reversal_event_name(self):
+        assert REVERSAL_EVENT_NAME == "nthlayer.reversal"
 
     def test_to_dict_canonical_wire_shape(self) -> None:
         """opensrm-jmy.18: to_dict produces a JSON-serializable canonical dict."""
