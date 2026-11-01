@@ -112,6 +112,7 @@ from nthlayer_common.manifest.scan import (
     iter_manifest_files,
     scan_manifest_files,
 )
+from nthlayer_common.manifest.slo_series import ERROR_BUDGET_REMAINING, SloSeries
 from nthlayer_common.manifest.threshold_series import (
     FEEDBACK_LATENCY_WINDOW,
     THRESHOLD_SERIES,
@@ -189,6 +190,8 @@ __all__ = [
     "THRESHOLD_SERIES",
     "ThresholdSeries",
     "FEEDBACK_LATENCY_WINDOW",
+    "ERROR_BUDGET_REMAINING",
+    "SloSeries",
     "BreachAction",
     "StatisticalRequirements",
     "ProbeConfig",
