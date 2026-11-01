@@ -2,8 +2,8 @@
 
 The integration spec point (§ 4 nthlayer-measure integration steps 1-2):
 look up the verdict by ``decision_id``, set ``outcome.status =
-"overridden"``, populate ``outcome.override`` with the gen_ai.override
-attributes (reviewer hashed by default).
+"overridden"``, populate ``outcome.override`` with the override event's
+fields (reviewer hashed by default).
 
 Steps 3-5 (Prometheus reversal/HCF counter increments and OTel metrics)
 are emitted by the agent-side instrumentation already — this function

@@ -114,7 +114,8 @@ class Override:
     at: datetime | None = None
     action: str | None = None
     reasoning: str | None = None
-    # Optional gen_ai.override.* audit fields (spec §4 OTel canonical form).
+    # Optional override audit fields (spec §4; emitted on OTel as
+    # nthlayer.reversal.*, OpenSRM Addendum A1 §4.2).
     # Carried on the verdict so reversal/HCF metrics can be recomputed and
     # incident retrospectives have provenance for every override.
     original_action: str | None = None

@@ -42,7 +42,7 @@ src/nthlayer_common/
     identity/            # ServiceIdentity, IdentityResolver, OwnershipResolver
     records/             # Decision Records — content-addressed audit trail
     verdicts/            # Atomic AI judgment model (moved from nthlayer-learn)
-    overrides/           # Human override ingestion (gen_ai.override, opensrm-jmy.4)
+    overrides/           # Human override ingestion (nthlayer.reversal, opensrm-jmy.4)
     governance_bridge/   # External governance webhook protocol (opensrm-jmy.5)
     manifest/            # Unified OpenSRM manifest parsing (v1, v2, OpenSLO, legacy)
                          #   + opensrm_v1.py: opensrm/v1 -> v2 converter (public,
@@ -170,7 +170,8 @@ verdicts, evaluations, incidents, prompts, responses.
 
 ### Overrides (`nthlayer_common.overrides`)
 
-Human override ingestion — canonical OTel `gen_ai.override` event
+Human override ingestion — the override event, emitted on OTel as OpenSRM
+Addendum A1's `nthlayer.reversal` (formerly `gen_ai.override`)
 schema, privacy controls, and verdict binding (opensrm-jmy.4, spec §4).
 
 - `OverrideEvent` — required: `decision_id`, `service`,
