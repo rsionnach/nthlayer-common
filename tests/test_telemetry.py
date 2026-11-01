@@ -32,7 +32,9 @@ class TestEmitLLMEvent:
         assert call_args[0][0] == "nthlayer.llm.call"
         attrs = call_args[1]["attributes"]
         assert attrs["gen_ai.request.model"] == "claude-sonnet-4-20250514"
-        assert attrs["gen_ai.system"] == "anthropic"
+        # Addendum A1 §5 P4: gen_ai.provider.name, never the retired gen_ai.system.
+        assert attrs["gen_ai.provider.name"] == "anthropic"
+        assert "gen_ai.system" not in attrs
         assert attrs["nthlayer.llm.caller"] == "measure.evaluator"
         assert attrs["gen_ai.usage.input_tokens"] == 500
         assert attrs["gen_ai.usage.output_tokens"] == 200
@@ -57,8 +59,12 @@ class TestEmitLLMEvent:
         )
 
         attrs = mock_span.add_event.call_args[1]["attributes"]
-        assert attrs["gen_ai.usage.cached_tokens"] == 300
-        assert attrs["gen_ai.usage.reasoning_tokens"] == 100
+        # Upstream names: cache_read per A1 §6.7, reasoning.output per
+        # profiles/claude-platform.md (Cost row); the old names must be gone.
+        assert attrs["gen_ai.usage.cache_read.input_tokens"] == 300
+        assert "gen_ai.usage.cached_tokens" not in attrs
+        assert attrs["gen_ai.usage.reasoning.output_tokens"] == 100
+        assert "gen_ai.usage.reasoning_tokens" not in attrs
         assert attrs["nthlayer.llm.caller_verdict_cid"] == "vrd-test-001"
         assert attrs["nthlayer.llm.duration_ms"] == 2500
 
@@ -117,6 +123,7 @@ class TestEmitLLMEvent:
         attrs = mock_span.add_event.call_args[1]["attributes"]
         assert "gen_ai.usage.input_tokens" not in attrs
         assert "gen_ai.usage.output_tokens" not in attrs
-        assert "gen_ai.usage.cached_tokens" not in attrs
+        assert "gen_ai.usage.cache_read.input_tokens" not in attrs
+        assert "gen_ai.usage.reasoning.output_tokens" not in attrs
         assert "nthlayer.llm.caller_verdict_cid" not in attrs
         assert "nthlayer.llm.duration_ms" not in attrs

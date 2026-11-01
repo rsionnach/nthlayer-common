@@ -55,8 +55,11 @@ def emit_llm_event(
         caller: The calling component/module (e.g., "measure.evaluator").
         input_tokens: Number of input tokens.
         output_tokens: Number of output tokens.
-        cached_tokens: Cached input tokens (Anthropic prompt caching).
-        reasoning_tokens: Reasoning/thinking tokens.
+        cached_tokens: Cache-read input tokens (e.g. Anthropic's
+            ``cache_read_input_tokens``), not cache writes; emitted as
+            gen_ai.usage.cache_read.input_tokens.
+        reasoning_tokens: Reasoning/thinking tokens; emitted as
+            gen_ai.usage.reasoning.output_tokens.
         verdict_id: The verdict being produced, if applicable.
         duration_ms: Wall-clock time of the call in milliseconds.
         success: Whether the call succeeded.
@@ -73,7 +76,8 @@ def emit_llm_event(
 
     attributes: dict[str, Any] = {
         "gen_ai.request.model": model,
-        "gen_ai.system": provider,
+        # Addendum A1 §5 P4: gen_ai.system MUST NOT be emitted (dropped from the upstream registry).
+        "gen_ai.provider.name": provider,
         "nthlayer.llm.caller": caller,
     }
 
@@ -82,9 +86,9 @@ def emit_llm_event(
     if output_tokens is not None:
         attributes["gen_ai.usage.output_tokens"] = output_tokens
     if cached_tokens is not None:
-        attributes["gen_ai.usage.cached_tokens"] = cached_tokens
+        attributes["gen_ai.usage.cache_read.input_tokens"] = cached_tokens
     if reasoning_tokens is not None:
-        attributes["gen_ai.usage.reasoning_tokens"] = reasoning_tokens
+        attributes["gen_ai.usage.reasoning.output_tokens"] = reasoning_tokens
     if verdict_id is not None:
         attributes["nthlayer.llm.caller_verdict_cid"] = verdict_id
     if duration_ms is not None:
