@@ -23,9 +23,10 @@ _PROMQL_ESCAPES = (("\\", "\\\\"), ('"', '\\"'), ("\n", "\\n"))
 
 
 def _promql_string(value: object) -> str:
-    # str() first, as generate does when it interpolates the same value: a
-    # srm/v1 manifest named `404` loads with an int name and is written as
-    # service="404", so the reader must render it identically.
+    # str() first, to render a value as generate's rule file carries it.
+    # Exact for objective (generate stores str(target)) and for an int name
+    # (srm/v1 loads `name: 404` as an int; YAML dumps it as 404). A bool or
+    # float-like name is not: YAML dumps True as `true` (opensrm-kr94).
     value = str(value)
     for raw, escaped in _PROMQL_ESCAPES:
         value = value.replace(raw, escaped)

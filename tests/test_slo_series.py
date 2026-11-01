@@ -63,7 +63,7 @@ def test_selector_escapes_label_values(value, literal):
 
 def test_selector_renders_a_non_str_value_as_generate_writes_it():
     # srm/v1's parser only checks metadata.name is truthy, so `name: 404`
-    # loads as an int; generate's f-string writes service="404".
+    # loads as an int; generate's rule file dumps the label as YAML `404`.
     assert ERROR_BUDGET_REMAINING.selector(service=404) == (
         'slo:error_budget_remaining:ratio{service="404"}'
     )
