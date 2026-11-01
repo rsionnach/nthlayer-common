@@ -56,8 +56,10 @@ def emit_llm_event(
         input_tokens: Number of input tokens.
         output_tokens: Number of output tokens.
         cached_tokens: Cache-read input tokens (e.g. Anthropic's
-            ``cache_read_input_tokens``), not cache writes.
-        reasoning_tokens: Reasoning/thinking tokens.
+            ``cache_read_input_tokens``), not cache writes; emitted as
+            gen_ai.usage.cache_read.input_tokens.
+        reasoning_tokens: Reasoning/thinking tokens; emitted as
+            gen_ai.usage.reasoning.output_tokens.
         verdict_id: The verdict being produced, if applicable.
         duration_ms: Wall-clock time of the call in milliseconds.
         success: Whether the call succeeded.
@@ -74,7 +76,7 @@ def emit_llm_event(
 
     attributes: dict[str, Any] = {
         "gen_ai.request.model": model,
-        # gen_ai.system was removed from the upstream registry (Addendum A1 P4).
+        # Addendum A1 §5 P4: gen_ai.system MUST NOT be emitted (dropped from the upstream registry).
         "gen_ai.provider.name": provider,
         "nthlayer.llm.caller": caller,
     }

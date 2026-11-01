@@ -32,7 +32,7 @@ class TestEmitLLMEvent:
         assert call_args[0][0] == "nthlayer.llm.call"
         attrs = call_args[1]["attributes"]
         assert attrs["gen_ai.request.model"] == "claude-sonnet-4-20250514"
-        # Addendum A1 P4: gen_ai.provider.name, never the retired gen_ai.system.
+        # Addendum A1 §5 P4: gen_ai.provider.name, never the retired gen_ai.system.
         assert attrs["gen_ai.provider.name"] == "anthropic"
         assert "gen_ai.system" not in attrs
         assert attrs["nthlayer.llm.caller"] == "measure.evaluator"
@@ -59,7 +59,8 @@ class TestEmitLLMEvent:
         )
 
         attrs = mock_span.add_event.call_args[1]["attributes"]
-        # Upstream usage names (Addendum A1 §6.7 and the Claude profile).
+        # Upstream names: cache_read per A1 §6.7, reasoning.output per
+        # profiles/claude-platform.md (Cost row); the old names must be gone.
         assert attrs["gen_ai.usage.cache_read.input_tokens"] == 300
         assert "gen_ai.usage.cached_tokens" not in attrs
         assert attrs["gen_ai.usage.reasoning.output_tokens"] == 100
