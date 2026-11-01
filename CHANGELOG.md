@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.9.1](https://github.com/rsionnach/nthlayer-common/compare/v5.9.0...v5.9.1) (2026-11-01)
+
+
+### Bug Fixes
+
+* emit overrides as A1 nthlayer.reversal, not gen_ai.override (opensrm-1dua) ([7cce420](https://github.com/rsionnach/nthlayer-common/commit/7cce420c3545c0e5f1b44f7ba43118d87771f491))
+* emit overrides as A1 nthlayer.reversal, not gen_ai.override (opensrm-1dua) ([c150c77](https://github.com/rsionnach/nthlayer-common/commit/c150c77438bc6a075407a57d8c44121764230402))
+
 ## [5.9.0](https://github.com/rsionnach/nthlayer-common/compare/v5.8.1...v5.9.0) (2026-11-01)
 
 
