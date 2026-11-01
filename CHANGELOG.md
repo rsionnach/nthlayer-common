@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.10.0](https://github.com/rsionnach/nthlayer-common/compare/v5.9.1...v5.10.0) (2026-11-01)
+
+
+### Features
+
+* **manifest:** SloSeries contract for the error-budget series (opensrm-h0at) ([dc42f26](https://github.com/rsionnach/nthlayer-common/commit/dc42f262fd74c10d2be83d52b3ab6725df3c8507))
+* **manifest:** SloSeries contract for the error-budget series (opensrm-h0at) ([7f07049](https://github.com/rsionnach/nthlayer-common/commit/7f07049d74c0e43f46df0fe9d8bb8f933c430540))
+
 ## [5.9.1](https://github.com/rsionnach/nthlayer-common/compare/v5.9.0...v5.9.1) (2026-11-01)
 
 
