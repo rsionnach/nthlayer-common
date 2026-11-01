@@ -20,6 +20,7 @@ from nthlayer_common.manifest.evaluation import (
     evaluate_threshold,
 )
 from nthlayer_common.manifest.models import (
+    DEFAULT_TRACE_EMITTER,
     SERVICE_TYPE_ALIASES,
     SRM_V1_JUDGMENT_THRESHOLD_TYPES,
     STANDARD_SLO_TYPES,
@@ -28,6 +29,7 @@ from nthlayer_common.manifest.models import (
     VALID_EXHAUSTION_BEHAVIORS,
     VALID_SERVICE_TYPES,
     VALID_TIERS,
+    VALID_TRACE_EMITTERS,
     APIRef,
     AuditConfig,
     BreachAction,
@@ -144,6 +146,8 @@ __all__ = [
     "SERVICE_TYPE_ALIASES",
     "VALID_EXHAUSTION_BEHAVIORS",
     "VALID_SERVICE_TYPES",
+    "VALID_TRACE_EMITTERS",
+    "DEFAULT_TRACE_EMITTER",
     "VALID_TIERS",
     # Service-type helpers
     "is_valid_service_type",

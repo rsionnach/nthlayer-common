@@ -803,12 +803,26 @@ class RequiredMetric:
     labels: list[str] = field(default_factory=list)
 
 
+# required_traces[].emitted_by values and default (OpenSRM Addendum A1 §8;
+# schema.json Instrumentation). Kept equal to the schema by
+# tests/test_manifest_v2_archetypes.py.
+VALID_TRACE_EMITTERS = frozenset({"application", "provider"})
+DEFAULT_TRACE_EMITTER = "application"
+
+
 @dataclass
 class RequiredTrace:
-    """Required trace span (v2 spec §8)."""
+    """Required trace span (v2 spec §8).
+
+    ``emitted_by`` (OpenSRM Addendum A1 §8) says who emits the span. Per the
+    spec, ``application`` spans (the default) are verified in the service's
+    code, and ``provider`` spans (model provider or agent runtime) at the
+    telemetry destination.
+    """
 
     span_name: str
     required_attributes: list[str] = field(default_factory=list)
+    emitted_by: str = DEFAULT_TRACE_EMITTER
 
 
 @dataclass

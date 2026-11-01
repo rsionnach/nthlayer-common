@@ -15,8 +15,10 @@ import structlog
 import yaml
 
 from nthlayer_common.manifest.models import (
+    DEFAULT_TRACE_EMITTER,
     V2_JUDGMENT_SLO_TYPES,
     V2_JUDGMENT_THRESHOLD_TYPES,
+    VALID_TRACE_EMITTERS,
     APIRef,
     BreachAction,
     BreachSemantics,
@@ -964,9 +966,18 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
     required_traces = []
     for t in instr_data.get("required_traces", []):
         if isinstance(t, dict):
+            emitted_by = t.get("emitted_by", DEFAULT_TRACE_EMITTER)
+            # isinstance first: a YAML list or mapping is unhashable.
+            if not isinstance(emitted_by, str) or emitted_by not in VALID_TRACE_EMITTERS:
+                raise OpenSRMV2ParseError(
+                    f"Invalid emitted_by {emitted_by!r} in spec.instrumentation.required_traces "
+                    f"(span {t.get('span_name', '')!r}). Must be one of: "
+                    f"{', '.join(sorted(VALID_TRACE_EMITTERS))}."
+                )
             required_traces.append(RequiredTrace(
                 span_name=t.get("span_name", ""),
                 required_attributes=t.get("required_attributes", []),
+                emitted_by=emitted_by,
             ))
 
     required_logs = []
