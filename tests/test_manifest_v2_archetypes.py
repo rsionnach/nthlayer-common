@@ -337,11 +337,18 @@ def _parse_traces_by_name(block: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_trace_emitters_match_the_schema_enum():
-    from nthlayer_common.manifest.models import DEFAULT_TRACE_EMITTER, VALID_TRACE_EMITTERS
+    from nthlayer_common.manifest.models import (
+        DEFAULT_TRACE_EMITTER,
+        VALID_TRACE_EMITTERS,
+        RequiredTrace,
+    )
 
     definition = _emitted_by_definition()
     assert set(definition["enum"]) == VALID_TRACE_EMITTERS
     assert definition["default"] == DEFAULT_TRACE_EMITTER
+    # The dataclass default too: the parser always passes emitted_by, so
+    # nothing else exercises it.
+    assert RequiredTrace(span_name="x").emitted_by == definition["default"]
 
 
 def test_ai_gate_example_declares_a_provider_span_and_defaults_the_rest():
