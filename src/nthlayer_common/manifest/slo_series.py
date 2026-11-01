@@ -2,11 +2,15 @@
 
 Series that nthlayer-generate writes as recording rules and nthlayer-workers
 reads back. Both sides take the name from here so the writer and the reader
-cannot drift: measure once queried ``slo:error_budget:ratio``, a series nothing
-wrote, and so read no data for every availability SLO (opensrm-h0at). The
-front door's docs/metrics-contract.md documents this table.
+cannot drift: measure and correlate once queried ``slo:error_budget:ratio``, a
+series nothing wrote, so measure read no data for every availability SLO
+(opensrm-h0at). The front door's docs/metrics-contract.md documents these
+series; until opensrm-h0at's front-door change lands it still shows the old
+name.
 
-Only the error budget lives here so far; wo62.3 moves the rest across.
+Only the error budget lives here so far. wo62.3 moves across the other
+classical-SLO recording rules generate writes (availability, latency,
+error rate, throughput).
 """
 
 from __future__ import annotations

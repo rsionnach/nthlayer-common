@@ -66,5 +66,5 @@ def test_series_is_immutable():
         ERROR_BUDGET_REMAINING.metric = "slo:error_budget:ratio"  # type: ignore[misc]
 
 
-def test_series_type_is_exported():
+def test_error_budget_is_an_slo_series():
     assert isinstance(ERROR_BUDGET_REMAINING, SloSeries)
