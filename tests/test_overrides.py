@@ -138,6 +138,13 @@ class TestOverrideEvent:
         assert not [k for k in attrs if k.startswith("gen_ai.")]
         assert len(attrs) == 10  # 6 A1 + 4 extensions
 
+    def test_to_otel_attributes_boundaries(self):
+        # 0.0 is a confidence, not an absence: emitted (`is not None`, not truthiness).
+        attrs = _event(confidence_at_decision=0.0).to_otel_attributes()
+        assert attrs["nthlayer.reversal.confidence_at_decision"] == 0.0
+        # reason="" is normalised to None in __post_init__, so it is dropped.
+        assert "nthlayer.reversal.reason" not in _event(reason="").to_otel_attributes()
+
     def test_reversal_event_name(self):
         assert REVERSAL_EVENT_NAME == "nthlayer.reversal"
 
