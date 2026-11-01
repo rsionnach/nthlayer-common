@@ -22,7 +22,11 @@ from dataclasses import dataclass
 _PROMQL_ESCAPES = (("\\", "\\\\"), ('"', '\\"'), ("\n", "\\n"))
 
 
-def _promql_string(value: str) -> str:
+def _promql_string(value: object) -> str:
+    # str() first, as generate does when it interpolates the same value: a
+    # srm/v1 manifest named `404` loads with an int name and is written as
+    # service="404", so the reader must render it identically.
+    value = str(value)
     for raw, escaped in _PROMQL_ESCAPES:
         value = value.replace(raw, escaped)
     return f'"{value}"'
@@ -36,11 +40,12 @@ class SloSeries:
     metric: str
     labels: tuple[str, ...]
 
-    def selector(self, **matchers: str) -> str:
+    def selector(self, **matchers: object) -> str:
         """An instant-vector selector, ``metric{label="value",...}``.
 
         Refuses a label the series does not carry: a matcher on one would
         select nothing, and an empty result reads downstream as no data.
+        Values render with ``str()``, matching how generate writes them.
         """
         unknown = sorted(set(matchers) - set(self.labels))
         if unknown:
@@ -55,7 +60,8 @@ class SloSeries:
 
 # Written once per availability-typed classical SLO. Signed: 1.0 is a full
 # budget, 0.0 is spent, negative is overspent. ``slo`` is the SLO's name and
-# ``objective`` its 0-100 target.
+# ``objective`` is ``str(SLODefinition.target)``, its 0-100 target as a float
+# (99 is written "99.0"), so pass the target itself, not a formatted string.
 ERROR_BUDGET_REMAINING = SloSeries(
     "slo:error_budget_remaining:ratio", ("service", "slo", "objective")
 )

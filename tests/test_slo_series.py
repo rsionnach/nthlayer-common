@@ -61,6 +61,24 @@ def test_selector_escapes_label_values(value, literal):
     )
 
 
+def test_selector_renders_a_non_str_value_as_generate_writes_it():
+    # srm/v1's parser only checks metadata.name is truthy, so `name: 404`
+    # loads as an int; generate's f-string writes service="404".
+    assert ERROR_BUDGET_REMAINING.selector(service=404) == (
+        'slo:error_budget_remaining:ratio{service="404"}'
+    )
+
+
+def test_selector_renders_objective_as_generate_writes_it():
+    # generate: labels={"objective": str(objective)}, objective = slo.target,
+    # a float on the parsed model, so 99 is written "99.0".
+    target = 99.0
+    assert ERROR_BUDGET_REMAINING.selector(objective=target) == (
+        f'slo:error_budget_remaining:ratio{{objective="{str(target)}"}}'
+    )
+    assert ERROR_BUDGET_REMAINING.selector(objective=target).endswith('"99.0"}')
+
+
 def test_series_is_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
         ERROR_BUDGET_REMAINING.metric = "slo:error_budget:ratio"  # type: ignore[misc]
