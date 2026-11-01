@@ -54,6 +54,9 @@ src/nthlayer_common/
                          #     MissingReason, ResultReason types; reasons:
                          #     no_data_source, no_data, insufficient_window,
                          #     lower_bound, beyond_top_bucket)
+                         #   + slo_series.py: classical-SLO recording-rule
+                         #     contract, SloSeries + ERROR_BUDGET_REMAINING
+                         #     (public, re-exported; opensrm-h0at)
                          #   + threshold_series.py: threshold metric contract
                          #     (public, re-exported)
                          #   + thresholds.py: judgment-threshold bound tables,
