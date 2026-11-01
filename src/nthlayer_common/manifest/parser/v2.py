@@ -970,8 +970,8 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
             # isinstance first: a YAML list or mapping is unhashable.
             if not isinstance(emitted_by, str) or emitted_by not in VALID_TRACE_EMITTERS:
                 raise OpenSRMV2ParseError(
-                    f"Invalid emitted_by {emitted_by!r} on required_traces span "
-                    f"{t.get('span_name', '')!r}. Must be one of: "
+                    f"Invalid emitted_by {emitted_by!r} in spec.instrumentation.required_traces "
+                    f"(span {t.get('span_name', '')!r}). Must be one of: "
                     f"{', '.join(sorted(VALID_TRACE_EMITTERS))}."
                 )
             required_traces.append(RequiredTrace(

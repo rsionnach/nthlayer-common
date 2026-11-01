@@ -814,9 +814,10 @@ DEFAULT_TRACE_EMITTER = "application"
 class RequiredTrace:
     """Required trace span (v2 spec §8).
 
-    ``emitted_by`` says who emits the span: ``application`` (the default) is
-    verified in the service's code, ``provider`` (a model provider or agent
-    runtime) at the telemetry destination (OpenSRM Addendum A1 §8).
+    ``emitted_by`` (OpenSRM Addendum A1 §8) says who emits the span. Per the
+    spec, ``application`` spans (the default) are verified in the service's
+    code, and ``provider`` spans (model provider or agent runtime) at the
+    telemetry destination.
     """
 
     span_name: str

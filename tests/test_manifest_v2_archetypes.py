@@ -329,7 +329,7 @@ def _instrumentation_block(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text())["spec"]["instrumentation"]
 
 
-def _traces_by_name(block: dict[str, Any]) -> dict[str, Any]:
+def _parse_traces_by_name(block: dict[str, Any]) -> dict[str, Any]:
     from nthlayer_common.manifest.parser.v2 import _parse_instrumentation
 
     instrumentation = _parse_instrumentation(block)
@@ -345,7 +345,7 @@ def test_trace_emitters_match_the_schema_enum():
 
 
 def test_ai_gate_example_declares_a_provider_span_and_defaults_the_rest():
-    traces = _traces_by_name(_instrumentation_block(EXAMPLES_DIR / "ai-gate.yaml"))
+    traces = _parse_traces_by_name(_instrumentation_block(EXAMPLES_DIR / "ai-gate.yaml"))
     assert traces["anthropic.model_request"].emitted_by == "provider"
     # refund.decide omits the field, so it takes the schema default.
     assert traces["refund.decide"].emitted_by == "application"
@@ -353,17 +353,18 @@ def test_ai_gate_example_declares_a_provider_span_and_defaults_the_rest():
 
 def test_full_example_declares_application_explicitly():
     block = _instrumentation_block(SPEC_V2_DIR / "examples" / "service-manifest-full.yaml")
-    assert _traces_by_name(block)["payment.authorise"].emitted_by == "application"
+    assert _parse_traces_by_name(block)["payment.authorise"].emitted_by == "application"
 
 
 def test_unknown_emitter_is_rejected():
     from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
 
     # The ai-gate example's block, which parses (the test above), with only
-    # emitted_by changed to a value outside the schema's enum (as n93 does).
+    # emitted_by changed to a value outside the schema's enum (mirrors
+    # opensrm/spec/v2/tests/invalid/n93-required-trace-unknown-emitter.yaml).
     block = _instrumentation_block(EXAMPLES_DIR / "ai-gate.yaml")
     trace = next(t for t in block["required_traces"] if t["span_name"] == "anthropic.model_request")
     trace["emitted_by"] = "sdk"
 
     with pytest.raises(OpenSRMV2ParseError, match="emitted_by"):
-        _traces_by_name(block)
+        _parse_traces_by_name(block)
