@@ -73,7 +73,8 @@ def emit_llm_event(
 
     attributes: dict[str, Any] = {
         "gen_ai.request.model": model,
-        "gen_ai.system": provider,
+        # gen_ai.system was removed from the upstream registry (Addendum A1 P4).
+        "gen_ai.provider.name": provider,
         "nthlayer.llm.caller": caller,
     }
 
@@ -82,9 +83,9 @@ def emit_llm_event(
     if output_tokens is not None:
         attributes["gen_ai.usage.output_tokens"] = output_tokens
     if cached_tokens is not None:
-        attributes["gen_ai.usage.cached_tokens"] = cached_tokens
+        attributes["gen_ai.usage.cache_read.input_tokens"] = cached_tokens
     if reasoning_tokens is not None:
-        attributes["gen_ai.usage.reasoning_tokens"] = reasoning_tokens
+        attributes["gen_ai.usage.reasoning.output_tokens"] = reasoning_tokens
     if verdict_id is not None:
         attributes["nthlayer.llm.caller_verdict_cid"] = verdict_id
     if duration_ms is not None:
