@@ -122,6 +122,7 @@ class TestEmitLLMEvent:
         attrs = mock_span.add_event.call_args[1]["attributes"]
         assert "gen_ai.usage.input_tokens" not in attrs
         assert "gen_ai.usage.output_tokens" not in attrs
-        assert "gen_ai.usage.cached_tokens" not in attrs
+        assert "gen_ai.usage.cache_read.input_tokens" not in attrs
+        assert "gen_ai.usage.reasoning.output_tokens" not in attrs
         assert "nthlayer.llm.caller_verdict_cid" not in attrs
         assert "nthlayer.llm.duration_ms" not in attrs

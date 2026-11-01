@@ -55,7 +55,8 @@ def emit_llm_event(
         caller: The calling component/module (e.g., "measure.evaluator").
         input_tokens: Number of input tokens.
         output_tokens: Number of output tokens.
-        cached_tokens: Cached input tokens (Anthropic prompt caching).
+        cached_tokens: Cache-read input tokens (e.g. Anthropic's
+            ``cache_read_input_tokens``), not cache writes.
         reasoning_tokens: Reasoning/thinking tokens.
         verdict_id: The verdict being produced, if applicable.
         duration_ms: Wall-clock time of the call in milliseconds.
