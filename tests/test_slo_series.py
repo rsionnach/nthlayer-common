@@ -86,3 +86,10 @@ def test_series_is_immutable():
 
 def test_error_budget_is_an_slo_series():
     assert isinstance(ERROR_BUDGET_REMAINING, SloSeries)
+
+
+def test_is_public():
+    """Listed in the package's __all__ (the public-API rule)."""
+    import nthlayer_common.manifest as manifest
+
+    assert {"ERROR_BUDGET_REMAINING", "SloSeries"} <= set(manifest.__all__)
