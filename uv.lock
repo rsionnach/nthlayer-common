@@ -903,7 +903,7 @@ wheels = [
 
 [[package]]
 name = "nthlayer-common"
-version = "5.9.0"
+version = "5.9.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
