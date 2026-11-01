@@ -136,7 +136,7 @@ class TestOverrideEvent:
         assert attrs["nthlayer.reversal.confidence_at_decision"] == 0.9
         assert attrs["nthlayer.reversal.source_system"] == "slack"
         assert not [k for k in attrs if k.startswith("gen_ai.")]
-        assert len(attrs) == 10
+        assert len(attrs) == 10  # 6 A1 + 4 extensions
 
     def test_reversal_event_name(self):
         assert REVERSAL_EVENT_NAME == "nthlayer.reversal"

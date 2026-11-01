@@ -170,16 +170,16 @@ verdicts, evaluations, incidents, prompts, responses.
 
 ### Overrides (`nthlayer_common.overrides`)
 
-Human override ingestion — the override event, emitted on OTel as OpenSRM
-Addendum A1's `nthlayer.reversal` (formerly `gen_ai.override`)
-schema, privacy controls, and verdict binding (opensrm-jmy.4, spec §4).
+Human override ingestion: the override event schema (emitted on OTel as
+OpenSRM Addendum A1's `nthlayer.reversal`, formerly `gen_ai.override`),
+privacy controls, and verdict binding (opensrm-jmy.4, spec §4).
 
 - `OverrideEvent` — required: `decision_id`, `service`,
   `corrected_action`, `reviewer`. Optional: `original_action`,
   `reason`, `confidence_at_decision` ([0.0, 1.0]), `source_system`,
   `timestamp` (tz-aware, default utcnow). `is_high_confidence_failure`
-  property (confidence > 0.85). `to_otel_attributes()` and `to_dict()`
-  are deliberately distinct.
+  property (confidence > 0.85). `to_otel_attributes()` (A1 `nthlayer.reversal.*`)
+  and `to_dict()` (HTTP wire names) are deliberately distinct.
 - `OverridePrivacyConfig(pre_redacted=False, plaintext_reviewer=False,
   exclude_reason=False)`. `plaintext_reviewer` is a DEPRECATED alias
   for `pre_redacted` (both trigger identical `trust_wire = ...`

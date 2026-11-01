@@ -1,6 +1,7 @@
 """Human override ingestion — canonical event schema, privacy, and verdict binding.
 
-Models the override event (emitted as OpenSRM A1's ``nthlayer.reversal``) and binds incoming overrides
+Models the override event (emitted as OpenSRM A1's
+``nthlayer.reversal``) and binds incoming overrides
 to the verdict store. nthlayer-measure consumes overrides via OTel;
 this module is what the consumer calls when an event arrives.
 

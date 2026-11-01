@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-# OTel name of the event an override is emitted as (OpenSRM Addendum A1 §4.2).
+# OTel name of the event an override is emitted as (OpenSRM Addendum A1 §4.2),
+# and the prefix of its attributes.
 REVERSAL_EVENT_NAME = "nthlayer.reversal"
 
 # Spec § 4: confidence > 0.85 increments the HCF judgment SLO counter.
@@ -115,24 +116,33 @@ class OverrideEvent:
     def to_otel_attributes(self) -> dict[str, Any]:
         """The ``nthlayer.reversal`` form of OpenSRM Addendum A1 §4.2.
 
-        A human override is a reversal of ``type`` ``human_override`` by an
-        ``actor_type`` ``human``. ``service``, ``original_action``,
-        ``confidence_at_decision`` and ``source_system`` are not defined by
-        A1 §4.2; they are carried as implementation extensions under the same
-        prefix (opensrm-1dua, ruling R2). None-valued fields are dropped.
+        Field mapping: ``reviewer`` -> ``actor``, ``corrected_action`` ->
+        ``new_value``; ``decision_id`` and ``reason`` keep their names.
+        ``type`` (``human_override``) and ``actor_type`` (``human``) are
+        constants: an override is a human's reversal.
+
+        ``service``, ``original_action``, ``confidence_at_decision`` and
+        ``source_system`` are not defined by A1 §4.2; they are carried as
+        implementation extensions under the same prefix (opensrm-1dua,
+        ruling R2). None-valued fields are dropped.
         """
+        prefix = REVERSAL_EVENT_NAME
+        # A1 §4.2.
         attrs: dict[str, Any] = {
-            "nthlayer.reversal.decision_id": self.decision_id,
-            "nthlayer.reversal.type": "human_override",
-            "nthlayer.reversal.actor_type": "human",
-            "nthlayer.reversal.actor": self.reviewer,
-            "nthlayer.reversal.new_value": self.corrected_action,
-            "nthlayer.reversal.service": self.service,
+            f"{prefix}.decision_id": self.decision_id,
+            f"{prefix}.type": "human_override",
+            f"{prefix}.actor_type": "human",
+            f"{prefix}.actor": self.reviewer,
+            f"{prefix}.new_value": self.corrected_action,
         }
-        for name in ("reason", "original_action", "confidence_at_decision", "source_system"):
+        if self.reason is not None:
+            attrs[f"{prefix}.reason"] = self.reason
+        # Implementation extensions (ruling R2).
+        attrs[f"{prefix}.service"] = self.service
+        for name in ("original_action", "confidence_at_decision", "source_system"):
             value = getattr(self, name)
             if value is not None:
-                attrs[f"nthlayer.reversal.{name}"] = value
+                attrs[f"{prefix}.{name}"] = value
         return attrs
 
     def to_dict(self) -> dict:
