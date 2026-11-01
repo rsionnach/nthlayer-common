@@ -356,15 +356,21 @@ def test_full_example_declares_application_explicitly():
     assert _parse_traces_by_name(block)["payment.authorise"].emitted_by == "application"
 
 
-def test_unknown_emitter_is_rejected():
+# Each value is outside the schema's enum, which matches exactly and by type:
+# n93's unknown name, a case variant, the empty string, an explicit null, an
+# unquoted YAML bool, and a list (unhashable, so it needs the isinstance guard).
+@pytest.mark.parametrize(
+    "value", ["sdk", "Provider", "", None, True, ["provider"]], ids=repr
+)
+def test_unknown_emitter_is_rejected(value: Any):
     from nthlayer_common.manifest.parser.v2 import OpenSRMV2ParseError
 
     # The ai-gate example's block, which parses (the test above), with only
-    # emitted_by changed to a value outside the schema's enum (mirrors
-    # opensrm/spec/v2/tests/invalid/n93-required-trace-unknown-emitter.yaml).
+    # emitted_by changed. "sdk" mirrors
+    # opensrm/spec/v2/tests/invalid/n93-required-trace-unknown-emitter.yaml.
     block = _instrumentation_block(EXAMPLES_DIR / "ai-gate.yaml")
     trace = next(t for t in block["required_traces"] if t["span_name"] == "anthropic.model_request")
-    trace["emitted_by"] = "sdk"
+    trace["emitted_by"] = value
 
     with pytest.raises(OpenSRMV2ParseError, match="emitted_by"):
         _parse_traces_by_name(block)
