@@ -180,3 +180,43 @@ def test_a_non_string_indicator_type_fails_the_load_naming_the_slo(tmp_path, bad
     resource = {**STREAM_LAG, "spec": {**STREAM_LAG["spec"], "indicators": [{"type": bad}]}}
     with pytest.raises(ManifestLoadError, match="stream-lag"):
         _slo_type(tmp_path, resource)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"type": "custom"}, ["custom"], "custom"],
+    ids=["mapping", "list-of-str", "str"],
+)
+def test_a_malformed_indicators_list_fails_the_load_naming_the_slo(tmp_path, bad):
+    # Ignoring it would fall back to availability: the failure this bead fixes.
+    resource = {**STREAM_LAG, "spec": {**STREAM_LAG["spec"], "indicators": bad}}
+    with pytest.raises(ManifestLoadError, match="stream-lag"):
+        _slo_type(tmp_path, resource)
+
+
+def test_a_blank_type_counts_as_untyped(tmp_path):
+    resource = {
+        **STREAM_LAG,
+        "spec": {
+            **STREAM_LAG["spec"],
+            "indicators": [{"type": "  "}, *STREAM_LAG["spec"]["indicators"]],
+        },
+    }
+    assert _slo_type(tmp_path, resource) == "custom"
+
+
+def test_types_compare_as_written(tmp_path):
+    # Pinned, not normalised: the loader passes a type through as declared
+    # (opensrm-hiw2 tracks normalising), so two spellings are two types.
+    entry = STREAM_LAG["spec"]["indicators"][0]
+    resource = {
+        **STREAM_LAG,
+        "spec": {**STREAM_LAG["spec"], "indicators": [entry, {**entry, "type": "Custom"}]},
+    }
+    with pytest.raises(ManifestLoadError, match="stream-lag"):
+        _slo_type(tmp_path, resource)
+
+
+def test_a_name_keyword_outranks_a_latency_threshold(tmp_path):
+    resource = {"kind": "SLO", "name": "errors-p99", "spec": {"threshold_ms": 500, "objective": 99.0}}
+    assert _slo_type(tmp_path, resource) == "error_rate"

@@ -272,20 +272,26 @@ def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
 def _legacy_indicators_type(name: str, spec: dict[str, Any]) -> str | None:
     """The one type a plural ``indicators:`` list declares, or None.
 
-    Untyped entries are ignored. Entries that declare different types leave
-    the SLO with no single slo_type, so the load fails rather than guess
-    (opensrm-e9ts, R1).
+    Untyped or blank entries are ignored. Entries that declare different
+    types leave the SLO with no single slo_type, so the load fails rather
+    than guess (opensrm-e9ts, R1); so does a list that is not a list of
+    mappings, which would otherwise fall back to availability unseen.
+    Types compare as written, so ``Custom`` and ``custom`` disagree.
     """
     indicators = spec.get("indicators")
-    if not isinstance(indicators, list):
+    if indicators is None:
         return None
-    declared = [e["type"] for e in indicators if isinstance(e, dict) and e.get("type")]
+    if not isinstance(indicators, list) or not all(isinstance(e, dict) for e in indicators):
+        raise ManifestLoadError(
+            f"SLO '{name}' has indicators: {indicators!r}; indicators is a list of mappings"
+        )
+    declared = [e["type"] for e in indicators if e.get("type")]
     for t in declared:
         if not isinstance(t, str):
             raise ManifestLoadError(
                 f"SLO '{name}' has an indicator type {t!r}; an indicator type is a string"
             )
-    types = set(declared)
+    types = {t for t in declared if t.strip()}
     if len(types) > 1:
         raise ManifestLoadError(
             f"SLO '{name}' declares indicators of different types {sorted(types)}; "
@@ -321,6 +327,8 @@ def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
         return "error_rate"
     if "throughput" in name_lower:
         return "throughput"
+    # After the name keywords, so `errors-p99` with a threshold stays
+    # error_rate: an explicit word in the name outranks an inferred shape.
     if _legacy_threshold_ms(name, spec) is not None:
         return "latency"
 
