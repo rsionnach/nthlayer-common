@@ -110,8 +110,9 @@ def init_telemetry(
 
     Idempotent and thread-safe: a second call keeps the first provider.
     Events emitted before this call are dropped, so call it first thing. In a
-    forking server, call it in each worker after the fork (the gRPC channel is
-    not fork-safe). The provider shuts down at exit, so short-lived CLI
+    forking server, call it in each worker after the fork and never in the
+    parent: a child inheriting an installed provider keeps the parent's gRPC
+    channel, which is not fork-safe (e.g. gunicorn --preload). The provider shuts down at exit, so short-lived CLI
     commands flush what they emitted; with an unreachable collector that
     flush waits out ``OTEL_EXPORTER_OTLP_TIMEOUT`` (default 10s).
     """
