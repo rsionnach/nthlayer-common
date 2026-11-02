@@ -85,7 +85,8 @@ class TelemetryStatus(enum.Enum):
 
 @dataclass(frozen=True)
 class CapturedEvent:
-    """One event as ``capture_events()`` saw it."""
+    """One event as ``capture_events()`` saw it. ``attributes`` are as the
+    SDK stores them: a list value comes back as a tuple."""
 
     name: str
     attributes: dict[str, Any]
