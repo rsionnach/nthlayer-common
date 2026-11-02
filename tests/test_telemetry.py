@@ -111,7 +111,8 @@ class TestEmitEvent:
         emit_event("nthlayer.reversal", {"k": "v"})  # must not raise
 
     def test_without_an_sdk_provider_it_is_a_no_op(self):
-        # The API's default provider discards: no SDK, no record, no error.
+        # The API's default provider discards. This only shows the call does
+        # not raise with no SDK provider installed.
         assert emit_event("nthlayer.reversal", {"k": "v"}) is None
 
     def test_a_far_future_timestamp_is_clamped(self, get_exported):
@@ -322,8 +323,9 @@ class TestInitTelemetry:
 
 
 class TestResolveEndpoint:
-    """Precedence per the OTel SDK environment spec: the signal-specific var
-    overrides the general one; an explicit argument overrides both."""
+    """Precedence per the OTel spec's protocol/exporter.md: the
+    signal-specific var overrides the general one; an explicit argument
+    overrides both."""
 
     @pytest.fixture(autouse=True)
     def clean_env(self, monkeypatch):

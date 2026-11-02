@@ -123,8 +123,9 @@ def init_telemetry(
 def _resolve_endpoint(explicit: str | None) -> str | None:
     """The OTLP logs endpoint: ``explicit``, else the signal-specific
     ``OTEL_EXPORTER_OTLP_LOGS_ENDPOINT``, else ``OTEL_EXPORTER_OTLP_ENDPOINT``
-    (the OTel SDK environment spec's precedence). Blank counts as unset, so a
-    whitespace LOGS var cannot hide the general one."""
+    (the precedence in the OTel spec's protocol/exporter.md). Empty counts as
+    unset, as the env-var spec says; so does whitespace-only, which is
+    stricter, so a blank LOGS var cannot hide the general one."""
     for candidate in (
         explicit,
         os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
