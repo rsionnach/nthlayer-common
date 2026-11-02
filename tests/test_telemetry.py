@@ -334,6 +334,25 @@ class TestInitTelemetry:
         assert installed == {}
         assert telemetry._installed_provider is first
 
+    def test_events_reach_a_real_external_provider(self, installed, monkeypatch):
+        # EXTERNAL_PROVIDER.exporting is True because events go to the
+        # provider that owns the slot. Show it with a real SDK provider, not a
+        # stand-in: ours is refused, theirs receives the event.
+        exporter = InMemoryLogRecordExporter()
+        theirs = LoggerProvider()
+        theirs.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+        monkeypatch.setattr(telemetry._logs, "get_logger_provider", lambda: theirs)
+        monkeypatch.setattr(telemetry._logs, "get_logger", theirs.get_logger)
+
+        status = init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+        emit_event("nthlayer.reversal", {"k": "v"})
+
+        assert status is TelemetryStatus.EXTERNAL_PROVIDER
+        assert [_record(d).event_name for d in exporter.get_finished_logs()] == [
+            "nthlayer.reversal"
+        ]
+        theirs.shutdown()
+
     def test_a_provider_already_set_elsewhere_is_left_alone(self, installed, monkeypatch):
         # e.g. opentelemetry-instrument set one first: the API keeps it, so
         # ours would receive nothing. init_telemetry must say so.
@@ -381,6 +400,9 @@ class TestCaptureEvents:
             pass
         emit_event("nthlayer.reversal", {})
         assert cap.events == []
+        # Restored, not merely shut down: a stale logger would hide behind
+        # the provider's shutdown.
+        assert telemetry._capture_logger is None
 
     def test_captures_nest(self):
         with capture_events() as outer:

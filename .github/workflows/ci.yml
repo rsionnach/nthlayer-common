@@ -44,7 +44,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra otel
 
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short -x
@@ -55,5 +55,5 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.12
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra otel
       - run: uv run ruff check src/ tests/ --ignore E501
