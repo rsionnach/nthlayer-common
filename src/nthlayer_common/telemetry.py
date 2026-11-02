@@ -11,25 +11,34 @@ an attribute, severity is INFO, and ``Timestamp`` is the event's own time
 when the caller supplies it (A1 T1), else the emit time; it is never left to
 ObservedTimestamp.
 
-A process calls ``init_telemetry(service_name)`` once at startup. Without an
-OTLP endpoint nothing is installed and every emit is a no-op; with an
-endpoint but without the SDK (``pip install nthlayer-common[otel]``), the
-same, after a warning.
+A process calls ``init_telemetry(service_name)`` once at startup; the
+returned ``TelemetryStatus`` says what happened. Without an OTLP endpoint
+nothing is installed and every emit is a no-op; with an endpoint but without
+the SDK (``pip install nthlayer-common[otel]``), the same, after a warning.
+
+Tests assert on what a component emits with ``capture_events()`` (needs the
+SDK, which the ``otel`` and ``dev`` extras carry), never by patching this
+module's internals.
 
 Canonical imports::
 
-    from nthlayer_common.telemetry import emit_event, emit_llm_event, init_telemetry
+    from nthlayer_common.telemetry import (
+        TelemetryStatus, capture_events, emit_event, emit_llm_event, init_telemetry,
+    )
 
 Spec: NTHLAYER-COMMON-v1 §3.4, §7; OpenSRM Addendum A1 §4.0.
 """
 
 from __future__ import annotations
 
+import enum
 import logging
 import os
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -47,6 +56,95 @@ _install_lock = threading.Lock()
 
 # OTLP time_unix_nano is a fixed64.
 _MAX_UNIX_NANO = 2**64 - 1
+
+# Set only by capture_events(): the logger emit_event uses instead of the
+# global provider's, so tests see records without a global provider.
+_capture_logger: Any = None
+
+
+class TelemetryStatus(enum.Enum):
+    """What ``init_telemetry`` did. Only ``SDK_MISSING`` is a misconfiguration."""
+
+    INSTALLED = "installed"
+    """Our provider is installed (now, or by an earlier call); events export."""
+    NO_ENDPOINT = "no_endpoint"
+    """No OTLP endpoint configured: telemetry is off, by design."""
+    SDK_MISSING = "sdk_missing"
+    """An endpoint is set but the ``otel`` extra is not installed: events drop."""
+    EXTERNAL_PROVIDER = "external_provider"
+    """Another LoggerProvider already owns the global slot (e.g. one set by
+    ``opentelemetry-instrument``); events go to it, so they still export."""
+
+    @property
+    def exporting(self) -> bool:
+        return self in (TelemetryStatus.INSTALLED, TelemetryStatus.EXTERNAL_PROVIDER)
+
+
+@dataclass(frozen=True)
+class CapturedEvent:
+    """One event as ``capture_events()`` saw it."""
+
+    name: str
+    attributes: dict[str, Any]
+    timestamp: int
+    """Unix nanoseconds."""
+    severity_number: int
+
+
+class EventCapture:
+    """What ``capture_events()`` yields: the events emitted so far."""
+
+    def __init__(self, exporter: Any) -> None:
+        self._exporter = exporter
+
+    @property
+    def events(self) -> list[CapturedEvent]:
+        out = []
+        for data in self._exporter.get_finished_logs():
+            # SDK 1.38 exports LogData(log_record=...); later releases export
+            # the readable record itself.
+            rec = getattr(data, "log_record", data)
+            out.append(
+                CapturedEvent(
+                    name=rec.event_name,
+                    attributes=dict(rec.attributes or {}),
+                    timestamp=rec.timestamp,
+                    severity_number=int(rec.severity_number.value),
+                )
+            )
+        return out
+
+    def named(self, name: str) -> list[CapturedEvent]:
+        return [e for e in self.events if e.name == name]
+
+
+@contextmanager
+def capture_events() -> Iterator[EventCapture]:
+    """Capture every ``emit_event`` inside the block, for tests.
+
+    Routes emit_event to a private SDK provider (the global one is untouched,
+    and the API lets it be set only once). Needs the OTel SDK: the ``otel``
+    or ``dev`` extra. Not thread-safe across concurrent captures.
+    """
+    global _capture_logger
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
+
+    try:
+        from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter as _InMemory
+    except ImportError:  # SDK 1.38-1.40: the pre-1.41 name
+        from opentelemetry.sdk._logs.export import InMemoryLogExporter as _InMemory
+
+    exporter = _InMemory()
+    provider = LoggerProvider(shutdown_on_exit=False)
+    provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+    previous = _capture_logger
+    _capture_logger = provider.get_logger(_OTEL_LOGGER_NAME)
+    try:
+        yield EventCapture(exporter)
+    finally:
+        _capture_logger = previous
+        provider.shutdown()
 
 
 def _epoch_ns(ts: datetime) -> int:
@@ -78,7 +176,7 @@ def emit_event(
     raises: a telemetry failure must not break the caller.
     """
     try:
-        _logs.get_logger(_OTEL_LOGGER_NAME).emit(
+        (_capture_logger or _logs.get_logger(_OTEL_LOGGER_NAME)).emit(
             event_name=name,
             attributes={k: v for k, v in attributes.items() if v is not None},
             severity_number=SeverityNumber.INFO,
@@ -94,8 +192,8 @@ def init_telemetry(
     *,
     endpoint: str | None = None,
     exporter: Any = None,
-) -> bool:
-    """Install a LoggerProvider exporting OTLP log records; True if installed.
+) -> TelemetryStatus:
+    """Install a LoggerProvider exporting OTLP log records.
 
     The endpoint is ``endpoint``, else ``OTEL_EXPORTER_OTLP_LOGS_ENDPOINT``,
     else ``OTEL_EXPORTER_OTLP_ENDPOINT``; with none, nothing is installed.
@@ -104,17 +202,19 @@ def init_telemetry(
     exporter is gRPC only: ``OTEL_EXPORTER_OTLP_PROTOCOL`` is not read, so
     point the endpoint at a collector's gRPC port (4317), not 4318.
 
-    Returns False, installing nothing, if another LoggerProvider already owns
-    the global slot (e.g. one set by ``opentelemetry-instrument``); events
-    then go to that provider.
+    Returns a ``TelemetryStatus``; ``status.exporting`` says whether events
+    reach a collector. If another LoggerProvider already owns the global slot
+    (e.g. one set by ``opentelemetry-instrument``), nothing is installed and
+    the status is ``EXTERNAL_PROVIDER``: events go to that provider.
 
     Idempotent and thread-safe: a second call keeps the first provider.
     Events emitted before this call are dropped, so call it first thing. In a
     forking server, call it in each worker after the fork and never in the
     parent: a child inheriting an installed provider keeps the parent's gRPC
-    channel, which is not fork-safe (e.g. gunicorn --preload). The provider shuts down at exit, so short-lived CLI
-    commands flush what they emitted; with an unreachable collector that
-    flush waits out ``OTEL_EXPORTER_OTLP_TIMEOUT`` (default 10s).
+    channel, which is not fork-safe (e.g. gunicorn --preload). The provider
+    shuts down at exit, so short-lived CLI commands flush what they emitted;
+    with an unreachable collector that flush waits out
+    ``OTEL_EXPORTER_OTLP_TIMEOUT`` (default 10s).
     """
     with _install_lock:
         return _install(service_name, endpoint, exporter)
@@ -136,13 +236,13 @@ def _resolve_endpoint(explicit: str | None) -> str | None:
     return None
 
 
-def _install(service_name: str, endpoint: str | None, exporter: Any) -> bool:
+def _install(service_name: str, endpoint: str | None, exporter: Any) -> TelemetryStatus:
     global _installed_provider
     if _installed_provider is not None:
-        return True
+        return TelemetryStatus.INSTALLED
     endpoint = _resolve_endpoint(endpoint)
     if endpoint is None:
-        return False
+        return TelemetryStatus.NO_ENDPOINT
     try:
         from opentelemetry.sdk._logs import LoggerProvider
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
@@ -158,7 +258,7 @@ def _install(service_name: str, endpoint: str | None, exporter: Any) -> bool:
             "install nthlayer-common[otel] to export events",
             exc.name,
         )
-        return False
+        return TelemetryStatus.SDK_MISSING
 
     resource = Resource.create(
         {"service.name": os.environ.get("OTEL_SERVICE_NAME") or service_name}
@@ -172,9 +272,9 @@ def _install(service_name: str, endpoint: str | None, exporter: Any) -> bool:
         # The API keeps an already-set provider and only warns; ours would
         # never receive a record, so stop its batch thread and say so.
         provider.shutdown()
-        return False
+        return TelemetryStatus.EXTERNAL_PROVIDER
     _installed_provider = provider
-    return True
+    return TelemetryStatus.INSTALLED
 
 
 def emit_llm_event(

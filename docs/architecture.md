@@ -411,13 +411,19 @@ env sets default deployment ID (default `"default"`).
   time (A1 T1), else now.
   - `emit_event(name, attributes, *, timestamp=None) -> None` — drops
     `None` attributes; never raises.
-  - `init_telemetry(service_name, *, endpoint=None, exporter=None) -> bool`
+  - `init_telemetry(service_name, *, endpoint=None, exporter=None) -> TelemetryStatus`
     — installs a LoggerProvider with an OTLP gRPC log exporter, once per
     process, flushed at exit. Endpoint: argument, else
     `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, else `OTEL_EXPORTER_OTLP_ENDPOINT`;
-    none means a no-op; an endpoint without the SDK (the `otel` extra)
-    warns, then no-ops. Returns False if another provider already holds
-    the global slot.
+    none means a no-op. `TelemetryStatus`: `INSTALLED`, `NO_ENDPOINT`,
+    `SDK_MISSING` (endpoint set, `otel` extra absent; warns) or
+    `EXTERNAL_PROVIDER` (another provider holds the global slot; events
+    still export to it); `.exporting` says whether events leave the process.
+  - `capture_events()` — context manager for tests: yields an
+    `EventCapture` whose `.events` / `.named(name)` give `CapturedEvent`
+    (`name`, `attributes`, `timestamp` ns, `severity_number`). Needs the SDK
+    (`otel` or `dev` extra). Consumers assert on emissions with this, never
+    by patching telemetry internals.
     `service.name` from `OTEL_SERVICE_NAME`, else the argument.
   - `emit_llm_event(*, model, provider, caller, input_tokens?,
     output_tokens?, cached_tokens?, reasoning_tokens?, verdict_id?,

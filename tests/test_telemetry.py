@@ -14,6 +14,7 @@ time; it is never left to ObservedTimestamp.
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta, timezone
@@ -31,7 +32,14 @@ except ImportError:  # SDK 1.38-1.40 (inside the declared range): the pre-1.41 n
     )
 
 from nthlayer_common import telemetry
-from nthlayer_common.telemetry import emit_event, emit_llm_event, init_telemetry
+from nthlayer_common.telemetry import (
+    CapturedEvent,
+    TelemetryStatus,
+    capture_events,
+    emit_event,
+    emit_llm_event,
+    init_telemetry,
+)
 
 
 def _record(data):
@@ -221,12 +229,14 @@ class TestInitTelemetry:
             captured["provider"].shutdown()
 
     def test_without_an_endpoint_it_installs_nothing(self, installed):
-        assert init_telemetry("nthlayer-workers") is False
+        assert init_telemetry("nthlayer-workers") is TelemetryStatus.NO_ENDPOINT
         assert installed == {}
 
     def test_an_endpoint_installs_a_provider_that_exports(self, installed, monkeypatch):
         exporter = InMemoryLogRecordExporter()
-        assert init_telemetry("nthlayer-workers", endpoint="http://c:4317", exporter=exporter)
+        status = init_telemetry("nthlayer-workers", endpoint="http://c:4317", exporter=exporter)
+        assert status is TelemetryStatus.INSTALLED
+        assert status.exporting
 
         provider = installed["provider"]
         assert provider.resource.attributes["service.name"] == "nthlayer-workers"
@@ -241,20 +251,29 @@ class TestInitTelemetry:
 
     def test_the_standard_env_var_is_an_endpoint(self, installed, monkeypatch):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://c:4317")
-        assert init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+        assert (
+            init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+            is TelemetryStatus.INSTALLED
+        )
 
     def test_the_logs_specific_env_var_is_an_endpoint(self, installed, monkeypatch):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://c:4317")
-        assert init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+        assert (
+            init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+            is TelemetryStatus.INSTALLED
+        )
 
     def test_a_blank_logs_var_does_not_hide_the_general_one(self, installed, monkeypatch):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "   ")
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://c:4317")
-        assert init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+        assert (
+            init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+            is TelemetryStatus.INSTALLED
+        )
 
     def test_only_blank_endpoints_install_nothing(self, installed, monkeypatch):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", " ")
-        assert init_telemetry("nthlayer-workers") is False
+        assert init_telemetry("nthlayer-workers") is TelemetryStatus.NO_ENDPOINT
         assert "provider" not in installed
 
     def test_only_blank_endpoints_install_nothing_even_with_an_exporter(
@@ -264,7 +283,9 @@ class TestInitTelemetry:
         # makes this return False: only the blank handling can.
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "  ")
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", " ")
-        assert init_telemetry("w", exporter=InMemoryLogRecordExporter()) is False
+        assert (
+            init_telemetry("w", exporter=InMemoryLogRecordExporter()) is TelemetryStatus.NO_ENDPOINT
+        )
         assert "provider" not in installed
 
     def test_concurrent_calls_install_one_provider(self, installed, monkeypatch):
@@ -289,7 +310,7 @@ class TestInitTelemetry:
             t.start()
         for t in threads:
             t.join()
-        assert results == [True] * 8
+        assert results == [TelemetryStatus.INSTALLED] * 8
         assert len(calls) == 1
 
     def test_otel_service_name_wins(self, installed, monkeypatch):
@@ -306,7 +327,10 @@ class TestInitTelemetry:
         first = installed["provider"]
         installed.clear()
 
-        assert init_telemetry("nthlayer-workers", endpoint="http://c:4317") is True
+        assert (
+            init_telemetry("nthlayer-workers", endpoint="http://c:4317")
+            is TelemetryStatus.INSTALLED
+        )
         assert installed == {}
         assert telemetry._installed_provider is first
 
@@ -315,11 +339,56 @@ class TestInitTelemetry:
         # ours would receive nothing. init_telemetry must say so.
         monkeypatch.setattr(telemetry._logs, "get_logger_provider", lambda: object())
 
-        assert (
-            init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
-            is False
-        )
+        status = init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+        # Not installed by us, but events do export (to the other provider).
+        assert status is TelemetryStatus.EXTERNAL_PROVIDER
+        assert status.exporting
         assert telemetry._installed_provider is None
+
+
+class TestSdkMissing:
+    def test_an_endpoint_without_the_sdk_says_so(self, monkeypatch):
+        # Make the exporter unimportable whatever extras this venv has, so the
+        # test never installs a real global provider.
+        monkeypatch.setitem(
+            sys.modules, "opentelemetry.exporter.otlp.proto.grpc._log_exporter", None
+        )
+        monkeypatch.setattr(telemetry, "_installed_provider", None)
+        status = init_telemetry("w", endpoint="http://c:4317")
+        assert status is TelemetryStatus.SDK_MISSING
+        assert not status.exporting
+
+
+class TestCaptureEvents:
+    def test_captures_what_emit_event_sends(self):
+        when = datetime(2026, 11, 1, 12, 30, 15, tzinfo=UTC)
+        with capture_events() as cap:
+            emit_event(
+                "nthlayer.reversal", {"nthlayer.decision.id": "d-1", "x": None}, timestamp=when
+            )
+            emit_llm_event(model="m", provider="anthropic", caller="c")
+
+        assert cap.events[0] == CapturedEvent(
+            name="nthlayer.reversal",
+            attributes={"nthlayer.decision.id": "d-1"},
+            timestamp=1_793_536_215_000_000_000,
+            severity_number=SeverityNumber.INFO.value,
+        )
+        assert [e.name for e in cap.named("nthlayer.llm.call")] == ["nthlayer.llm.call"]
+
+    def test_nothing_is_captured_after_the_block(self):
+        with capture_events() as cap:
+            pass
+        emit_event("nthlayer.reversal", {})
+        assert cap.events == []
+
+    def test_captures_nest(self):
+        with capture_events() as outer:
+            with capture_events() as inner:
+                emit_event("a", {})
+            emit_event("b", {})
+        assert [e.name for e in inner.events] == ["a"]
+        assert [e.name for e in outer.events] == ["b"]
 
 
 class TestResolveEndpoint:
