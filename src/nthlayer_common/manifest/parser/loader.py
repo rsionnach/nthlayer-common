@@ -269,12 +269,42 @@ def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
     return None
 
 
+def _legacy_indicators_type(name: str, spec: dict[str, Any]) -> str | None:
+    """The one type a plural ``indicators:`` list declares, or None.
+
+    Untyped entries are ignored. Entries that declare different types leave
+    the SLO with no single slo_type, so the load fails rather than guess
+    (opensrm-e9ts, ruling 1).
+    """
+    indicators = spec.get("indicators")
+    if not isinstance(indicators, list):
+        return None
+    types = {e["type"] for e in indicators if isinstance(e, dict) and e.get("type")}
+    if len(types) > 1:
+        raise ManifestLoadError(
+            f"SLO '{name}' declares indicators of different types {sorted(types)}; "
+            "a legacy SLO's indicators must share one type"
+        )
+    return types.pop() if types else None
+
+
 def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
-    """Infer slo_type for a legacy SLO resource."""
+    """Infer slo_type for a legacy SLO resource.
+
+    In order: a singular ``indicator.type``; the shared type of a plural
+    ``indicators:`` list; name keywords; a declared latency threshold
+    (opensrm-e9ts, ruling 2); and availability only when nothing above says
+    otherwise. Real legacy manifests declare the plural list, and reading only
+    the singular key typed lag and freshness SLOs as availability, so
+    nthlayer-generate wrote them an error budget from request success.
+    """
     indicator = spec.get("indicator", {})
     explicit = indicator.get("type")
     if explicit:
         return explicit
+    listed = _legacy_indicators_type(name, spec)
+    if listed:
+        return listed
 
     name_lower = name.lower()
     if "avail" in name_lower:
@@ -285,8 +315,11 @@ def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
         return "error_rate"
     if "throughput" in name_lower:
         return "throughput"
+    if _legacy_threshold_ms(name, spec) is not None:
+        return "latency"
 
-    # Default to availability for legacy — better than failing
+    # Nothing declared a type. Availability is the oldest legacy default, and
+    # an SLO like `success-rate` with no indicator at all is one.
     return "availability"
 
 
