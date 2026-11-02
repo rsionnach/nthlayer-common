@@ -4,6 +4,15 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.11.0](https://github.com/rsionnach/nthlayer-common/compare/v5.10.1...v5.11.0) (2026-11-02)
+
+
+### Features
+
+* **telemetry:** emit events as OTel log records (opensrm-quqo) ([35dbe4d](https://github.com/rsionnach/nthlayer-common/commit/35dbe4d2b50ebe66e7b3641afd3949c1a831919c))
+* **telemetry:** emit events as OTel log records (opensrm-quqo) ([c471901](https://github.com/rsionnach/nthlayer-common/commit/c47190118aac163daef622f783e700afe00abd23))
+* **telemetry:** TelemetryStatus and capture_events (opensrm-quqo) ([38cc482](https://github.com/rsionnach/nthlayer-common/commit/38cc48284a0c78f419e1d7c0671f862dc98958de))
+
 ## [5.10.1](https://github.com/rsionnach/nthlayer-common/compare/v5.10.0...v5.10.1) (2026-11-02)
 
 
