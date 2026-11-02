@@ -1,24 +1,118 @@
-"""Tests for OTel telemetry emission."""
+"""Tests for OTel telemetry emission as log records (opensrm-quqo).
 
-from unittest.mock import MagicMock, patch
+Events used to be span events on the current span, and nothing ever made a
+span recording, so every one was dropped in production while tests that
+mocked the span passed. These tests run a real SDK LoggerProvider with an
+in-memory exporter, so they see what an OTLP collector would receive.
 
-from nthlayer_common.telemetry import emit_llm_event, is_otel_available
+Carriage (ruling Q2, Rob 2026-11-02; A1 §4.0 says the events are OTel
+log-based events and is silent on the rest): LogRecord.event_name is the
+event name, there is no body, every field is an attribute, severity is INFO,
+and Timestamp is the event's own time (A1 T1), never the emit time.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import UTC, datetime, timedelta, timezone
+
+import pytest
+from opentelemetry._logs import SeverityNumber
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
+
+try:  # renamed in SDK 1.41; the old name is deprecated there
+    from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter as InMemoryLogExporter
+except ImportError:  # SDK 1.38-1.40, inside the declared range
+    from opentelemetry.sdk._logs.export import InMemoryLogExporter
+
+from nthlayer_common import telemetry
+from nthlayer_common.telemetry import emit_event, emit_llm_event, init_telemetry
 
 
-class TestOTelAvailability:
-    def test_otel_is_available(self):
-        """OTel API should be importable (it's in our deps)."""
-        assert is_otel_available() is True
+def _record(data):
+    # SDK 1.38 exports LogData(log_record=...); later releases export the
+    # readable record itself.
+    return getattr(data, "log_record", data)
+
+
+@pytest.fixture
+def exported(monkeypatch):
+    """Route emit_event to a private provider; yield its exported records.
+
+    Patches the lookup rather than setting the global provider, which the API
+    allows only once per process.
+    """
+    exporter = InMemoryLogExporter()
+    provider = LoggerProvider()
+    provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+    monkeypatch.setattr(telemetry._logs, "get_logger", provider.get_logger)
+    yield lambda: [_record(d) for d in exporter.get_finished_logs()]
+    provider.shutdown()
+
+
+class TestEmitEvent:
+    def test_carriage(self, exported):
+        emit_event("nthlayer.reversal", {"nthlayer.decision.id": "d-1", "count": 2})
+
+        (rec,) = exported()
+        assert rec.event_name == "nthlayer.reversal"
+        assert rec.body is None
+        assert dict(rec.attributes) == {"nthlayer.decision.id": "d-1", "count": 2}
+        assert rec.severity_number == SeverityNumber.INFO
+        assert rec.severity_text == "INFO"
+
+    def test_timestamp_is_the_event_time(self, exported):
+        # A1 T1: feedback latency is measured from Timestamp, so it must be
+        # when the event happened, not when it was emitted.
+        when = datetime(2026, 11, 1, 12, 30, 15, 250000, tzinfo=UTC)
+        emit_event("nthlayer.reversal", {}, timestamp=when)
+
+        (rec,) = exported()
+        assert rec.timestamp == 1_793_536_215_250_000_000
+
+    def test_timestamp_honours_the_offset(self, exported):
+        when = datetime(2026, 11, 1, 13, 30, 15, tzinfo=timezone(timedelta(hours=1)))
+        emit_event("nthlayer.reversal", {}, timestamp=when)
+
+        (rec,) = exported()
+        assert rec.timestamp == 1_793_536_215_000_000_000
+
+    def test_a_naive_timestamp_is_read_as_utc(self, exported):
+        emit_event("nthlayer.reversal", {}, timestamp=datetime(2026, 11, 1, 12, 30, 15))
+
+        (rec,) = exported()
+        assert rec.timestamp == 1_793_536_215_000_000_000
+
+    def test_no_timestamp_means_now(self, exported):
+        # Left to the SDK, Timestamp would be unset (only ObservedTimestamp).
+        before = time.time_ns()
+        emit_event("nthlayer.llm.call", {})
+        after = time.time_ns()
+
+        (rec,) = exported()
+        assert before <= rec.timestamp <= after
+
+    def test_none_attribute_values_are_dropped(self, exported):
+        emit_event("nthlayer.reversal", {"kept": "x", "absent": None})
+
+        (rec,) = exported()
+        assert dict(rec.attributes) == {"kept": "x"}
+
+    def test_a_failing_logger_never_breaks_the_caller(self, monkeypatch):
+        def boom(*_a, **_k):
+            raise RuntimeError("exporter down")
+
+        monkeypatch.setattr(telemetry._logs, "get_logger", boom)
+        emit_event("nthlayer.reversal", {"k": "v"})  # must not raise
+
+    def test_without_an_sdk_provider_it_is_a_no_op(self):
+        # The API's default provider discards; nothing to assert but no error.
+        emit_event("nthlayer.reversal", {"k": "v"})
 
 
 class TestEmitLLMEvent:
-    @patch("nthlayer_common.telemetry.trace")
-    def test_emits_event_on_active_span(self, mock_trace):
-        """When there's an active recording span, event is added."""
-        mock_span = MagicMock()
-        mock_span.is_recording.return_value = True
-        mock_trace.get_current_span.return_value = mock_span
-
+    def test_emits_a_log_record(self, exported):
         emit_llm_event(
             model="claude-sonnet-4-20250514",
             provider="anthropic",
@@ -27,10 +121,9 @@ class TestEmitLLMEvent:
             output_tokens=200,
         )
 
-        mock_span.add_event.assert_called_once()
-        call_args = mock_span.add_event.call_args
-        assert call_args[0][0] == "nthlayer.llm.call"
-        attrs = call_args[1]["attributes"]
+        (rec,) = exported()
+        assert rec.event_name == "nthlayer.llm.call"
+        attrs = dict(rec.attributes)
         assert attrs["gen_ai.request.model"] == "claude-sonnet-4-20250514"
         # Addendum A1 §5 P4: gen_ai.provider.name, never the retired gen_ai.system.
         assert attrs["gen_ai.provider.name"] == "anthropic"
@@ -40,12 +133,7 @@ class TestEmitLLMEvent:
         assert attrs["gen_ai.usage.output_tokens"] == 200
         assert attrs["nthlayer.llm.success"] is True
 
-    @patch("nthlayer_common.telemetry.trace")
-    def test_includes_optional_fields(self, mock_trace):
-        mock_span = MagicMock()
-        mock_span.is_recording.return_value = True
-        mock_trace.get_current_span.return_value = mock_span
-
+    def test_includes_optional_fields(self, exported):
         emit_llm_event(
             model="claude-opus-4-7",
             provider="anthropic",
@@ -58,72 +146,96 @@ class TestEmitLLMEvent:
             duration_ms=2500,
         )
 
-        attrs = mock_span.add_event.call_args[1]["attributes"]
-        # Upstream names: cache_read per A1 §6.7, reasoning.output per
-        # profiles/claude-platform.md (Cost row); the old names must be gone.
+        attrs = dict(exported()[0].attributes)
         assert attrs["gen_ai.usage.cache_read.input_tokens"] == 300
-        assert "gen_ai.usage.cached_tokens" not in attrs
         assert attrs["gen_ai.usage.reasoning.output_tokens"] == 100
-        assert "gen_ai.usage.reasoning_tokens" not in attrs
         assert attrs["nthlayer.llm.caller_verdict_cid"] == "vrd-test-001"
         assert attrs["nthlayer.llm.duration_ms"] == 2500
 
-    @patch("nthlayer_common.telemetry.trace")
-    def test_error_attributes(self, mock_trace):
-        mock_span = MagicMock()
-        mock_span.is_recording.return_value = True
-        mock_trace.get_current_span.return_value = mock_span
+    def test_error_attributes(self, exported):
+        emit_llm_event(model="m", provider="anthropic", caller="c", success=False, error="timeout")
 
-        emit_llm_event(
-            model="gpt-4o",
-            provider="openai",
-            caller="correlate.summary",
-            success=False,
-            error="Rate limited",
-        )
-
-        attrs = mock_span.add_event.call_args[1]["attributes"]
+        attrs = dict(exported()[0].attributes)
         assert attrs["nthlayer.llm.success"] is False
-        assert attrs["nthlayer.llm.error"] == "Rate limited"
+        assert attrs["nthlayer.llm.error"] == "timeout"
 
-    @patch("nthlayer_common.telemetry.trace")
-    def test_no_event_when_span_not_recording(self, mock_trace):
-        """When no active span is recording, emit is a no-op."""
-        mock_span = MagicMock()
-        mock_span.is_recording.return_value = False
-        mock_trace.get_current_span.return_value = mock_span
+    def test_omits_none_fields(self, exported):
+        emit_llm_event(model="m", provider="anthropic", caller="c")
 
-        emit_llm_event(
-            model="test", provider="test", caller="test",
+        attrs = dict(exported()[0].attributes)
+        for key in (
+            "gen_ai.usage.input_tokens",
+            "gen_ai.usage.output_tokens",
+            "gen_ai.usage.cache_read.input_tokens",
+            "gen_ai.usage.reasoning.output_tokens",
+            "nthlayer.llm.caller_verdict_cid",
+            "nthlayer.llm.duration_ms",
+            "nthlayer.llm.error",
+        ):
+            assert key not in attrs
+
+
+class TestInitTelemetry:
+    @pytest.fixture
+    def installed(self, monkeypatch):
+        """Capture the provider init_telemetry installs, without installing it
+        globally or registering a real atexit hook."""
+        captured: dict = {}
+        monkeypatch.setattr(telemetry, "_provider", None)
+        monkeypatch.setattr(
+            telemetry._logs, "set_logger_provider", lambda p: captured.setdefault("provider", p)
         )
-
-        mock_span.add_event.assert_not_called()
-
-    @patch("nthlayer_common.telemetry._otel_available", False)
-    def test_no_event_when_otel_not_available(self):
-        """When OTel is not available, emit is a silent no-op."""
-        # Should not raise
-        emit_llm_event(
-            model="test", provider="test", caller="test",
-            input_tokens=100, output_tokens=50,
+        monkeypatch.setattr(
+            telemetry.atexit, "register", lambda fn: captured.setdefault("atexit", fn)
         )
+        for var in (
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+            "OTEL_SERVICE_NAME",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        return captured
 
-    @patch("nthlayer_common.telemetry.trace")
-    def test_omits_none_fields(self, mock_trace):
-        """None-valued optional fields are not included in attributes."""
-        mock_span = MagicMock()
-        mock_span.is_recording.return_value = True
-        mock_trace.get_current_span.return_value = mock_span
+    def test_without_an_endpoint_it_installs_nothing(self, installed):
+        assert init_telemetry("nthlayer-workers") is False
+        assert installed == {}
 
-        emit_llm_event(
-            model="test", provider="test", caller="test",
-            # All optional fields left as None
-        )
+    def test_an_endpoint_installs_a_provider_that_exports(self, installed, monkeypatch):
+        exporter = InMemoryLogExporter()
+        assert init_telemetry("nthlayer-workers", endpoint="http://c:4317", exporter=exporter)
 
-        attrs = mock_span.add_event.call_args[1]["attributes"]
-        assert "gen_ai.usage.input_tokens" not in attrs
-        assert "gen_ai.usage.output_tokens" not in attrs
-        assert "gen_ai.usage.cache_read.input_tokens" not in attrs
-        assert "gen_ai.usage.reasoning.output_tokens" not in attrs
-        assert "nthlayer.llm.caller_verdict_cid" not in attrs
-        assert "nthlayer.llm.duration_ms" not in attrs
+        provider = installed["provider"]
+        assert provider.resource.attributes["service.name"] == "nthlayer-workers"
+        assert installed["atexit"] == provider.shutdown
+
+        monkeypatch.setattr(telemetry._logs, "get_logger", provider.get_logger)
+        emit_event("nthlayer.reversal", {"k": "v"})
+        provider.force_flush()
+        (rec,) = [_record(d) for d in exporter.get_finished_logs()]
+        assert rec.event_name == "nthlayer.reversal"
+
+    def test_the_standard_env_var_is_an_endpoint(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://c:4317")
+        assert init_telemetry("nthlayer-workers", exporter=InMemoryLogExporter())
+
+    def test_the_logs_specific_env_var_is_an_endpoint(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://c:4317")
+        assert init_telemetry("nthlayer-workers", exporter=InMemoryLogExporter())
+
+    def test_otel_service_name_wins(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_SERVICE_NAME", "fraud-workers")
+        init_telemetry("nthlayer-workers", endpoint="http://c:4317", exporter=InMemoryLogExporter())
+        assert installed["provider"].resource.attributes["service.name"] == "fraud-workers"
+
+    def test_a_second_call_is_a_no_op(self, installed):
+        init_telemetry("nthlayer-workers", endpoint="http://c:4317", exporter=InMemoryLogExporter())
+        first = installed["provider"]
+        installed.clear()
+
+        assert init_telemetry("nthlayer-workers", endpoint="http://c:4317") is True
+        assert installed == {}
+        assert telemetry._provider is first
+
+
+def test_is_otel_available():
+    assert telemetry.is_otel_available() is True
