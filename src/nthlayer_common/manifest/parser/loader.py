@@ -274,7 +274,7 @@ def _legacy_indicators_type(name: str, spec: dict[str, Any]) -> str | None:
 
     Untyped entries are ignored. Entries that declare different types leave
     the SLO with no single slo_type, so the load fails rather than guess
-    (opensrm-e9ts, ruling 1).
+    (opensrm-e9ts, R1).
     """
     indicators = spec.get("indicators")
     if not isinstance(indicators, list):
@@ -299,7 +299,7 @@ def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
 
     In order: a singular ``indicator.type``; the shared type of a plural
     ``indicators:`` list; name keywords; a declared latency threshold
-    (opensrm-e9ts, ruling 2); and availability only when nothing above says
+    (opensrm-e9ts, R2); and availability only when nothing above says
     otherwise. Real legacy manifests declare the plural list, and reading only
     the singular key typed lag and freshness SLOs as availability, so
     nthlayer-generate wrote them an error budget from request success.
@@ -325,7 +325,7 @@ def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
         return "latency"
 
     # Nothing declared a type. Availability is the oldest legacy default, and
-    # an SLO like `success-rate` with no indicator at all is one.
+    # an SLO like `success-rate` with no indicator at all is an availability SLO.
     return "availability"
 
 

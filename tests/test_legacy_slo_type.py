@@ -4,14 +4,15 @@ The loader read only a singular ``spec.indicator.type`` and otherwise fell
 back to name keywords, then to "availability". Real legacy manifests declare
 a plural ``indicators:`` list, so lag and freshness SLOs loaded as
 availability, nthlayer-generate wrote them an error budget from request
-success, and measure read it as theirs.
+success, and nthlayer-workers' measure read it as theirs.
 
 Each positive shape below is a resource copied verbatim from nthlayer-generate's
 legacy corpus (cited per test), not from this loader's output.
 
-Rulings (Rob, 2026-11-02): the types in an ``indicators:`` list must agree, or
-the load fails naming the SLO; untyped entries are ignored. A typeless SLO
-that declares a latency threshold (legacy.LATENCY_THRESHOLD_KEYS) is latency.
+R1 (Rob, 2026-11-02): the types in an ``indicators:`` list must agree, or the
+load fails naming the SLO; untyped entries are ignored.
+R2: a typeless SLO that declares a latency threshold
+(legacy.LATENCY_THRESHOLD_KEYS) is latency.
 """
 
 from __future__ import annotations
@@ -98,7 +99,7 @@ FRESHNESS_P95 = {
     "spec": {"threshold_ms": 43200000, "objective": 90.0},
 }
 
-# tests/fixtures/legacy_loader/services/substitution-defaults.yaml: declares
+# nthlayer-common tests/fixtures/legacy_loader/services/substitution-defaults.yaml: declares
 # nothing a type could come from.
 SUCCESS_RATE = {
     "kind": "SLO",
@@ -146,7 +147,7 @@ def test_agreeing_entries_are_one_type(tmp_path):
 
 
 def test_disagreeing_entries_fail_the_load_naming_the_slo(tmp_path):
-    # Ruling 1: a list whose entries declare different types has no single
+    # R1: a list whose entries declare different types has no single
     # slo_type, and guessing one is how lag SLOs became availability.
     resource = {
         **STREAM_LAG,
@@ -163,7 +164,7 @@ def test_disagreeing_entries_fail_the_load_naming_the_slo(tmp_path):
 
 
 def test_a_singular_indicator_type_still_wins(tmp_path):
-    # search-api.yaml's search-quality declares `indicator: {type: custom}`;
+    # nthlayer-generate examples/services/search-api.yaml's search-quality declares `indicator: {type: custom}`;
     # the singular key keeps its precedence over a plural list.
     resource = {
         **DELIVERY_SUCCESS,
