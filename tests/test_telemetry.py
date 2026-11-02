@@ -14,6 +14,7 @@ time; it is never left to ObservedTimestamp.
 
 from __future__ import annotations
 
+import threading
 import time
 from datetime import UTC, datetime, timedelta, timezone
 
@@ -113,6 +114,14 @@ class TestEmitEvent:
         # The API's default provider discards; nothing to assert but no error.
         emit_event("nthlayer.reversal", {"k": "v"})
 
+    def test_a_far_future_timestamp_is_clamped(self, get_exported):
+        # datetime.max is past OTLP's fixed64 time_unix_nano; unclamped it
+        # failed the exporter's whole batch.
+        emit_event("nthlayer.reversal", {}, timestamp=datetime.max)
+
+        (rec,) = get_exported()
+        assert rec.timestamp == 2**64 - 1
+
     def test_a_pre_epoch_timestamp_is_clamped(self, get_exported):
         # OTLP time_unix_nano is unsigned; a negative value would fail the
         # exporter's whole batch.
@@ -205,7 +214,10 @@ class TestInitTelemetry:
             "OTEL_SERVICE_NAME",
         ):
             monkeypatch.delenv(var, raising=False)
-        return captured
+        yield captured
+        # Stop the batch thread of any provider the test built.
+        if "provider" in captured:
+            captured["provider"].shutdown()
 
     def test_without_an_endpoint_it_installs_nothing(self, installed):
         assert init_telemetry("nthlayer-workers") is False
@@ -233,6 +245,41 @@ class TestInitTelemetry:
     def test_the_logs_specific_env_var_is_an_endpoint(self, installed, monkeypatch):
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://c:4317")
         assert init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+
+    def test_a_blank_logs_var_does_not_hide_the_general_one(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "   ")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://c:4317")
+        assert init_telemetry("nthlayer-workers", exporter=InMemoryLogRecordExporter())
+
+    def test_only_blank_endpoints_install_nothing(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", " ")
+        assert init_telemetry("nthlayer-workers") is False
+        assert "provider" not in installed
+
+    def test_concurrent_calls_install_one_provider(self, installed, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            telemetry._logs,
+            "set_logger_provider",
+            lambda p: (calls.append(p), installed.setdefault("provider", p)),
+        )
+        results = []
+        threads = [
+            threading.Thread(
+                target=lambda: results.append(
+                    init_telemetry(
+                        "w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter()
+                    )
+                )
+            )
+            for _ in range(8)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert results == [True] * 8
+        assert len(calls) == 1
 
     def test_otel_service_name_wins(self, installed, monkeypatch):
         monkeypatch.setenv("OTEL_SERVICE_NAME", "fraud-workers")

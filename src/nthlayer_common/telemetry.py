@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -42,6 +43,10 @@ _OTEL_LOGGER_NAME = "nthlayer"
 # The provider init_telemetry installed, so a second call does not try to
 # replace it (the API allows the global provider to be set only once).
 _installed_provider: Any = None
+_install_lock = threading.Lock()
+
+# OTLP time_unix_nano is a fixed64.
+_MAX_UNIX_NANO = 2**64 - 1
 
 
 def _epoch_ns(ts: datetime) -> int:
@@ -52,9 +57,10 @@ def _epoch_ns(ts: datetime) -> int:
     delta = ts - datetime(1970, 1, 1, tzinfo=UTC)
     # Integer arithmetic: a float timestamp loses microseconds at ns scale.
     ns = (delta.days * 86_400 + delta.seconds) * 10**9 + delta.microseconds * 1_000
-    # OTLP time_unix_nano is unsigned: a pre-epoch value fails to encode and
-    # takes the exporter's whole batch with it.
-    return max(ns, 0)
+    # OTLP time_unix_nano is unsigned 64-bit: a value outside it (pre-epoch,
+    # or past ~2554, e.g. a datetime.max sentinel) fails to encode in the
+    # export thread and takes the whole batch of unrelated events with it.
+    return min(max(ns, 0), _MAX_UNIX_NANO)
 
 
 def emit_event(
@@ -102,18 +108,35 @@ def init_telemetry(
     the global slot (e.g. one set by ``opentelemetry-instrument``); events
     then go to that provider.
 
-    Idempotent: a second call keeps the first provider. The provider shuts
-    down at exit, so short-lived CLI commands flush what they emitted.
+    Idempotent and thread-safe: a second call keeps the first provider.
+    Events emitted before this call are dropped, so call it first thing. In a
+    forking server, call it in each worker after the fork (the gRPC channel is
+    not fork-safe). The provider shuts down at exit, so short-lived CLI
+    commands flush what they emitted; with an unreachable collector that
+    flush waits out ``OTEL_EXPORTER_OTLP_TIMEOUT`` (default 10s).
     """
+    with _install_lock:
+        return _install(service_name, endpoint, exporter)
+
+
+def _install(service_name: str, endpoint: str | None, exporter: Any) -> bool:
     global _installed_provider
     if _installed_provider is not None:
         return True
-    endpoint = (
-        endpoint
-        or os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
-        or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+    # Blank counts as unset, so a whitespace LOGS var cannot hide the general one.
+    endpoint = next(
+        (
+            e.strip()
+            for e in (
+                endpoint,
+                os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
+                os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
+            )
+            if e and e.strip()
+        ),
+        None,
     )
-    if not endpoint:
+    if endpoint is None:
         return False
     try:
         from opentelemetry.sdk._logs import LoggerProvider
