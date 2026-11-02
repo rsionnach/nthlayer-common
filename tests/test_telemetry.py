@@ -8,7 +8,8 @@ in-memory exporter, so they see what an OTLP collector would receive.
 Carriage (ruling Q2, Rob 2026-11-02; A1 §4.0 says the events are OTel
 log-based events and is silent on the rest): LogRecord.event_name is the
 event name, there is no body, every field is an attribute, severity is INFO,
-and Timestamp is the event's own time (A1 T1), never the emit time.
+and Timestamp is the event's own time when supplied (A1 T1), else the emit
+time; it is never left to ObservedTimestamp.
 """
 
 from __future__ import annotations

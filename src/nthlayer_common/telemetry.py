@@ -8,7 +8,8 @@ component ever made a span recording, so all of them were dropped.
 Carriage (ruling Q2, Rob 2026-11-02; A1 is silent on it, opensrm-pdx7):
 ``LogRecord.event_name`` is the event name, there is no body, every field is
 an attribute, severity is INFO, and ``Timestamp`` is the event's own time
-when the caller knows it (A1 T1), never the emit time.
+when the caller supplies it (A1 T1), else the emit time; it is never left to
+ObservedTimestamp.
 
 A process calls ``init_telemetry(service_name)`` once at startup. Without an
 OTLP endpoint nothing is installed and every emit is a no-op; with an
@@ -198,6 +199,7 @@ def emit_llm_event(
             "nthlayer.llm.caller_verdict_cid": verdict_id,
             "nthlayer.llm.duration_ms": duration_ms,
             "nthlayer.llm.success": success,
+            # `or None`: an empty error string is no error, as before.
             "nthlayer.llm.error": error or None,
         },
     )
