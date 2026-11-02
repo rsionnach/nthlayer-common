@@ -6,13 +6,18 @@ a plural ``indicators:`` list, so lag and freshness SLOs loaded as
 availability, nthlayer-generate wrote them an error budget from request
 success, and nthlayer-workers' measure read it as theirs.
 
-Each positive shape below is a resource copied verbatim from nthlayer-generate's
-legacy corpus (cited per test), not from this loader's output.
+Each positive shape below is a resource copied from nthlayer-generate's legacy
+corpus (cited per test; SUCCESS_RATE shortens a description), not from this
+loader's output. There is no legacy-format schema to cite.
 
 R1 (Rob, 2026-11-02): the types in an ``indicators:`` list must agree, or the
 load fails naming the SLO; untyped entries are ignored.
 R2: a typeless SLO that declares a latency threshold
 (legacy.LATENCY_THRESHOLD_KEYS) is latency.
+
+The other negative cases (a non-string type, a malformed list, two spellings
+of one type) are not rulings: they are this loader's own contract, chosen so a
+malformed declaration fails loudly instead of falling back to availability.
 """
 
 from __future__ import annotations
