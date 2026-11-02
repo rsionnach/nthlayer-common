@@ -110,6 +110,14 @@ class TestEmitEvent:
         # The API's default provider discards; nothing to assert but no error.
         emit_event("nthlayer.reversal", {"k": "v"})
 
+    def test_a_pre_epoch_timestamp_is_clamped(self, exported):
+        # OTLP time_unix_nano is unsigned; a negative value would fail the
+        # exporter's whole batch.
+        emit_event("nthlayer.reversal", {}, timestamp=datetime(1969, 12, 31, tzinfo=UTC))
+
+        (rec,) = exported()
+        assert rec.timestamp == 0
+
 
 class TestEmitLLMEvent:
     def test_emits_a_log_record(self, exported):
@@ -186,6 +194,9 @@ class TestInitTelemetry:
             telemetry._logs, "set_logger_provider", lambda p: captured.setdefault("provider", p)
         )
         monkeypatch.setattr(
+            telemetry._logs, "get_logger_provider", lambda: captured.get("provider")
+        )
+        monkeypatch.setattr(
             telemetry.atexit, "register", lambda fn: captured.setdefault("atexit", fn)
         )
         for var in (
@@ -235,6 +246,21 @@ class TestInitTelemetry:
         assert init_telemetry("nthlayer-workers", endpoint="http://c:4317") is True
         assert installed == {}
         assert telemetry._provider is first
+
+
+def test_a_provider_already_set_elsewhere_is_left_alone(monkeypatch):
+    # e.g. opentelemetry-instrument set one first: the API keeps it, so ours
+    # would receive nothing. init_telemetry must say so, not claim success.
+    other = object()
+    monkeypatch.setattr(telemetry, "_provider", None)
+    monkeypatch.setattr(telemetry._logs, "set_logger_provider", lambda p: None)
+    monkeypatch.setattr(telemetry._logs, "get_logger_provider", lambda: other)
+    registered = []
+    monkeypatch.setattr(telemetry.atexit, "register", registered.append)
+
+    assert init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogExporter()) is False
+    assert telemetry._provider is None
+    assert registered == []
 
 
 def test_is_otel_available():

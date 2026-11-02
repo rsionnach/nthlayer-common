@@ -50,7 +50,10 @@ def _epoch_ns(ts: datetime) -> int:
         ts = ts.replace(tzinfo=UTC)
     delta = ts - datetime(1970, 1, 1, tzinfo=UTC)
     # Integer arithmetic: a float timestamp loses microseconds at ns scale.
-    return (delta.days * 86_400 + delta.seconds) * 10**9 + delta.microseconds * 1_000
+    ns = (delta.days * 86_400 + delta.seconds) * 10**9 + delta.microseconds * 1_000
+    # OTLP time_unix_nano is unsigned: a pre-epoch value fails to encode and
+    # takes the exporter's whole batch with it.
+    return max(ns, 0)
 
 
 def emit_event(
@@ -90,7 +93,13 @@ def init_telemetry(
     The endpoint is ``endpoint``, else ``OTEL_EXPORTER_OTLP_LOGS_ENDPOINT``,
     else ``OTEL_EXPORTER_OTLP_ENDPOINT``; with none, nothing is installed.
     ``service.name`` is ``OTEL_SERVICE_NAME`` if set, else ``service_name``.
-    ``exporter`` replaces the OTLP gRPC exporter (tests, debugging).
+    ``exporter`` replaces the OTLP gRPC exporter (tests, debugging). The
+    exporter is gRPC only: ``OTEL_EXPORTER_OTLP_PROTOCOL`` is not read, so
+    point the endpoint at a collector's gRPC port (4317), not 4318.
+
+    Returns False, installing nothing, if another LoggerProvider already owns
+    the global slot (e.g. one set by ``opentelemetry-instrument``); events
+    then go to that provider.
 
     Idempotent: a second call keeps the first provider. Registers a shutdown
     at exit, so short-lived CLI commands flush what they emitted.
@@ -114,10 +123,11 @@ def init_telemetry(
             from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
 
             exporter = OTLPLogExporter(endpoint=endpoint)
-    except ImportError:
+    except ImportError as exc:
         logger.warning(
-            "telemetry: an OTLP endpoint is set but the OTel SDK is not installed; "
-            "install nthlayer-common[otel] to export events"
+            "telemetry: an OTLP endpoint is set but %s is not installed; "
+            "install nthlayer-common[otel] to export events",
+            exc.name,
         )
         return False
 
@@ -127,6 +137,11 @@ def init_telemetry(
     provider = LoggerProvider(resource=resource)
     provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
     _logs.set_logger_provider(provider)
+    if _logs.get_logger_provider() is not provider:
+        # The API keeps an already-set provider and only warns; ours would
+        # never receive a record, so stop its batch thread and say so.
+        provider.shutdown()
+        return False
     atexit.register(provider.shutdown)
     _provider = provider
     return True
