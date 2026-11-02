@@ -11,8 +11,9 @@ an attribute, severity is INFO, and ``Timestamp`` is the event's own time
 when the caller knows it (A1 T1), never the emit time.
 
 A process calls ``init_telemetry(service_name)`` once at startup. Without an
-OTLP endpoint, or without the SDK (``pip install nthlayer-common[otel]``),
-nothing is installed and every emit is a silent no-op.
+OTLP endpoint nothing is installed and every emit is a no-op; with an
+endpoint but without the SDK (``pip install nthlayer-common[otel]``), the
+same, after a warning.
 
 Canonical imports::
 
@@ -35,11 +36,11 @@ from opentelemetry._logs import SeverityNumber
 
 logger = logging.getLogger(__name__)
 
-_LOGGER_NAME = "nthlayer"
+_OTEL_LOGGER_NAME = "nthlayer"
 
 # The provider init_telemetry installed, so a second call does not try to
 # replace it (the API allows the global provider to be set only once).
-_provider: Any = None
+_installed_provider: Any = None
 
 
 def _epoch_ns(ts: datetime) -> int:
@@ -70,7 +71,7 @@ def emit_event(
     raises: a telemetry failure must not break the caller.
     """
     try:
-        _logs.get_logger(_LOGGER_NAME).emit(
+        _logs.get_logger(_OTEL_LOGGER_NAME).emit(
             event_name=name,
             attributes={k: v for k, v in attributes.items() if v is not None},
             severity_number=SeverityNumber.INFO,
@@ -103,8 +104,8 @@ def init_telemetry(
     Idempotent: a second call keeps the first provider. The provider shuts
     down at exit, so short-lived CLI commands flush what they emitted.
     """
-    global _provider
-    if _provider is not None:
+    global _installed_provider
+    if _installed_provider is not None:
         return True
     endpoint = (
         endpoint
@@ -143,7 +144,7 @@ def init_telemetry(
         # never receive a record, so stop its batch thread and say so.
         provider.shutdown()
         return False
-    _provider = provider
+    _installed_provider = provider
     return True
 
 
@@ -203,5 +204,6 @@ def emit_llm_event(
 
 
 def is_otel_available() -> bool:
-    """True: the OTel API is a hard dependency, so it is always importable."""
+    """Always True: the OTel API is a hard dependency. Kept for API
+    compatibility; it does not mean events export (see init_telemetry)."""
     return True

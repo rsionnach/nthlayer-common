@@ -415,7 +415,9 @@ env sets default deployment ID (default `"default"`).
     — installs a LoggerProvider with an OTLP gRPC log exporter, once per
     process, flushed at exit. Endpoint: argument, else
     `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, else `OTEL_EXPORTER_OTLP_ENDPOINT`;
-    none, or no SDK (the `otel` extra), means a silent no-op.
+    none means a no-op; an endpoint without the SDK (the `otel` extra)
+    warns, then no-ops. Returns False if another provider already holds
+    the global slot.
     `service.name` from `OTEL_SERVICE_NAME`, else the argument.
   - `emit_llm_event(*, model, provider, caller, input_tokens?,
     output_tokens?, cached_tokens?, reasoning_tokens?, verdict_id?,
