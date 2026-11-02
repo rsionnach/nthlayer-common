@@ -187,7 +187,7 @@ class TestInitTelemetry:
     @pytest.fixture
     def installed(self, monkeypatch):
         """Capture the provider init_telemetry installs, without installing it
-        globally or registering a real atexit hook."""
+        globally."""
         captured: dict = {}
         monkeypatch.setattr(telemetry, "_provider", None)
         monkeypatch.setattr(
@@ -195,9 +195,6 @@ class TestInitTelemetry:
         )
         monkeypatch.setattr(
             telemetry._logs, "get_logger_provider", lambda: captured.get("provider")
-        )
-        monkeypatch.setattr(
-            telemetry.atexit, "register", lambda fn: captured.setdefault("atexit", fn)
         )
         for var in (
             "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -217,7 +214,8 @@ class TestInitTelemetry:
 
         provider = installed["provider"]
         assert provider.resource.attributes["service.name"] == "nthlayer-workers"
-        assert installed["atexit"] == provider.shutdown
+        # Flushed at exit, so short-lived CLI commands export what they emit.
+        assert provider._at_exit_handler is not None
 
         monkeypatch.setattr(telemetry._logs, "get_logger", provider.get_logger)
         emit_event("nthlayer.reversal", {"k": "v"})
@@ -255,12 +253,8 @@ def test_a_provider_already_set_elsewhere_is_left_alone(monkeypatch):
     monkeypatch.setattr(telemetry, "_provider", None)
     monkeypatch.setattr(telemetry._logs, "set_logger_provider", lambda p: None)
     monkeypatch.setattr(telemetry._logs, "get_logger_provider", lambda: other)
-    registered = []
-    monkeypatch.setattr(telemetry.atexit, "register", registered.append)
-
     assert init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogExporter()) is False
     assert telemetry._provider is None
-    assert registered == []
 
 
 def test_is_otel_available():

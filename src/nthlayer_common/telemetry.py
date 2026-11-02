@@ -23,7 +23,6 @@ Spec: NTHLAYER-COMMON-v1 §3.4, §7; OpenSRM Addendum A1 §4.0.
 
 from __future__ import annotations
 
-import atexit
 import logging
 import os
 import time
@@ -101,8 +100,8 @@ def init_telemetry(
     the global slot (e.g. one set by ``opentelemetry-instrument``); events
     then go to that provider.
 
-    Idempotent: a second call keeps the first provider. Registers a shutdown
-    at exit, so short-lived CLI commands flush what they emitted.
+    Idempotent: a second call keeps the first provider. The provider shuts
+    down at exit, so short-lived CLI commands flush what they emitted.
     """
     global _provider
     if _provider is not None:
@@ -134,7 +133,9 @@ def init_telemetry(
     resource = Resource.create(
         {"service.name": os.environ.get("OTEL_SERVICE_NAME") or service_name}
     )
-    provider = LoggerProvider(resource=resource)
+    # shutdown_on_exit flushes the batch at interpreter exit (the SDK
+    # registers the atexit hook itself).
+    provider = LoggerProvider(resource=resource, shutdown_on_exit=True)
     provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
     _logs.set_logger_provider(provider)
     if _logs.get_logger_provider() is not provider:
@@ -142,7 +143,6 @@ def init_telemetry(
         # never receive a record, so stop its batch thread and say so.
         provider.shutdown()
         return False
-    atexit.register(provider.shutdown)
     _provider = provider
     return True
 
