@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.10.1](https://github.com/rsionnach/nthlayer-common/compare/v5.10.0...v5.10.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **manifest:** infer a legacy SLO's type from what it declares (opensrm-e9ts) ([1d403e1](https://github.com/rsionnach/nthlayer-common/commit/1d403e16a7aa9e42d2f6d8b5f2f8dc293dc0dd2a))
+* **manifest:** infer a legacy SLO's type from what it declares (opensrm-e9ts) ([36e5709](https://github.com/rsionnach/nthlayer-common/commit/36e57097e4a62e7f5cffbc8366cc8b3550bc7e7b))
+
 ## [5.10.0](https://github.com/rsionnach/nthlayer-common/compare/v5.9.1...v5.10.0) (2026-11-01)
 
 
