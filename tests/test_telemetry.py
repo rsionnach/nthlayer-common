@@ -111,8 +111,8 @@ class TestEmitEvent:
         emit_event("nthlayer.reversal", {"k": "v"})  # must not raise
 
     def test_without_an_sdk_provider_it_is_a_no_op(self):
-        # The API's default provider discards; nothing to assert but no error.
-        emit_event("nthlayer.reversal", {"k": "v"})
+        # The API's default provider discards: no SDK, no record, no error.
+        assert emit_event("nthlayer.reversal", {"k": "v"}) is None
 
     def test_a_far_future_timestamp_is_clamped(self, get_exported):
         # datetime.max is past OTLP's fixed64 time_unix_nano; unclamped it
@@ -256,6 +256,16 @@ class TestInitTelemetry:
         assert init_telemetry("nthlayer-workers") is False
         assert "provider" not in installed
 
+    def test_only_blank_endpoints_install_nothing_even_with_an_exporter(
+        self, installed, monkeypatch
+    ):
+        # With an exporter injected, the missing gRPC exporter cannot be what
+        # makes this return False: only the blank handling can.
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "  ")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", " ")
+        assert init_telemetry("w", exporter=InMemoryLogRecordExporter()) is False
+        assert "provider" not in installed
+
     def test_concurrent_calls_install_one_provider(self, installed, monkeypatch):
         calls = []
         monkeypatch.setattr(
@@ -309,6 +319,42 @@ class TestInitTelemetry:
             is False
         )
         assert telemetry._installed_provider is None
+
+
+class TestResolveEndpoint:
+    """Precedence per the OTel SDK environment spec: the signal-specific var
+    overrides the general one; an explicit argument overrides both."""
+
+    @pytest.fixture(autouse=True)
+    def clean_env(self, monkeypatch):
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+
+    def test_logs_var_beats_general(self, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://general:4317")
+        assert telemetry._resolve_endpoint(None) == "http://logs:4317"
+
+    def test_explicit_beats_both(self, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://general:4317")
+        assert telemetry._resolve_endpoint("http://arg:4317") == "http://arg:4317"
+
+    def test_general_alone(self, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://general:4317")
+        assert telemetry._resolve_endpoint(None) == "http://general:4317"
+
+    def test_a_blank_logs_var_falls_through(self, monkeypatch):
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "   ")
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://general:4317")
+        assert telemetry._resolve_endpoint(None) == "http://general:4317"
+
+    def test_surrounding_whitespace_is_stripped(self):
+        assert telemetry._resolve_endpoint("  http://arg:4317 ") == "http://arg:4317"
+
+    def test_nothing_set(self):
+        assert telemetry._resolve_endpoint(None) is None
+        assert telemetry._resolve_endpoint("  ") is None
 
 
 def test_is_otel_available():

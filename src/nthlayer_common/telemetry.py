@@ -120,23 +120,26 @@ def init_telemetry(
         return _install(service_name, endpoint, exporter)
 
 
+def _resolve_endpoint(explicit: str | None) -> str | None:
+    """The OTLP logs endpoint: ``explicit``, else the signal-specific
+    ``OTEL_EXPORTER_OTLP_LOGS_ENDPOINT``, else ``OTEL_EXPORTER_OTLP_ENDPOINT``
+    (the OTel SDK environment spec's precedence). Blank counts as unset, so a
+    whitespace LOGS var cannot hide the general one."""
+    for candidate in (
+        explicit,
+        os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
+        os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
+    ):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return None
+
+
 def _install(service_name: str, endpoint: str | None, exporter: Any) -> bool:
     global _installed_provider
     if _installed_provider is not None:
         return True
-    # Blank counts as unset, so a whitespace LOGS var cannot hide the general one.
-    endpoint = next(
-        (
-            e.strip()
-            for e in (
-                endpoint,
-                os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
-                os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"),
-            )
-            if e and e.strip()
-        ),
-        None,
-    )
+    endpoint = _resolve_endpoint(endpoint)
     if endpoint is None:
         return False
     try:
@@ -219,6 +222,8 @@ def emit_llm_event(
             "gen_ai.usage.input_tokens": input_tokens,
             "gen_ai.usage.output_tokens": output_tokens,
             "gen_ai.usage.cache_read.input_tokens": cached_tokens,
+            # Not in A1 §5's table; the upstream GenAI registry name
+            # (semantic-conventions, the pin A1 cites).
             "gen_ai.usage.reasoning.output_tokens": reasoning_tokens,
             "nthlayer.llm.caller_verdict_cid": verdict_id,
             "nthlayer.llm.duration_ms": duration_ms,
