@@ -73,10 +73,13 @@ class TelemetryStatus(enum.Enum):
     """An endpoint is set but the ``otel`` extra is not installed: events drop."""
     EXTERNAL_PROVIDER = "external_provider"
     """Another LoggerProvider already owns the global slot (e.g. one set by
-    ``opentelemetry-instrument``); events go to it, so they still export."""
+    ``opentelemetry-instrument``); events go to it, assumed to export."""
 
     @property
     def exporting(self) -> bool:
+        """True when events are handed to an exporting provider: ours, or an
+        external one assumed to export. Says nothing about whether a
+        collector is reachable."""
         return self in (TelemetryStatus.INSTALLED, TelemetryStatus.EXTERNAL_PROVIDER)
 
 
@@ -103,7 +106,7 @@ class EventCapture:
         for data in self._exporter.get_finished_logs():
             # Both SDK shapes wrap the record in .log_record: LogData at 1.38,
             # ReadableLogRecord from 1.41.
-            rec = getattr(data, "log_record", data)
+            rec = data.log_record
             out.append(
                 CapturedEvent(
                     name=rec.event_name,
@@ -115,6 +118,7 @@ class EventCapture:
         return out
 
     def named(self, name: str) -> list[CapturedEvent]:
+        """The events called ``name``, in emission order; [] if none."""
         return [e for e in self.events if e.name == name]
 
 
@@ -123,8 +127,9 @@ def capture_events() -> Iterator[EventCapture]:
     """Capture every ``emit_event`` inside the block, for tests.
 
     Routes emit_event to a private SDK provider (the global one is untouched,
-    and the API lets it be set only once). Needs the OTel SDK: the ``otel``
-    or ``dev`` extra. Not thread-safe across concurrent captures. Captures
+    and the API lets it be set only once). Needs the OTel SDK, the ``otel``
+    or ``dev`` extra; without it, entering the block raises ImportError. Not
+    thread-safe across concurrent captures. Captures
     nothing under ``OTEL_SDK_DISABLED=true``, which disables every provider.
     """
     global _capture_logger
@@ -204,7 +209,7 @@ def init_telemetry(
     point the endpoint at a collector's gRPC port (4317), not 4318.
 
     Returns a ``TelemetryStatus``; ``status.exporting`` says whether events
-    reach a collector. If another LoggerProvider already owns the global slot
+    are handed to an exporting provider. If another LoggerProvider already owns the global slot
     (e.g. one set by ``opentelemetry-instrument``), nothing is installed and
     the status is ``EXTERNAL_PROVIDER``: events go to that provider.
 
