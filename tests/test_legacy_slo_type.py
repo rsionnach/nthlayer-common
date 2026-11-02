@@ -170,3 +170,12 @@ def test_a_singular_indicator_type_still_wins(tmp_path):
         "spec": {**DELIVERY_SUCCESS["spec"], "indicator": {"type": "custom"}},
     }
     assert _slo_type(tmp_path, resource) == "custom"
+
+
+@pytest.mark.parametrize("bad", [["latency"], {"kind": "latency"}, 3, True], ids=repr)
+def test_a_non_string_indicator_type_fails_the_load_naming_the_slo(tmp_path, bad):
+    # Without the check, a list or mapping raised a raw TypeError out of
+    # load_manifest (it wraps only ValueError), and a scalar became slo_type.
+    resource = {**STREAM_LAG, "spec": {**STREAM_LAG["spec"], "indicators": [{"type": bad}]}}
+    with pytest.raises(ManifestLoadError, match="stream-lag"):
+        _slo_type(tmp_path, resource)

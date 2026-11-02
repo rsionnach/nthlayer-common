@@ -279,7 +279,13 @@ def _legacy_indicators_type(name: str, spec: dict[str, Any]) -> str | None:
     indicators = spec.get("indicators")
     if not isinstance(indicators, list):
         return None
-    types = {e["type"] for e in indicators if isinstance(e, dict) and e.get("type")}
+    declared = [e["type"] for e in indicators if isinstance(e, dict) and e.get("type")]
+    for t in declared:
+        if not isinstance(t, str):
+            raise ManifestLoadError(
+                f"SLO '{name}' has an indicator type {t!r}; an indicator type is a string"
+            )
+    types = set(declared)
     if len(types) > 1:
         raise ManifestLoadError(
             f"SLO '{name}' declares indicators of different types {sorted(types)}; "
