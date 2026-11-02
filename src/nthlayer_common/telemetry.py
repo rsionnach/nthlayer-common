@@ -101,8 +101,8 @@ class EventCapture:
     def events(self) -> list[CapturedEvent]:
         out = []
         for data in self._exporter.get_finished_logs():
-            # SDK 1.38 exports LogData(log_record=...); later releases export
-            # the readable record itself.
+            # Both SDK shapes wrap the record in .log_record: LogData at 1.38,
+            # ReadableLogRecord from 1.41.
             rec = getattr(data, "log_record", data)
             out.append(
                 CapturedEvent(
@@ -124,7 +124,8 @@ def capture_events() -> Iterator[EventCapture]:
 
     Routes emit_event to a private SDK provider (the global one is untouched,
     and the API lets it be set only once). Needs the OTel SDK: the ``otel``
-    or ``dev`` extra. Not thread-safe across concurrent captures.
+    or ``dev`` extra. Not thread-safe across concurrent captures. Captures
+    nothing under ``OTEL_SDK_DISABLED=true``, which disables every provider.
     """
     global _capture_logger
     from opentelemetry.sdk._logs import LoggerProvider

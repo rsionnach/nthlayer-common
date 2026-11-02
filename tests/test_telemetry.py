@@ -43,8 +43,8 @@ from nthlayer_common.telemetry import (
 
 
 def _record(data):
-    # SDK 1.38 exports LogData(log_record=...); later releases export the
-    # readable record itself.
+    # Both SDK shapes wrap the record in .log_record: LogData at 1.38,
+    # ReadableLogRecord from 1.41.
     return getattr(data, "log_record", data)
 
 
