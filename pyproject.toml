@@ -21,7 +21,8 @@ dependencies = [
     "instructor>=1.5",
     "anthropic>=0.40",
     "openai>=1.50",
-    "opentelemetry-api>=1.28",
+    # 1.38 is the first API whose Logger.emit takes event_name (opensrm-quqo).
+    "opentelemetry-api>=1.38,<2",
     "prometheus-client>=0.21",
     # Transitive pin: rich pulls pygments; CVE-2026-4539 fixed in 2.20.0
     # (opensrm-9uow.3 dependency audit). Remove once rich's lower bound
@@ -30,7 +31,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Exporting events (opensrm-quqo): init_telemetry installs a LoggerProvider
+# with an OTLP gRPC exporter. Without these, every emit is a no-op.
+otel = [
+    "opentelemetry-sdk>=1.38,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.38,<2",
+]
 dev = [
+    "opentelemetry-sdk>=1.38,<2",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.8",

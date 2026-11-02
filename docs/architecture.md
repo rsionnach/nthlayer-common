@@ -34,7 +34,7 @@ src/nthlayer_common/
     api_client.py        # CoreAPIClient — async client for nthlayer-core
     cloudevents.py       # CloudEvents v1.0 envelope helpers (frozen v1.5+)
     metrics.py           # Self-observability Prometheus metrics
-    telemetry.py         # OTel cost-accounting for LLM calls
+    telemetry.py         # NthLayer events as OTel log records (A1 §4.0)
     outcomes.py          # FinancialImpact + compute/estimate helpers (opensrm-jmy.1)
     py.typed             # PEP 561 marker
     clients/             # HTTP clients (BaseHTTPClient + service-specific)
@@ -405,13 +405,33 @@ env sets default deployment ID (default `"default"`).
   `store_size_bytes`, `wal_size_bytes`, `stuck_action_requests`
   ([service]). Helpers: `render_metrics() -> bytes`,
   `metrics_content_type() -> str`.
-- `telemetry.py` — OTel cost-accounting for LLM calls (spec §3.4, §7).
-  `emit_llm_event(*, model, provider, caller, input_tokens?,
-  output_tokens?, cached_tokens?, reasoning_tokens?, verdict_id?,
-  duration_ms?, success=True, error?) -> None` — adds
-  `"nthlayer.llm.call"` event to current span with `gen_ai.*`
-  attributes; no-op if no recording span or OTel unavailable.
-  `is_otel_available() -> bool`.
+- `telemetry.py` — every NthLayer event as an OTel **log record**
+  (A1 §4.0; opensrm-quqo). Carriage: `event_name` = the event name, no
+  body, fields as attributes, severity INFO, Timestamp = the event's own
+  time (A1 T1), else now.
+  - `emit_event(name, attributes, *, timestamp=None) -> None` — drops
+    `None` attributes; never raises.
+  - `init_telemetry(service_name, *, endpoint=None, exporter=None) -> TelemetryStatus`
+    — installs a LoggerProvider with an OTLP gRPC log exporter, once per
+    process, flushed at exit. Endpoint: argument, else
+    `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, else `OTEL_EXPORTER_OTLP_ENDPOINT`;
+    none means a no-op. `service.name` from `OTEL_SERVICE_NAME`, else the
+    argument. `TelemetryStatus`: `INSTALLED`, `NO_ENDPOINT`,
+    `SDK_MISSING` (endpoint set, `otel` extra absent; warns) or
+    `EXTERNAL_PROVIDER` (another provider holds the global slot; events go
+    to it, assumed to export); `.exporting` is True for `INSTALLED` and
+    `EXTERNAL_PROVIDER`, i.e. events are handed to an exporting provider
+    (whether a collector is reachable is not known here).
+  - `capture_events()` — context manager for tests: yields an
+    `EventCapture` whose `.events` / `.named(name)` give `CapturedEvent`
+    (`name`, `attributes`, `timestamp` ns, `severity_number`). Needs the SDK
+    (`otel` or `dev` extra). Consumers assert on emissions with this, never
+    by patching telemetry internals.
+  - `emit_llm_event(*, model, provider, caller, input_tokens?,
+    output_tokens?, cached_tokens?, reasoning_tokens?, verdict_id?,
+    duration_ms?, success=True, error?) -> None` — `nthlayer.llm.call`
+    with `gen_ai.*` attributes (spec §3.4, §7).
+  - `is_otel_available() -> bool` — always True (the API is a hard dep).
 
 ### Outcomes (`nthlayer_common.outcomes`)
 
