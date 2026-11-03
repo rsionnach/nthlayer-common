@@ -131,21 +131,29 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
 
     # ratioMetric indicator (most common)
     ratio = indicator_spec.get("ratioMetric")
-    if ratio:
+    if ratio is not None:
+        if not isinstance(ratio, dict):
+            raise OpenSLOParseError(
+                f"OpenSLO '{name}': ratioMetric must be a mapping, "
+                f"got {type(ratio).__name__}"
+            )
         # OpenSLO v1: total plus exactly one of good or bad. With both, the
-        # numerator is ambiguous, so refuse rather than pick one.
+        # numerator is ambiguous; with neither, or no total, nothing can
+        # compute the ratio (opensrm-zo0o). Refuse rather than load an SLO
+        # no consumer can evaluate.
         if "good" in ratio and "bad" in ratio:
             raise OpenSLOParseError(
                 f"OpenSLO '{name}': ratioMetric has both good and bad; "
                 "OpenSLO allows one of them"
             )
-        total_source = ratio.get("total", {}).get("metricSource", {})
-        good_source = ratio.get("good", {}).get("metricSource", {})
-        bad_source = ratio.get("bad", {}).get("metricSource", {})
-
-        total_query = _extract_query(total_source)
-        good_query = _extract_query(good_source)
-        bad_query = _extract_query(bad_source)
+        total_query = _ratio_query(name, ratio, "total")
+        good_query = _ratio_query(name, ratio, "good")
+        bad_query = _ratio_query(name, ratio, "bad")
+        if total_query is None or (good_query is None and bad_query is None):
+            raise OpenSLOParseError(
+                f"OpenSLO '{name}': ratioMetric needs a total query and a good "
+                "or bad query"
+            )
 
         # Compose indicator_query from total and good. bad + total
         # deliberately leaves it None, as before (opensrm-zo0o): consumers
@@ -281,6 +289,25 @@ def _objective_target_percent(objective: dict[str, Any], name: str) -> float:
     raise OpenSLOParseError(
         f"OpenSLO '{name}' objective missing target (or targetPercent)"
     )
+
+
+def _ratio_query(name: str, ratio: dict[str, Any], part: str) -> str | None:
+    """The query of ``ratioMetric.<part>``, or None when the part is absent,
+    has no metricSource, or its query is blank. A query that is not a
+    string is an error: it would reach PromQL as ``5`` or ``['x']``."""
+    entry = ratio.get(part)
+    source = entry.get("metricSource") if isinstance(entry, dict) else None
+    if not isinstance(source, dict):
+        return None
+    query = _extract_query(source)
+    if query is None:
+        return None
+    if not isinstance(query, str):
+        raise OpenSLOParseError(
+            f"OpenSLO '{name}': ratioMetric.{part} query must be a string, "
+            f"got {type(query).__name__}"
+        )
+    return query if query.strip() else None
 
 
 def _extract_query(metric_source: dict[str, Any]) -> str | None:

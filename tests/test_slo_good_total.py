@@ -88,6 +88,37 @@ class TestOpenSLORatioMetric:
             parse_openslo_slos([doc])
 
 
+    @pytest.mark.parametrize(
+        "ratio",
+        [
+            {"bad": _source(BAD)},
+            {"good": _source(GOOD)},
+            {"total": _source(TOTAL)},
+            {},
+            {"good": _source("   "), "total": _source(TOTAL)},
+        ],
+        ids=["bad-only", "good-only", "total-only", "empty", "blank-good"],
+    )
+    def test_an_incomplete_ratio_metric_is_an_error(self, ratio: dict) -> None:
+        """OpenSLO requires total and one of good or bad; without them the
+        ratio cannot be computed, so loading it would be a silent no-data."""
+        with pytest.raises(OpenSLOParseError, match="total query and a good or bad"):
+            parse_openslo_slos([_openslo(ratio)])
+
+    @pytest.mark.parametrize("value", ["goodbad", ["good", "bad"], 5])
+    def test_a_ratio_metric_that_is_not_a_mapping_is_an_error(self, value) -> None:
+        doc = _openslo({})
+        doc["spec"]["indicator"]["spec"]["ratioMetric"] = value
+        with pytest.raises(OpenSLOParseError, match="must be a mapping"):
+            parse_openslo_slos([doc])
+
+    @pytest.mark.parametrize("query", [5, ["x"]])
+    def test_a_non_string_query_is_an_error(self, query) -> None:
+        source = {"metricSource": {"type": "Prometheus", "spec": {"query": query}}}
+        with pytest.raises(OpenSLOParseError, match="must be a string"):
+            parse_openslo_slos([_openslo({"bad": source, "total": _source(TOTAL)})])
+
+
 LEGACY = """\
 apiVersion: nthlayer.dev/v1
 kind: Service
@@ -135,6 +166,26 @@ class TestLegacySuccessRatio:
         assert slo.bad_query is None
         # The singular indicator.query is what fed indicator_query; still absent.
         assert slo.indicator_query is None
+
+    @pytest.mark.parametrize(
+        "first",
+        ["{}", "{good_query: g-only}", "{good_query: 5, total_query: [x]}", "{good_query: '  ', total_query: t}"],
+        ids=["empty", "one-query", "non-strings", "blank"],
+    )
+    def test_a_partial_success_ratio_is_skipped_for_a_complete_one(
+        self, tmp_path: Path, first: str
+    ) -> None:
+        path = tmp_path / "svc.yaml"
+        path.write_text(
+            "apiVersion: nthlayer.dev/v1\nkind: Service\n"
+            "service: {name: svc, team: t, tier: high, type: api}\n"
+            "resources:\n  - kind: SLO\n    name: availability\n    spec:\n"
+            "      objective: 99.5\n      indicators:\n"
+            f"        - {{type: availability, success_ratio: {first}}}\n"
+            "        - {type: availability, success_ratio: {good_query: G, total_query: T}}\n"
+        )
+        (slo,) = load_manifest(path).slos
+        assert (slo.good_query, slo.total_query) == ("G", "T")
 
     def test_an_indicator_without_a_success_ratio_has_none(self, tmp_path: Path) -> None:
         slo = self._slos(tmp_path)["stream-lag"]
