@@ -137,23 +137,41 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
                 f"OpenSLO '{name}': ratioMetric must be a mapping, "
                 f"got {type(ratio).__name__}"
             )
-        # OpenSLO v1: total plus exactly one of good or bad. With both, the
-        # numerator is ambiguous; with neither, or no total, nothing can
-        # compute the ratio (opensrm-zo0o). Refuse rather than load an SLO
-        # no consumer can evaluate.
-        if ratio.get("good") is not None and ratio.get("bad") is not None:
-            raise OpenSLOParseError(
-                f"OpenSLO '{name}': ratioMetric has both good and bad; "
-                "OpenSLO allows one of them"
-            )
-        total_query = _ratio_query(name, ratio, "total")
-        good_query = _ratio_query(name, ratio, "good")
-        bad_query = _ratio_query(name, ratio, "bad")
-        if total_query is None or (good_query is None and bad_query is None):
-            raise OpenSLOParseError(
-                f"OpenSLO '{name}': ratioMetric needs a total query and a good "
-                "or bad query"
-            )
+        # OpenSLO v1 (spec "ratioMetric: {good, total}, {bad, total} or raw";
+        # tests/fixtures/openslo/ratio-metric-v1.md): total plus exactly one
+        # of good or bad, or a precomputed raw ratio with its rawType. With
+        # good and bad, the numerator is ambiguous; with neither, or no
+        # total, nothing can compute the ratio (opensrm-zo0o). Refuse rather
+        # than load an SLO no consumer can evaluate.
+        parts = [p for p in ("good", "bad", "total") if ratio.get(p) is not None]
+        if ratio.get("raw") is not None:
+            if parts:
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric.raw can't be used together "
+                    f"with {'/'.join(parts)}"
+                )
+            if ratio.get("rawType") not in ("success", "failure"):
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric.raw needs rawType "
+                    f"success or failure, got {ratio.get('rawType')!r}"
+                )
+            # A raw ratio carries no good/total pair; it is passed through as
+            # before (no indicator_query from it), and gets no error budget
+            # under zo0o (opensrm-vcxm decides what it should get).
+        else:
+            if ratio.get("good") is not None and ratio.get("bad") is not None:
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric has both good and bad; "
+                    "OpenSLO allows one of them"
+                )
+            total_query = _ratio_query(name, ratio, "total")
+            good_query = _ratio_query(name, ratio, "good")
+            bad_query = _ratio_query(name, ratio, "bad")
+            if total_query is None or (good_query is None and bad_query is None):
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric needs a total query and a good "
+                    "or bad query, or a raw ratio"
+                )
 
         # Compose indicator_query from total and good. bad + total
         # deliberately leaves it None, as before (opensrm-zo0o): consumers

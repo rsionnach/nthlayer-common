@@ -5,9 +5,11 @@ objective, as OpenSLO defines it, so nthlayer-generate can write an error
 budget for each from the SLO's own queries. That needs the parsers to keep
 them. Two shapes were dropped:
 
-- OpenSLO v1's ``ratioMetric`` takes ``total`` and exactly one of ``good``
-  or ``bad`` (OpenSLO v1 spec, "Ratio Metric": "good" and "bad" are
-  mutually exclusive). The ``bad`` form was read as no indicator at all.
+- OpenSLO v1's ``ratioMetric`` is "{good, total}, {bad, total} or raw":
+  "If ``bad`` is defined then ``good`` must not be set", and ``raw`` "can't
+  be used together with good/bad/total" and needs ``rawType``
+  (tests/fixtures/openslo/ratio-metric-v1.md, vendored from the OpenSLO
+  spec). The ``bad`` form was read as no indicator at all.
 - The legacy format's plural ``indicators[]`` carries a ``success_ratio``
   with ``total_query`` and ``good_query`` (the shape of
   nthlayer-generate/examples/services/analytics-stream.yaml); only the
@@ -125,6 +127,27 @@ class TestOpenSLORatioMetric:
         doc["spec"]["indicator"]["spec"]["thresholdMetric"] = _source(TOTAL)
         with pytest.raises(OpenSLOParseError, match="total query and a good or bad"):
             parse_openslo_slos([doc])
+
+    @pytest.mark.parametrize("raw_type", ["success", "failure"])
+    def test_a_raw_ratio_is_valid_and_passes_through(self, raw_type: str) -> None:
+        """The spec's third form: a precomputed ratio. It carries no good/total
+        pair, so it loads as before, with none of them set."""
+        (slo,) = parse_openslo_slos([_openslo({"raw": _source(GOOD), "rawType": raw_type})])
+        assert (slo.good_query, slo.bad_query, slo.total_query) == (None, None, None)
+
+    @pytest.mark.parametrize("part", ["good", "bad", "total"])
+    def test_raw_with_good_bad_or_total_is_an_error(self, part: str) -> None:
+        doc = _openslo({"raw": _source(GOOD), "rawType": "success", part: _source(TOTAL)})
+        with pytest.raises(OpenSLOParseError, match="raw can't be used together"):
+            parse_openslo_slos([doc])
+
+    @pytest.mark.parametrize("raw_type", [None, "ratio"], ids=["missing", "invalid"])
+    def test_raw_needs_a_valid_raw_type(self, raw_type) -> None:
+        ratio = {"raw": _source(GOOD)}
+        if raw_type is not None:
+            ratio["rawType"] = raw_type
+        with pytest.raises(OpenSLOParseError, match="needs rawType"):
+            parse_openslo_slos([_openslo(ratio)])
 
     @pytest.mark.parametrize("value", ["goodbad", ["good", "bad"], 5])
     def test_a_ratio_metric_that_is_not_a_mapping_is_an_error(self, value) -> None:
