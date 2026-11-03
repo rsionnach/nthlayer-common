@@ -105,6 +105,27 @@ class TestOpenSLORatioMetric:
         with pytest.raises(OpenSLOParseError, match="total query and a good or bad"):
             parse_openslo_slos([_openslo(ratio)])
 
+    def test_a_null_part_beside_a_valid_one_is_not_both(self) -> None:
+        (slo,) = parse_openslo_slos(
+            [_openslo({"good": None, "bad": _source(BAD), "total": _source(TOTAL)})]
+        )
+        assert slo.bad_query == BAD
+
+    @pytest.mark.parametrize(
+        "source", [{"spec": None}, {"type": 5, "spec": None}], ids=["spec-null", "type-int"]
+    )
+    def test_a_malformed_metric_source_is_a_parse_error(self, source: dict) -> None:
+        with pytest.raises(OpenSLOParseError):
+            parse_openslo_slos([_openslo({"bad": {"metricSource": source}, "total": _source(TOTAL)})])
+
+    def test_an_empty_ratio_metric_beside_a_threshold_metric_is_an_error(self) -> None:
+        """Before zo0o an empty ratioMetric was skipped and a thresholdMetric
+        beside it used; it is malformed OpenSLO, and now refused."""
+        doc = _openslo({})
+        doc["spec"]["indicator"]["spec"]["thresholdMetric"] = _source(TOTAL)
+        with pytest.raises(OpenSLOParseError, match="total query and a good or bad"):
+            parse_openslo_slos([doc])
+
     @pytest.mark.parametrize("value", ["goodbad", ["good", "bad"], 5])
     def test_a_ratio_metric_that_is_not_a_mapping_is_an_error(self, value) -> None:
         doc = _openslo({})

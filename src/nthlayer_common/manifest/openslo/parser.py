@@ -141,7 +141,7 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
         # numerator is ambiguous; with neither, or no total, nothing can
         # compute the ratio (opensrm-zo0o). Refuse rather than load an SLO
         # no consumer can evaluate.
-        if "good" in ratio and "bad" in ratio:
+        if ratio.get("good") is not None and ratio.get("bad") is not None:
             raise OpenSLOParseError(
                 f"OpenSLO '{name}': ratioMetric has both good and bad; "
                 "OpenSLO allows one of them"
@@ -311,12 +311,13 @@ def _ratio_query(name: str, ratio: dict[str, Any], part: str) -> str | None:
 
 
 def _extract_query(metric_source: dict[str, Any]) -> str | None:
-    """Extract PromQL query from an OpenSLO metricSource."""
-    ms_type = metric_source.get("type", "")
-    if ms_type.lower() == "prometheus":
-        return metric_source.get("spec", {}).get("query")
-    # Fallback: try spec.query regardless of type
-    return metric_source.get("spec", {}).get("query")
+    """Extract PromQL query from an OpenSLO metricSource.
+
+    The query is ``spec.query`` whatever the source ``type``; a ``spec`` that
+    is not a mapping has none.
+    """
+    spec = metric_source.get("spec")
+    return spec.get("query") if isinstance(spec, dict) else None
 
 
 def _infer_openslo_type(
