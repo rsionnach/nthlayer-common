@@ -5,12 +5,13 @@ reads back. Both sides take the name from here so the writer and the reader
 cannot drift: measure and correlate once queried ``slo:error_budget:ratio``, a
 series nothing wrote, so measure read no data for every availability SLO
 (opensrm-h0at). The front door's docs/metrics-contract.md documents these
-series; until opensrm-h0at's front-door change lands it still shows the old
-name.
+series.
 
-Only the error budget lives here so far. wo62.3 moves across the other
-classical-SLO recording rules generate writes (availability, latency,
-error rate, throughput).
+Only the error budget lives here, and by ruling Z1 (opensrm-zo0o) it is the
+one classical series both sides need: every classical SLO is good/total
+against its objective, so generate is to write this budget for each, and
+measure to evaluate every classical SLO from it. Until zo0o's generate and
+workers changes land, only availability SLOs have one.
 """
 
 from __future__ import annotations

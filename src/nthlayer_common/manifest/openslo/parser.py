@@ -127,15 +127,25 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     indicator_query = None
     total_query = None
     good_query = None
+    bad_query = None
 
     # ratioMetric indicator (most common)
     ratio = indicator_spec.get("ratioMetric")
     if ratio:
+        # OpenSLO v1: total plus exactly one of good or bad. With both, the
+        # numerator is ambiguous, so refuse rather than pick one.
+        if "good" in ratio and "bad" in ratio:
+            raise OpenSLOParseError(
+                f"OpenSLO '{name}': ratioMetric has both good and bad; "
+                "OpenSLO allows one of them"
+            )
         total_source = ratio.get("total", {}).get("metricSource", {})
         good_source = ratio.get("good", {}).get("metricSource", {})
+        bad_source = ratio.get("bad", {}).get("metricSource", {})
 
         total_query = _extract_query(total_source)
         good_query = _extract_query(good_source)
+        bad_query = _extract_query(bad_source)
 
         # Compose indicator_query from total and good
         if total_query and good_query:
@@ -196,6 +206,7 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
         indicator_query=indicator_query,
         total_query=total_query,
         good_query=good_query,
+        bad_query=bad_query,
         description=description,
     )
 

@@ -510,6 +510,9 @@ class SLODefinition:
     indicator_query: str | None = None  # Single PromQL or composed ratio
     total_query: str | None = None  # OpenSLO ratio metric: total source
     good_query: str | None = None  # OpenSLO ratio metric: good source
+    # OpenSLO ratio metric: bad source. OpenSLO takes good or bad, never both
+    # (opensrm-zo0o); with bad, the good count is total - bad.
+    bad_query: str | None = None
 
     # Metadata
     description: str | None = None

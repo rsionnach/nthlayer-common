@@ -244,6 +244,24 @@ def is_manifest_file(file_path: str | Path) -> bool:
 # =============================================================================
 
 
+def _legacy_success_ratio(spec: dict[str, Any]) -> tuple[str | None, str | None]:
+    """``(good_query, total_query)`` from the first plural ``indicators[]``
+    entry with a ``success_ratio``, else ``(None, None)`` (opensrm-zo0o).
+
+    The SLO's own good/total, which the loader used to drop: only each
+    entry's ``type`` was read. The singular ``indicator`` carries one
+    ``query`` instead, kept as ``indicator_query``.
+    """
+    indicators = spec.get("indicators")
+    if not isinstance(indicators, list):
+        return None, None
+    for entry in indicators:
+        ratio = entry.get("success_ratio") if isinstance(entry, dict) else None
+        if isinstance(ratio, dict):
+            return ratio.get("good_query"), ratio.get("total_query")
+    return None, None
+
+
 def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
     """The first declared latency threshold in *spec*, in milliseconds, or None.
 
@@ -427,6 +445,7 @@ def _extract_slos_from_resources(
         # legacy ai-gate manifest's judgment SLOs load as classical, and
         # nthlayer-generate silently drops their judgment recording rules.
         judgment_type, measurement, statistical_requirements = judgment_slo_fields(name, window)
+        good_query, total_query = _legacy_success_ratio(spec)
 
         slo = SLODefinition(
             name=name,
@@ -437,6 +456,8 @@ def _extract_slos_from_resources(
             percentile=spec.get("percentile"),
             threshold_ms=_legacy_threshold_ms(name, spec),
             indicator_query=spec.get("indicator", {}).get("query"),
+            good_query=good_query,
+            total_query=total_query,
             description=spec.get("description"),
             judgment_type=judgment_type,
             measurement=measurement,
