@@ -69,6 +69,18 @@ class TestOpenSLORatioMetric:
         assert slo.bad_query is None
         assert slo.indicator_query == f"({GOOD}) / ({TOTAL})"
 
+    @pytest.mark.parametrize("numerator", ["good", "bad"])
+    def test_a_ratio_metric_with_no_type_hint_in_its_name_is_availability(
+        self, numerator: str
+    ) -> None:
+        """Good/total already defaulted to availability; bad/total is the same
+        ratio and must not fail type inference instead."""
+        doc = _openslo({numerator: _source(GOOD if numerator == "good" else BAD),
+                        "total": _source(TOTAL)})
+        doc["metadata"]["name"] = "checkout-objective"
+        (slo,) = parse_openslo_slos([doc])
+        assert slo.slo_type == "availability"
+
     def test_good_and_bad_together_is_an_error(self) -> None:
         """OpenSLO allows one of them; with both, which is the numerator?"""
         doc = _openslo({"good": _source(GOOD), "bad": _source(BAD), "total": _source(TOTAL)})

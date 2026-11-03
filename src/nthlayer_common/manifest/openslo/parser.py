@@ -166,7 +166,9 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
             indicator_query = direct
 
     # Infer slo_type from the objective/indicator shape
-    slo_type = _infer_openslo_type(name, target, indicator_query, total_query, good_query, objective)
+    slo_type = _infer_openslo_type(
+        name, target, indicator_query, total_query, good_query, objective, bad_query=bad_query,
+    )
 
     # Extract window from timeWindow if present
     window = "30d"
@@ -297,19 +299,24 @@ def _infer_openslo_type(
     total_query: str | None,
     good_query: str | None,
     objective: dict[str, Any],
+    *,
+    bad_query: str | None = None,
 ) -> str:
     """Infer slo_type from OpenSLO document content.
+
+    A ratio metric is total plus good or bad (OpenSLO takes either).
 
     Raises OpenSLOParseError if ambiguous.
     """
     name_lower = name.lower()
+    is_ratio = bool(total_query and (good_query or bad_query))
 
     # Target value hints
     if target <= 1.0:
         # Ratio metric — likely availability or error rate
         if "error" in name_lower:
             return "error_rate"
-        if "avail" in name_lower or (total_query and good_query):
+        if "avail" in name_lower or is_ratio:
             return "availability"
 
     # Query hints
@@ -326,7 +333,7 @@ def _infer_openslo_type(
         return "availability"
 
     # If we have a ratio metric, default to availability
-    if total_query and good_query:
+    if is_ratio:
         return "availability"
 
     raise OpenSLOParseError(
