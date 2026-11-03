@@ -97,9 +97,8 @@ class TestOpenSLORatioMetric:
             {"good": _source(GOOD)},
             {"total": _source(TOTAL)},
             {},
-            {"good": _source("   "), "total": _source(TOTAL)},
         ],
-        ids=["bad-only", "good-only", "total-only", "empty", "blank-good"],
+        ids=["bad-only", "good-only", "total-only", "empty"],
     )
     def test_an_incomplete_ratio_metric_is_an_error(self, ratio: dict) -> None:
         """OpenSLO requires total and one of good or bad; without them the
@@ -108,13 +107,15 @@ class TestOpenSLORatioMetric:
             parse_openslo_slos([_openslo(ratio)])
 
     def test_a_null_part_beside_a_valid_one_is_not_both(self) -> None:
+        """A null part counts as absent. Implementation-defined: OpenSLO does not say this; NthLayer refuses it."""
         (slo,) = parse_openslo_slos(
             [_openslo({"good": None, "bad": _source(BAD), "total": _source(TOTAL)})]
         )
         assert slo.bad_query == BAD
 
     @pytest.mark.parametrize(
-        "source", [{"spec": None}, {"type": 5, "spec": None}], ids=["spec-null", "type-int"]
+        "source", [{"spec": None}, {"type": "Prometheus", "spec": "query"}],
+        ids=["spec-null", "spec-not-a-mapping"]
     )
     def test_a_malformed_metric_source_is_a_parse_error(self, source: dict) -> None:
         with pytest.raises(OpenSLOParseError):
@@ -149,8 +150,21 @@ class TestOpenSLORatioMetric:
         with pytest.raises(OpenSLOParseError, match="needs rawType"):
             parse_openslo_slos([_openslo(ratio)])
 
+    def test_a_blank_query_counts_as_missing(self) -> None:
+        """Implementation-defined: OpenSLO says nothing about blank queries;
+        NthLayer treats one as absent, so the ratio is incomplete."""
+        with pytest.raises(OpenSLOParseError, match="total query and a good or bad"):
+            parse_openslo_slos([_openslo({"good": _source("   "), "total": _source(TOTAL)})])
+
+    def test_raw_type_without_raw_is_an_error(self) -> None:
+        """Spec: rawType is "Not to be used with good and bad"."""
+        doc = _openslo({"good": _source(GOOD), "total": _source(TOTAL), "rawType": "success"})
+        with pytest.raises(OpenSLOParseError, match="rawType is only used with raw"):
+            parse_openslo_slos([doc])
+
     @pytest.mark.parametrize("value", ["goodbad", ["good", "bad"], 5])
     def test_a_ratio_metric_that_is_not_a_mapping_is_an_error(self, value) -> None:
+        """The spec implies a mapping by its shape only. Implementation-defined: OpenSLO does not say this; NthLayer refuses it."""
         doc = _openslo({})
         doc["spec"]["indicator"]["spec"]["ratioMetric"] = value
         with pytest.raises(OpenSLOParseError, match="must be a mapping"):
@@ -158,6 +172,7 @@ class TestOpenSLORatioMetric:
 
     @pytest.mark.parametrize("query", [5, ["x"]])
     def test_a_non_string_query_is_an_error(self, query) -> None:
+        """The spec leaves metricSource.spec's fields arbitrary. Implementation-defined: OpenSLO does not say this; NthLayer refuses it."""
         source = {"metricSource": {"type": "Prometheus", "spec": {"query": query}}}
         with pytest.raises(OpenSLOParseError, match="must be a string"):
             parse_openslo_slos([_openslo({"bad": source, "total": _source(TOTAL)})])

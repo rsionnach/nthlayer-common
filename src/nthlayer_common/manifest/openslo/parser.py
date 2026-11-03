@@ -159,6 +159,11 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
             # before (no indicator_query from it), and gets no error budget
             # under zo0o (opensrm-vcxm decides what it should get).
         else:
+            if ratio.get("rawType") is not None:
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric.rawType is only used with raw; "
+                    "with good or bad the numerator already sets the ratio type"
+                )
             if ratio.get("good") is not None and ratio.get("bad") is not None:
                 raise OpenSLOParseError(
                     f"OpenSLO '{name}': ratioMetric has both good and bad; "
