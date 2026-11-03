@@ -323,7 +323,12 @@ a fourth directory walk** — three existed before this was shared
   package-internal but cross-module, so they are not re-exported.
   OpenSLO `targetPercent` is accepted alongside `target` —
   `target` is a ratio and scaled by 100, `targetPercent` is already
-  0-100 — exactly one of the two per OpenSLO. Only the three maxima complement; `outcomes` and
+  0-100 — exactly one of the two per OpenSLO. A `ratioMetric` must be
+  {good, total}, {bad, total} or raw with a `rawType`, per OpenSLO
+  (vendored at `tests/fixtures/openslo/ratio-metric-v1.md`); `bad` fills
+  `SLODefinition.bad_query`, and the legacy `indicators[].success_ratio`
+  fills `good_query` / `total_query` (opensrm-zo0o, `upgrading-5.12.md`).
+  Only the three maxima complement; `outcomes` and
   `audit_sampling` scale only; error magnitudes are left unconverted
   pending decision 3c. See
   `nthlayer/docs/superpowers/specs/2026-05-06-slo-target-convention-decision.md`
