@@ -72,6 +72,11 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          (`openslo/parser.py::_objective_target_percent`); `target` is a
          ratio and multiplied by 100, `targetPercent` is already 0-100
          and taken as-is. Exactly one of the two, per OpenSLO.
+       - OpenSLO `ratioMetric` is {good, total}, {bad, total} or raw with
+         a `rawType`, enforced by the parser (opensrm-zo0o; spec vendored
+         at `tests/fixtures/openslo/ratio-metric-v1.md`). `bad` fills
+         `SLODefinition.bad_query`; the legacy `indicators[].success_ratio`
+         fills `good_query` / `total_query`.
      - Only the three MAXIMA complement (`reversal_rate`,
        `high_confidence_failure`, `escalation`). `outcomes` and
        `audit_sampling` are already floors — scale only. Error magnitudes

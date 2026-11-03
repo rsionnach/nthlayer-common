@@ -127,17 +127,60 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     indicator_query = None
     total_query = None
     good_query = None
+    bad_query = None
 
     # ratioMetric indicator (most common)
     ratio = indicator_spec.get("ratioMetric")
-    if ratio:
-        total_source = ratio.get("total", {}).get("metricSource", {})
-        good_source = ratio.get("good", {}).get("metricSource", {})
+    if ratio is not None:
+        if not isinstance(ratio, dict):
+            raise OpenSLOParseError(
+                f"OpenSLO '{name}': ratioMetric must be a mapping, "
+                f"got {type(ratio).__name__}"
+            )
+        # OpenSLO v1 (spec "ratioMetric: {good, total}, {bad, total} or raw";
+        # tests/fixtures/openslo/ratio-metric-v1.md): total plus exactly one
+        # of good or bad, or a precomputed raw ratio with its rawType. With
+        # good and bad, the numerator is ambiguous; with neither, or no
+        # total, nothing can compute the ratio (opensrm-zo0o). Refuse rather
+        # than load an SLO no consumer can evaluate.
+        parts = [p for p in ("good", "bad", "total") if ratio.get(p) is not None]
+        if ratio.get("raw") is not None:
+            if parts:
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric.raw can't be used together "
+                    f"with {'/'.join(parts)}"
+                )
+            if ratio.get("rawType") not in ("success", "failure"):
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric.raw needs rawType "
+                    f"success or failure, got {ratio.get('rawType')!r}"
+                )
+            # A raw ratio carries no good/total pair; it is passed through as
+            # before (no indicator_query from it), and gets no error budget
+            # under zo0o (opensrm-vcxm decides what it should get).
+        else:
+            if ratio.get("rawType") is not None:
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric.rawType is only used with raw; "
+                    "with good or bad the numerator already sets the ratio type"
+                )
+            if ratio.get("good") is not None and ratio.get("bad") is not None:
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric has both good and bad; "
+                    "OpenSLO allows one of them"
+                )
+            total_query = _ratio_query(name, ratio, "total")
+            good_query = _ratio_query(name, ratio, "good")
+            bad_query = _ratio_query(name, ratio, "bad")
+            if total_query is None or (good_query is None and bad_query is None):
+                raise OpenSLOParseError(
+                    f"OpenSLO '{name}': ratioMetric needs a total query and a good "
+                    "or bad query, or a raw ratio"
+                )
 
-        total_query = _extract_query(total_source)
-        good_query = _extract_query(good_source)
-
-        # Compose indicator_query from total and good
+        # Compose indicator_query from total and good. bad + total
+        # deliberately leaves it None, as before (opensrm-zo0o): consumers
+        # that need the ratio derive good = total - bad from bad_query.
         if total_query and good_query:
             indicator_query = f"({good_query}) / ({total_query})"
 
@@ -154,7 +197,9 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
             indicator_query = direct
 
     # Infer slo_type from the objective/indicator shape
-    slo_type = _infer_openslo_type(name, target, indicator_query, total_query, good_query, objective)
+    slo_type = _infer_openslo_type(
+        name, target, indicator_query, total_query, good_query, objective, bad_query=bad_query,
+    )
 
     # Extract window from timeWindow if present
     window = "30d"
@@ -196,6 +241,7 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
         indicator_query=indicator_query,
         total_query=total_query,
         good_query=good_query,
+        bad_query=bad_query,
         description=description,
     )
 
@@ -268,13 +314,33 @@ def _objective_target_percent(objective: dict[str, Any], name: str) -> float:
     )
 
 
+def _ratio_query(name: str, ratio: dict[str, Any], part: str) -> str | None:
+    """The query of ``ratioMetric.<part>``, or None when the part is absent,
+    has no metricSource, or its query is blank. A query that is not a
+    string is an error: it would reach PromQL as ``5`` or ``['x']``."""
+    entry = ratio.get(part)
+    source = entry.get("metricSource") if isinstance(entry, dict) else None
+    if not isinstance(source, dict):
+        return None
+    query = _extract_query(source)
+    if query is None:
+        return None
+    if not isinstance(query, str):
+        raise OpenSLOParseError(
+            f"OpenSLO '{name}': ratioMetric.{part} query must be a string, "
+            f"got {type(query).__name__}"
+        )
+    return query if query.strip() else None
+
+
 def _extract_query(metric_source: dict[str, Any]) -> str | None:
-    """Extract PromQL query from an OpenSLO metricSource."""
-    ms_type = metric_source.get("type", "")
-    if ms_type.lower() == "prometheus":
-        return metric_source.get("spec", {}).get("query")
-    # Fallback: try spec.query regardless of type
-    return metric_source.get("spec", {}).get("query")
+    """Extract PromQL query from an OpenSLO metricSource.
+
+    The query is ``spec.query`` whatever the source ``type``; a ``spec`` that
+    is not a mapping has none.
+    """
+    spec = metric_source.get("spec")
+    return spec.get("query") if isinstance(spec, dict) else None
 
 
 def _infer_openslo_type(
@@ -284,19 +350,24 @@ def _infer_openslo_type(
     total_query: str | None,
     good_query: str | None,
     objective: dict[str, Any],
+    *,
+    bad_query: str | None = None,
 ) -> str:
     """Infer slo_type from OpenSLO document content.
+
+    A ratio metric is total plus good or bad (OpenSLO takes either).
 
     Raises OpenSLOParseError if ambiguous.
     """
     name_lower = name.lower()
+    is_ratio = bool(total_query and (good_query or bad_query))
 
     # Target value hints
     if target <= 1.0:
         # Ratio metric — likely availability or error rate
         if "error" in name_lower:
             return "error_rate"
-        if "avail" in name_lower or (total_query and good_query):
+        if "avail" in name_lower or is_ratio:
             return "availability"
 
     # Query hints
@@ -313,7 +384,7 @@ def _infer_openslo_type(
         return "availability"
 
     # If we have a ratio metric, default to availability
-    if total_query and good_query:
+    if is_ratio:
         return "availability"
 
     raise OpenSLOParseError(
