@@ -4,6 +4,18 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.12.0](https://github.com/rsionnach/nthlayer-common/compare/v5.11.0...v5.12.0) (2026-11-03)
+
+
+### Features
+
+* **manifest:** keep an SLO's own bad and good/total queries [opensrm-zo0o]. The OpenSLO parser now enforces ratioMetric's {good, total}, {bad, total} or raw shapes and refuses six malformed ones 5.11 loaded; see [docs/upgrading-5.12.md](docs/upgrading-5.12.md) ([fa86691](https://github.com/rsionnach/nthlayer-common/commit/fa8669120609cf46327b0a5a6bb237924598e7f2))
+
+
+### Documentation
+
+* upgrading-5.12.md and the ratioMetric rules in architecture.md and CLAUDE.md [opensrm-zo0o] ([54e8adc](https://github.com/rsionnach/nthlayer-common/commit/54e8adcc2cd89e390cfb574c5aed756fd6506d72))
+
 ## [5.11.0](https://github.com/rsionnach/nthlayer-common/compare/v5.10.1...v5.11.0) (2026-11-02)
 
 
