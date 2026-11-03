@@ -9,8 +9,7 @@ Apache-2.0.
 
 ### Features
 
-* **manifest:** keep an SLO's own bad and good/total queries [opensrm-zo0o] ([fa86691](https://github.com/rsionnach/nthlayer-common/commit/fa8669120609cf46327b0a5a6bb237924598e7f2))
-* **manifest:** keep an SLO's own bad and good/total queries [opensrm-zo0o] ([99a924d](https://github.com/rsionnach/nthlayer-common/commit/99a924d1e2abee7953b64d83da88252e5b686400))
+* **manifest:** keep an SLO's own bad and good/total queries [opensrm-zo0o]. The OpenSLO parser now enforces ratioMetric's {good, total}, {bad, total} or raw shapes and refuses six malformed ones 5.11 loaded; see [docs/upgrading-5.12.md](docs/upgrading-5.12.md) ([fa86691](https://github.com/rsionnach/nthlayer-common/commit/fa8669120609cf46327b0a5a6bb237924598e7f2))
 
 
 ### Documentation
