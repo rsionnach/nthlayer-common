@@ -147,7 +147,9 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
         good_query = _extract_query(good_source)
         bad_query = _extract_query(bad_source)
 
-        # Compose indicator_query from total and good
+        # Compose indicator_query from total and good. bad + total
+        # deliberately leaves it None, as before (opensrm-zo0o): consumers
+        # that need the ratio derive good = total - bad from bad_query.
         if total_query and good_query:
             indicator_query = f"({good_query}) / ({total_query})"
 

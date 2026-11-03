@@ -18,8 +18,8 @@ Design principles:
 Tech debt (v2, not v1.5):
   - JudgmentMeasurement's union-of-fields could become a discriminated union
     per judgment type
-  - total_query + good_query + indicator_query could become a discriminated
-    SLIIndicator union
+  - total_query + good_query + bad_query + indicator_query could become a
+    discriminated SLIIndicator union (good and bad are exclusive)
   - Classical SLO breach_actions semantic (currently judgment-only; could
     extend for consistent operator notification)
 """
@@ -490,8 +490,9 @@ class SLODefinition:
     ``nthlayer_common.manifest.target_validation``) flags targets in the
     (0, 1) range as likely ratio author errors.
 
-    Tech debt (v2): total_query + good_query + indicator_query could
-    become a discriminated SLIIndicator union.
+    Tech debt (v2): total_query + good_query + bad_query + indicator_query
+    could become a discriminated SLIIndicator union (good and bad are
+    exclusive).
     """
 
     name: str
@@ -508,8 +509,9 @@ class SLODefinition:
 
     # Indicator queries
     indicator_query: str | None = None  # Single PromQL or composed ratio
-    total_query: str | None = None  # OpenSLO ratio metric: total source
-    good_query: str | None = None  # OpenSLO ratio metric: good source
+    # Ratio sources: OpenSLO ratioMetric, or legacy indicators[].success_ratio.
+    total_query: str | None = None
+    good_query: str | None = None
     # OpenSLO ratio metric: bad source. OpenSLO takes good or bad, never both
     # (opensrm-zo0o); with bad, the good count is total - bad.
     bad_query: str | None = None

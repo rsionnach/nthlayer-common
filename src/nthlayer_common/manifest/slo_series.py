@@ -1,4 +1,4 @@
-"""The classical-SLO recording-rule contract (opensrm-h0at, opensrm-wo62.3).
+"""The classical-SLO recording-rule contract (opensrm-h0at, opensrm-zo0o).
 
 Series that nthlayer-generate writes as recording rules and nthlayer-workers
 reads back. Both sides take the name from here so the writer and the reader
