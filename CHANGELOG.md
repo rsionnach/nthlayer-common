@@ -4,6 +4,13 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.12.1](https://github.com/rsionnach/nthlayer-common/compare/v5.12.0...v5.12.1) (2026-11-07)
+
+
+### Documentation
+
+* slo_series docstring states the per-kind budget shipped in zo0o ([6edde83](https://github.com/rsionnach/nthlayer-common/commit/6edde83415d3828d3e8aa9e79280be148a5c9cd3))
+
 ## [5.12.0](https://github.com/rsionnach/nthlayer-common/compare/v5.11.0...v5.12.0) (2026-11-03)
 
 
