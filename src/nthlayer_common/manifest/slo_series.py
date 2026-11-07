@@ -9,9 +9,11 @@ series.
 
 Only the error budget lives here, and by ruling Z1 (opensrm-zo0o) it is the
 one classical series both sides need: every classical SLO is good/total
-against its objective, so generate is to write this budget for each, and
-measure to evaluate every classical SLO from it. Until zo0o's generate and
-workers changes land, only availability SLOs have one.
+against its objective. nthlayer-generate 4.1.0 writes this budget for every
+availability, latency and error_rate SLO (except where it cannot trust the
+objective or the latency bound), and nthlayer-workers 4.2.0's measure
+evaluates those SLOs from it. Throughput, freshness and lag have none
+(ruling D5).
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ class SloSeries:
         return f"{self.metric}{{{body}}}"
 
 
-# Written once per availability-typed classical SLO. Signed: 1.0 is a full
+# Written once per availability, latency and error_rate SLO. Signed: 1.0 is a full
 # budget, 0.0 is spent, negative is overspent. ``slo`` is the SLO's name and
 # ``objective`` is ``str(SLODefinition.target)``, its 0-100 target as a float
 # (99 is written "99.0"), so pass the target itself, not a formatted string.
