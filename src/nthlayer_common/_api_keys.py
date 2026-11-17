@@ -1,0 +1,76 @@
+"""Keeping an API key that was mis-set as the model name out of errors and
+telemetry (opensrm-7um7).
+
+``NTHLAYER_MODEL`` set to a key instead of a model is a known slip: the model
+guards in ``llm.py`` and ``llm_structured.py`` refuse it. The model string
+also travels into ``LLMError`` and ``emit_llm_event``, and from there into
+logs and OTel, so those show the redacted form built here.
+
+Package-internal: not re-exported, and not a general secret scanner. It
+knows only the shapes below.
+"""
+
+from __future__ import annotations
+
+# What a key starts with: Anthropic (sk-ant-), OpenAI and its look-alikes
+# (sk-), key- style keys, and an Authorization header value pasted whole.
+# Longest first where one prefix starts another, so the redacted form names
+# the most specific one.
+API_KEY_PREFIXES = ("sk-ant-", "sk-", "key-", "Bearer ")
+
+REDACTED = "[REDACTED]"
+
+
+def looks_like_api_key(model: str) -> bool:
+    """The model guards' test: the whole model string starts like a key."""
+    return model.startswith(API_KEY_PREFIXES)
+
+
+def _key_in(model: str) -> tuple[str, str, str] | None:
+    """``(lead, key, prefix)`` when ``model`` holds a key-shaped string, else
+    None. ``key`` is the key as written; ``lead`` is what stands before it,
+    ``"provider/"`` or nothing.
+
+    Wider than the guard on purpose: it also sees a key pasted with
+    surrounding whitespace and a key where the model name goes
+    (``provider/<key>``). Showing a model name as redacted costs little;
+    showing a key costs the key.
+    """
+    if not isinstance(model, str):
+        return None
+    whole = model.strip()
+    for prefix in API_KEY_PREFIXES:
+        if whole.startswith(prefix):
+            return "", whole, prefix
+    provider, slash, name = model.partition("/")
+    name = name.strip()
+    for prefix in API_KEY_PREFIXES:
+        if slash and name.startswith(prefix):
+            return provider.strip() + "/", name, prefix
+    return None
+
+
+def redact_model(model: str) -> str:
+    """``model`` as it may be shown: unchanged unless it is key-shaped, then
+    the prefix that gave it away and ``[REDACTED]`` (``sk-ant-[REDACTED]``,
+    ``openai/sk-[REDACTED]``)."""
+    found = _key_in(model)
+    if found is None:
+        return model
+    lead, _key, prefix = found
+    return f"{lead}{prefix}{REDACTED}"
+
+
+def scrub_model(text: str, model: str) -> str:
+    """``text`` with every occurrence of a key-shaped ``model`` redacted.
+    For messages that quote the model: a provider's error body, a URL."""
+    found = _key_in(model)
+    if found is None or not isinstance(text, str):
+        # Not a string: nothing to scrub, and emit_llm_event must not raise.
+        return text
+    _lead, key, prefix = found
+    if key == prefix:
+        # Nothing follows the prefix: no secret, and replacing a bare
+        # "sk-" would rewrite unrelated words.
+        return text
+    return text.replace(key, f"{prefix}{REDACTED}")

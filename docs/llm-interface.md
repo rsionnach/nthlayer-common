@@ -50,7 +50,12 @@ Two public surfaces in `nthlayer_common.llm` and
 - `LLMResponse` (`@dataclass`): `text` (str), `model` (str), `provider`
   (str), `input_tokens` (int | None), `output_tokens` (int | None).
 - `LLMError` carries `provider`, `model`, `cause`, `status_code`
-  alongside the message.
+  alongside the message. An API key mis-set as the model never appears in
+  it: `model` and the message show `sk-ant-[REDACTED]` (the prefix that
+  gave it away, then `[REDACTED]`). `emit_llm_event` does the same for
+  `gen_ai.request.model` and `nthlayer.llm.error`. The redaction is wider
+  than the guard below: it also catches a key pasted with whitespace and
+  one after a provider (`openai/sk-...`). `cause` is not scrubbed.
 
 ## Retry behaviour (`llm_call` default `retry=3`)
 
@@ -62,7 +67,8 @@ Two public surfaces in `nthlayer_common.llm` and
 - Pass `retry=0` to disable retries.
 - **API-key guard**: raises `LLMError` if the `model` string starts
   with `sk-ant-`, `sk-`, `key-`, or `Bearer ` — caught common foot-gun
-  where the env var content gets passed as the model name.
+  where the env var content gets passed as the model name. The error
+  quotes the redacted form, never part of the key.
 
 ## Structured calls (`llm_structured.py`)
 

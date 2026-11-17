@@ -32,6 +32,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from nthlayer_common._api_keys import looks_like_api_key, redact_model, scrub_model
+
 DEFAULT_MODEL = os.environ.get("NTHLAYER_MODEL", "anthropic/claude-sonnet-4-20250514")
 try:
     TIMEOUT = int(os.environ.get("NTHLAYER_LLM_TIMEOUT", "60"))
@@ -87,13 +89,20 @@ class LLMResponse:
 
 
 class LLMError(Exception):
-    """Raised when an LLM call fails."""
+    """Raised when an LLM call fails.
+
+    ``model`` is the model as it may be shown. An API key mis-set as the
+    model name (see the guard in ``llm_call``) is redacted, in the attribute
+    and wherever the message quotes it, because this error's text reaches
+    logs and telemetry (opensrm-7um7). ``cause`` is kept as raised and is not
+    scrubbed.
+    """
     def __init__(self, message: str, provider: str, model: str, cause: Exception | None = None, status_code: int | None = None):
         self.provider = provider
-        self.model = model
+        self.model = redact_model(model)
         self.cause = cause
         self.status_code = status_code
-        super().__init__(f"[{provider}/{model}] {message}")
+        super().__init__(f"[{provider}/{self.model}] {scrub_model(message, model)}")
 
 
 def llm_call(
@@ -132,9 +141,9 @@ def llm_call(
         return stub_text_response(system, model)
 
     # Guard: detect API keys accidentally used as model names
-    if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
+    if looks_like_api_key(model):
         raise LLMError(
-            f"'{model[:20]}...' looks like an API key, not a model name. "
+            f"'{redact_model(model)}' looks like an API key, not a model name. "
             "Set NTHLAYER_MODEL to a model (e.g. 'anthropic/claude-sonnet-4-20250514') "
             "and ANTHROPIC_API_KEY or OPENAI_API_KEY to your key.",
             "unknown", model,
