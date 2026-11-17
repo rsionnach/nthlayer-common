@@ -150,7 +150,7 @@ class TestGuards:
     quote its first 20 characters and carry all of it."""
 
     @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
-    def test_the_guards_test_is_the_redactions(self, model, shown):
+    def test_the_guard_refuses_every_shape_redaction_recognises(self, model, shown):
         assert looks_like_api_key(model)
 
     @pytest.mark.parametrize("model", NOT_KEYS)

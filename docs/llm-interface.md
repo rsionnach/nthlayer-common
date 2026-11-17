@@ -55,8 +55,8 @@ Two public surfaces in `nthlayer_common.llm` and
   gave it away, then `[REDACTED]`). `emit_llm_event` does the same for
   `gen_ai.request.model`, `gen_ai.provider.name` and `nthlayer.llm.error`.
   A key counts wherever a pasted one ends up: with surrounding
-  whitespace, after any slash (`openai/sk-...`), or in `provider`, where
-  a key followed by a slash is split to.
+  whitespace, after any slash (`openai/sk-...`), or in `provider`, since
+  splitting `<key>/name` at the slash puts the key there.
   `cause` is not scrubbed.
 
 ## Retry behaviour (`llm_call` default `retry=3`)
