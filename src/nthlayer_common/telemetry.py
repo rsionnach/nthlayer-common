@@ -74,6 +74,9 @@ class TelemetryStatus(enum.Enum):
     EXTERNAL_PROVIDER = "external_provider"
     """Another LoggerProvider already owns the global slot (e.g. one set by
     ``opentelemetry-instrument``); events go to it, assumed to export."""
+    DISABLED = "disabled"
+    """``OTEL_SDK_DISABLED=true``: the operator switched the SDK off, so a
+    provider built now would drop every record. Nothing is installed."""
 
     @property
     def exporting(self) -> bool:
@@ -214,6 +217,11 @@ def init_telemetry(
     (e.g. one set by ``opentelemetry-instrument``), nothing is installed and
     the status is ``EXTERNAL_PROVIDER``: events go to that provider.
 
+    Under ``OTEL_SDK_DISABLED=true`` nothing is installed and the status is
+    ``DISABLED``, whatever the endpoint and whoever owns the global slot. The
+    SDK reads that variable when a provider is built, so a provider this
+    function installed earlier keeps exporting and stays ``INSTALLED``.
+
     Idempotent and thread-safe: a second call keeps the first provider.
     Events emitted before this call are dropped, so call it first thing. In a
     forking server, call it in each worker after the fork and never in the
@@ -243,10 +251,20 @@ def _resolve_endpoint(explicit: str | None) -> str | None:
     return None
 
 
+def _sdk_disabled() -> bool:
+    """``OTEL_SDK_DISABLED``, read as the SDK's LoggerProvider reads it: only
+    "true" (any case, surrounding whitespace ignored) disables."""
+    return os.environ.get("OTEL_SDK_DISABLED", "").lower().strip() == "true"
+
+
 def _install(service_name: str, endpoint: str | None, exporter: Any) -> TelemetryStatus:
     global _installed_provider
     if _installed_provider is not None:
         return TelemetryStatus.INSTALLED
+    if _sdk_disabled():
+        # A provider built now would hand out no-op loggers: installing it
+        # would take the global slot and report INSTALLED for nothing.
+        return TelemetryStatus.DISABLED
     endpoint = _resolve_endpoint(endpoint)
     if endpoint is None:
         return TelemetryStatus.NO_ENDPOINT
