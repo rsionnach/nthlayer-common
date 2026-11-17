@@ -246,6 +246,15 @@ def _merge_overlay_resources(
             indexed[key] = deepcopy(resource)
         elif "spec" in resource:
             base_spec = indexed[key].get("spec") or {}
+            if not isinstance(base_spec, dict):
+                # The overlay's spec is merged into the manifest's, key by
+                # key; a manifest spec that is not a mapping was a bare
+                # AttributeError here (opensrm-wo62.4.10).
+                kind, name = key
+                raise ValueError(
+                    f"{kind} resource {name!r}: spec must be a mapping to take "
+                    f"an environment overlay, not {type(base_spec).__name__}"
+                )
             # R4 (Rob, 2026-10-28): an overlay that declares a latency threshold
             # replaces the base's, whichever key either uses. A plain deep merge
             # would keep both, and R1's order could then pick the base value

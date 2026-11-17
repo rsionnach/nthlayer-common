@@ -11,7 +11,8 @@ every position the legacy loader reads; each node of each document is
 replaced, one at a time, by a value of each wrong type (None, a string, a
 number, a list, a mapping, the empty or zero value of each, and the other
 types YAML can build: a boolean, a float, a set, binary data, a date). The
-same is done to an environment overlay merged into the first document. A position the loader starts to read belongs in
+same is done to an environment overlay merged into the first document, and
+to each document with the unmutated overlay merged into it. A position the loader starts to read belongs in
 the documents below, which adds its cells here.
 
 The second half pins that nothing which loaded before this contract stopped
@@ -246,8 +247,9 @@ DOCUMENTS = {"full": FULL, "templated": TEMPLATED}
 
 # The overlay path: load_manifest(path, environment="prod") deep-merges
 # environments/prod.yaml into FULL before anything else reads it
-# (parser/legacy.py, apply_environment_overlay). Its cells mutate the
-# overlay and leave FULL as it is.
+# (parser/legacy.py, apply_environment_overlay). The "overlay:" cells
+# mutate the overlay and leave FULL as it is; the "<document>+overlay:"
+# cells mutate the document and leave the overlay as it is.
 OVERLAY: dict[str, Any] = {
     "service": {
         "tier": "high",
@@ -309,6 +311,17 @@ def _cells() -> dict[str, tuple[dict[str, Any], dict[str, Any] | None]]:
         where = ".".join(str(key) for key in path)
         for kind, value in WRONG_VALUES.items():
             cells[f"overlay:{where}={kind}"] = (FULL, _replaced(OVERLAY, path, value))
+    # The other side of the merge: each document mutated as above, with the
+    # unmutated overlay merged into it. The merge reads the manifest's own
+    # resources (their kind, name and spec) before the loader does.
+    for doc_name, document in DOCUMENTS.items():
+        for path in _paths(document):
+            where = ".".join(str(key) for key in path)
+            for kind, value in WRONG_VALUES.items():
+                cells[f"{doc_name}+overlay:{where}={kind}"] = (
+                    _replaced(document, path, value),
+                    OVERLAY,
+                )
     return cells
 
 
@@ -320,8 +333,8 @@ POSITIONS = sorted({cell_id.rsplit("=", 1)[0] for cell_id in CELL_IDS})
 
 # The matrix is generated at import; an empty one would collect no tests and
 # pass. FULL alone has well over a hundred positions.
-assert len(CELL_IDS) >= 4400
-assert len(POSITIONS) >= 190
+assert len(CELL_IDS) >= 8200
+assert len(POSITIONS) >= 355
 
 
 def _write(tmp_path: Path, document: dict[str, Any], overlay: dict[str, Any] | None) -> Path:
@@ -383,6 +396,16 @@ def test_the_unmutated_overlay_loads_and_is_applied(tmp_path):
     assert [d.name for d in manifest.dependencies if d.type == "database"] == ["replica"]
     assert manifest.ownership.pagerduty.urgency == "low"
     assert manifest.ownership.pagerduty.timezone == "UTC"
+
+
+def test_the_overlay_also_merges_into_the_templated_document(tmp_path):
+    path = _write(tmp_path, TEMPLATED, OVERLAY)
+
+    manifest = load_manifest(path, environment=ENVIRONMENT, suppress_deprecation_warning=True)
+
+    assert manifest.tier == "high"
+    assert "prod-only" in [slo.name for slo in manifest.slos]
+    assert {slo.name: slo.target for slo in manifest.slos}["availability"] == 99.0
 
 
 def test_the_full_document_exercises_every_resource_kind(tmp_path):
@@ -464,6 +487,8 @@ NAMED = [
     ("full:resources.9.spec.latency_threshold=list", "duration-p50"),
     ("full:resources.10.spec.indicators.0.type=number", "success"),
     ("full:resources.10.spec.indicators=string", "success"),
+    ("full+overlay:resources.0.spec=number", "availability"),
+    ("full+overlay:resources.7.spec=list", "pagerduty"),
 ]
 
 
