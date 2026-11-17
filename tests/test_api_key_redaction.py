@@ -173,8 +173,8 @@ class TestGuards:
 
 class TestKeyBeforeTheSlash:
     """A key the guard does not see (leading whitespace) followed by a
-    slash is split into the provider slot by llm_call and structured_call.
-    The call then fails for its own reasons; the error must not show it."""
+    slash is split into the provider slot by llm_call. The call then fails
+    for its own reasons; the error must not show it."""
 
     MODEL = f" sk-ant-api03-{SECRET}/claude-sonnet-4-20250514"
 

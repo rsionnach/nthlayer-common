@@ -35,8 +35,9 @@ def looks_like_api_key(model: str) -> bool:
 
 def _key_in(model: str) -> tuple[str, str, str] | None:
     """``(lead, key, prefix)`` when ``model`` holds a key-shaped string, else
-    None. ``key`` is the key as written, to the end of the string; ``lead``
-    is what stands before it, ``"provider/"``, a longer path, or nothing.
+    None. ``key`` is the key to the end of the string, without surrounding
+    whitespace; ``lead`` is what stands before it, ``"provider/"``, a longer
+    path, or nothing.
 
     Wider than the guard on purpose: it also sees a key pasted with
     surrounding whitespace and a key where a model name goes, after any
@@ -78,7 +79,8 @@ def scrub_model(text: str, model: str) -> str:
     """
     found = _key_in(model)
     if found is None or not isinstance(text, str):
-        # Not a string: nothing to scrub, and emit_llm_event must not raise.
+        # No key in the model: nothing to look for. Not a string: nothing
+        # to scrub, and emit_llm_event must not raise.
         return text
     _lead, key, prefix = found
     if key == prefix:
