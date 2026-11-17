@@ -55,7 +55,9 @@ Two public surfaces in `nthlayer_common.llm` and
   gave it away, then `[REDACTED]`). `emit_llm_event` does the same for
   `gen_ai.request.model` and `nthlayer.llm.error`. The redaction is wider
   than the guard below: it also catches a key pasted with whitespace and
-  one after a provider (`openai/sk-...`). `cause` is not scrubbed.
+  one after a provider (`openai/sk-...`), and it treats `provider` the
+  same way, since a key followed by a slash is split into that slot.
+  `cause` is not scrubbed.
 
 ## Retry behaviour (`llm_call` default `retry=3`)
 

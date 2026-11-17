@@ -91,18 +91,20 @@ class LLMResponse:
 class LLMError(Exception):
     """Raised when an LLM call fails.
 
-    ``model`` is the model as it may be shown. An API key mis-set as the
-    model name (see the guard in ``llm_call``) is redacted, in the attribute
-    and wherever the message quotes it, because this error's text reaches
-    logs and telemetry (opensrm-7um7). ``cause`` is kept as raised and is not
-    scrubbed.
+    ``model`` and ``provider`` are as they may be shown. An API key mis-set
+    as the model name (see the guard in ``llm_call``) is redacted, in the
+    attributes and wherever the message quotes it, because this error's text
+    reaches logs and telemetry (opensrm-7um7). ``provider`` is treated the
+    same way: a key followed by a slash is split into the provider slot.
+    ``cause`` is kept as raised and is not scrubbed.
     """
     def __init__(self, message: str, provider: str, model: str, cause: Exception | None = None, status_code: int | None = None):
-        self.provider = provider
+        self.provider = redact_model(provider)
         self.model = redact_model(model)
         self.cause = cause
         self.status_code = status_code
-        super().__init__(f"[{provider}/{self.model}] {scrub_model(message, model)}")
+        message = scrub_model(scrub_model(message, model), provider)
+        super().__init__(f"[{self.provider}/{self.model}] {message}")
 
 
 def llm_call(

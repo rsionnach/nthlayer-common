@@ -86,6 +86,23 @@ class TestRedactModel:
         assert scrubbed.startswith("POST /v1/deployments/")
         assert scrubbed.endswith("/chat failed")
 
+    def test_scrub_finds_the_secret_percent_encoded_in_a_url(self):
+        # Azure puts the model in the URL path, where the space after
+        # "Bearer" becomes %20 and the key as written no longer matches.
+        text = f"404 for url 'https://x/openai/deployments/Bearer%20{SECRET}/chat'"
+        scrubbed = scrub_model(text, f"azure/Bearer {SECRET}")
+        assert SECRET not in scrubbed
+        assert scrubbed.endswith("/chat'")
+
+    def test_scrub_finds_a_secret_whose_characters_are_percent_encoded(self):
+        secret = "Zq7+Xw2/Lm9=Tn4"
+        text = "GET https://x/deployments/Zq7%2BXw2%2FLm9%3DTn4 refused"
+        assert scrub_model(text, f"key-{secret}") == "GET https://x/deployments/[REDACTED] refused"
+
+    def test_scrub_does_not_rewrite_words_that_share_a_short_tail(self):
+        # "sk-ab" has no secret worth the name; "ab" must stay in "about".
+        assert scrub_model("task about sk-ab", "sk-ab") == "task about sk-[REDACTED]"
+
     def test_scrub_passes_a_non_string_through(self):
         # emit_llm_event never raises, whatever a caller hands it as error.
         problem = TimeoutError("timed out")
@@ -106,6 +123,16 @@ class TestLLMError:
         assert SECRET not in str(err)
         assert SECRET not in repr(err)
         assert not [a for a in err.args if SECRET in str(a)]
+
+    def test_a_key_in_the_provider_slot_is_redacted(self):
+        # " <key>/claude" passes the guard (leading space) and is split at
+        # the slash, so the key arrives as the provider.
+        provider = f" sk-ant-api03-{SECRET}"
+        err = LLMError(f"no route to {provider.strip()}", provider, "claude")
+
+        assert err.provider == "sk-ant-[REDACTED]"
+        assert err.model == "claude"
+        assert err.args == ("[sk-ant-[REDACTED]/claude] no route to sk-ant-[REDACTED]",)
 
     def test_a_model_name_is_kept_as_given(self):
         err = LLMError("timed out", "anthropic", "claude-sonnet-4-20250514")
@@ -144,7 +171,40 @@ class TestGuards:
         assert SECRET[:6] not in str(raised.value)
 
 
+class TestKeyBeforeTheSlash:
+    """A key the guard does not see (leading whitespace) followed by a
+    slash is split into the provider slot by llm_call and structured_call.
+    The call then fails for its own reasons; the error must not show it."""
+
+    MODEL = f" sk-ant-api03-{SECRET}/claude-sonnet-4-20250514"
+
+    def test_llm_call(self, no_stub, monkeypatch):
+        def refuse(*args, **kwargs):
+            raise ConnectionRefusedError("[Errno 111] Connection refused")
+
+        monkeypatch.setattr("nthlayer_common.llm._call_openai_compat", refuse)
+
+        with pytest.raises(LLMError) as raised:
+            llm_call("sys", "user", model=self.MODEL, retry=0)
+
+        assert raised.value.provider == "sk-ant-[REDACTED]"
+        assert raised.value.model == "claude-sonnet-4-20250514"
+        assert SECRET not in str(raised.value)
+
+
 class TestEmitLLMEvent:
+    def test_a_key_in_the_provider_slot_is_redacted(self):
+        provider = f" sk-ant-api03-{SECRET}"
+        with capture_events() as cap:
+            emit_llm_event(
+                model="claude", provider=provider, caller="respond.agent",
+                success=False, error=f"[{provider}/claude] refused",
+            )
+
+        (event,) = cap.named("nthlayer.llm.call")
+        assert event.attributes["gen_ai.provider.name"] == "sk-ant-[REDACTED]"
+        assert not [v for v in event.attributes.values() if SECRET in str(v)]
+
     @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
     def test_the_model_attribute_is_redacted(self, model, shown):
         with capture_events() as cap:

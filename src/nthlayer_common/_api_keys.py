@@ -12,6 +12,8 @@ knows only the shapes below.
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 # What a key starts with: Anthropic (sk-ant-), OpenAI and its look-alikes
 # (sk-), key- style keys, and an Authorization header value pasted whole.
 # Longest first where one prefix starts another, so the redacted form names
@@ -19,6 +21,11 @@ from __future__ import annotations
 API_KEY_PREFIXES = ("sk-ant-", "sk-", "key-", "Bearer ")
 
 REDACTED = "[REDACTED]"
+
+# scrub_model also replaces what follows the prefix wherever it stands
+# alone (a URL writes "Bearer%20<token>"), but only when it is at least
+# this long: replacing a two-letter tail would rewrite unrelated words.
+_MIN_BARE_SECRET = 8
 
 
 def looks_like_api_key(model: str) -> bool:
@@ -62,7 +69,13 @@ def redact_model(model: str) -> str:
 
 def scrub_model(text: str, model: str) -> str:
     """``text`` with every occurrence of a key-shaped ``model`` redacted.
-    For messages that quote the model: a provider's error body, a URL."""
+    For messages that quote the model: a provider's error body, a URL.
+
+    The key as written becomes its prefix and ``[REDACTED]``. What follows
+    the prefix is also replaced where it stands without it, plain or
+    percent-encoded, since a URL separates ``Bearer`` from its token with
+    ``%20``.
+    """
     found = _key_in(model)
     if found is None or not isinstance(text, str):
         # Not a string: nothing to scrub, and emit_llm_event must not raise.
@@ -72,4 +85,8 @@ def scrub_model(text: str, model: str) -> str:
         # Nothing follows the prefix: no secret, and replacing a bare
         # "sk-" would rewrite unrelated words.
         return text
-    return text.replace(key, f"{prefix}{REDACTED}")
+    text = text.replace(key, f"{prefix}{REDACTED}")
+    secret = key[len(prefix):].strip()
+    if len(secret) >= _MIN_BARE_SECRET:
+        text = text.replace(secret, REDACTED).replace(quote(secret, safe=""), REDACTED)
+    return text
