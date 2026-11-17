@@ -203,6 +203,27 @@ FULL: dict[str, Any] = {
             "name": "duration-p50",
             "spec": {"target": 50.0, "latency_threshold": 400},
         },
+        # Likewise the SLO's type: indicator.type is read first, then the
+        # plural indicators[] list, then keywords in the name. Only this
+        # resource gets as far as the list: it has no indicator.type, and
+        # "success" holds no keyword, so its type can only come from there.
+        {
+            "kind": "SLO",
+            "name": "success",
+            "spec": {
+                "objective": 99.5,
+                "indicators": [
+                    {"type": "throughput"},
+                    {
+                        "type": "throughput",
+                        "success_ratio": {
+                            "good_query": "sum(rate(done[5m]))",
+                            "total_query": "sum(rate(started[5m]))",
+                        },
+                    },
+                ],
+            },
+        },
     ],
 }
 
@@ -299,8 +320,8 @@ POSITIONS = sorted({cell_id.rsplit("=", 1)[0] for cell_id in CELL_IDS})
 
 # The matrix is generated at import; an empty one would collect no tests and
 # pass. FULL alone has well over a hundred positions.
-assert len(CELL_IDS) >= 4200
-assert len(POSITIONS) >= 180
+assert len(CELL_IDS) >= 4400
+assert len(POSITIONS) >= 190
 
 
 def _write(tmp_path: Path, document: dict[str, Any], overlay: dict[str, Any] | None) -> Path:
@@ -356,7 +377,7 @@ def test_the_unmutated_overlay_loads_and_is_applied(tmp_path):
 
     assert manifest.tier == "high"
     assert [slo.name for slo in manifest.slos] == [
-        "availability", "latency-p99", "latency-p95", "duration-p50", "prod-only",
+        "availability", "latency-p99", "latency-p95", "duration-p50", "success", "prod-only",
     ]
     assert manifest.slos[0].target == 99.0
     assert [d.name for d in manifest.dependencies if d.type == "database"] == ["replica"]
@@ -376,7 +397,16 @@ def test_the_full_document_exercises_every_resource_kind(tmp_path):
         ("latency-p99", 250),  # indicator.threshold_ms, over the two below it
         ("latency-p95", 300),  # threshold_ms alone
         ("duration-p50", 400),  # latency_threshold alone
+        ("success", None),
     ]
+    assert [slo.slo_type for slo in manifest.slos] == [
+        "availability",  # indicator.type
+        "latency",  # indicator.type
+        "latency",  # the name
+        "latency",  # the name
+        "throughput",  # indicators[].type: nothing else says so
+    ]
+    assert manifest.slos[4].good_query == "sum(rate(done[5m]))"
     assert manifest.slos[0].good_query == "sum(rate(ok[5m]))"
     assert [t.type for t in manifest.judgment_thresholds] == ["calibration", "feedback_latency"]
     assert [d.type for d in manifest.dependencies] == [
@@ -432,6 +462,8 @@ NAMED = [
     ("full:resources.4.spec.databases=recursive-list", "service.yaml"),
     ("full:resources.8.spec.threshold_ms=huge-int", "latency-p95"),
     ("full:resources.9.spec.latency_threshold=list", "duration-p50"),
+    ("full:resources.10.spec.indicators.0.type=number", "success"),
+    ("full:resources.10.spec.indicators=string", "success"),
 ]
 
 
