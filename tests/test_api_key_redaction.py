@@ -1,8 +1,8 @@
-"""An API key mis-set as the model name must not reach errors or telemetry
-(opensrm-7um7).
+"""An API key mis-set as the model name must not reach a provider, an error
+or telemetry (opensrm-7um7, opensrm-ua2m).
 
-The shapes are the ones the model guard already refuses (llm.py and
-llm_structured.py: a model starting ``sk-ant-``, ``sk-``, ``key-`` or
+The shapes start from the prefixes the model guard has always refused
+(llm.py and llm_structured.py: ``sk-ant-``, ``sk-``, ``key-`` or
 ``Bearer ``): Anthropic keys are ``sk-ant-...``, OpenAI's ``sk-...`` and
 ``sk-proj-...``, ``Bearer `` is an Authorization header value pasted whole.
 Every key below is made up.
@@ -13,7 +13,13 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from nthlayer_common._api_keys import redact_model, scrub_model
+from nthlayer_common._api_keys import (
+    key_refusal,
+    looks_like_api_key,
+    redact_model,
+    scrub_call,
+    scrub_model,
+)
 from nthlayer_common.llm import LLMError, llm_call
 from nthlayer_common.llm_structured import structured_call, structured_call_with_usage
 from nthlayer_common.telemetry import capture_events, emit_llm_event
@@ -39,14 +45,6 @@ KEY_SHAPED = [
     (f"openai/ sk-{SECRET}", "openai/sk-[REDACTED]"),
 ]
 
-# What the guard itself refuses: the key is the whole model string.
-GUARDED = [
-    (f"sk-ant-api03-{SECRET}", "sk-ant-[REDACTED]"),
-    (f"sk-proj-{SECRET}", "sk-[REDACTED]"),
-    (f"key-{SECRET}", "key-[REDACTED]"),
-    (f"Bearer {SECRET}", "Bearer [REDACTED]"),
-]
-
 NOT_KEYS = [
     "anthropic/claude-sonnet-4-20250514",
     "openai/gpt-4o",
@@ -61,6 +59,10 @@ NOT_KEYS = [
 
 class EvalResult(BaseModel):
     score: float
+
+
+def _must_not_be_called(*args, **kwargs):
+    raise AssertionError("a key-shaped model reached a provider call")
 
 
 @pytest.fixture
@@ -143,53 +145,83 @@ class TestLLMError:
 
 
 class TestGuards:
-    """The three guards raise an LLMError that shows no part of the key:
-    they used to quote its first 20 characters and carry all of it."""
+    """The three guards refuse exactly what redaction recognises
+    (opensrm-ua2m), and the error shows no part of the key: they used to
+    quote its first 20 characters and carry all of it."""
 
-    @pytest.mark.parametrize(("model", "shown"), GUARDED)
-    def test_llm_call(self, no_stub, model, shown):
+    @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
+    def test_the_guards_test_is_the_redactions(self, model, shown):
+        assert looks_like_api_key(model)
+
+    @pytest.mark.parametrize("model", NOT_KEYS)
+    def test_a_model_name_passes_the_guards_test(self, model):
+        assert not looks_like_api_key(model)
+
+    def test_the_refusal_names_the_shapes_and_quotes_the_redacted_form(self):
+        assert key_refusal(f"openai/sk-{SECRET}") == (
+            "'openai/sk-[REDACTED]' looks like an API key, not a model name: "
+            "a model, or a path segment of one, starting sk-, key- or 'Bearer ' "
+            "is refused."
+        )
+
+    @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
+    def test_llm_call(self, no_stub, monkeypatch, model, shown):
+        monkeypatch.setattr("nthlayer_common.llm._call_anthropic", _must_not_be_called)
+        monkeypatch.setattr("nthlayer_common.llm._call_openai_compat", _must_not_be_called)
+
         with pytest.raises(LLMError) as raised:
-            llm_call("sys", "user", model=model)
+            llm_call("sys", "user", model=model, retry=0)
 
         assert raised.value.model == shown
+        assert raised.value.provider == "unknown"
         assert SECRET[:6] not in str(raised.value)
 
-    @pytest.mark.parametrize(("model", "shown"), GUARDED)
-    def test_structured_call(self, no_stub, model, shown):
+    @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
+    def test_structured_call(self, no_stub, monkeypatch, model, shown):
+        monkeypatch.setattr(
+            "nthlayer_common.llm_structured._get_anthropic_client", _must_not_be_called
+        )
+        monkeypatch.setattr(
+            "nthlayer_common.llm_structured._get_openai_client", _must_not_be_called
+        )
+
         with pytest.raises(LLMError) as raised:
             structured_call("sys", "user", EvalResult, model=model)
 
         assert raised.value.model == shown
+        assert raised.value.provider == "unknown"
         assert SECRET[:6] not in str(raised.value)
 
-    @pytest.mark.parametrize(("model", "shown"), GUARDED)
-    def test_structured_call_with_usage(self, no_stub, model, shown):
+    @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
+    def test_structured_call_with_usage(self, no_stub, monkeypatch, model, shown):
+        monkeypatch.setattr(
+            "nthlayer_common.llm_structured._get_anthropic_client", _must_not_be_called
+        )
+        monkeypatch.setattr(
+            "nthlayer_common.llm_structured._get_openai_client", _must_not_be_called
+        )
+
         with pytest.raises(LLMError) as raised:
             structured_call_with_usage("sys", "user", EvalResult, model=model)
 
         assert raised.value.model == shown
+        assert raised.value.provider == "unknown"
         assert SECRET[:6] not in str(raised.value)
 
 
-class TestKeyBeforeTheSlash:
-    """A key the guard does not see (leading whitespace) followed by a
-    slash is split into the provider slot by llm_call. The call then fails
-    for its own reasons; the error must not show it."""
+class TestScrubCall:
+    def test_a_key_in_either_slot_is_scrubbed(self):
+        key = f"sk-ant-api03-{SECRET}"
+        assert scrub_call(f"no route to {key}", f" {key}", "claude") == (
+            "no route to sk-ant-[REDACTED]"
+        )
+        assert scrub_call(f"model {key} not found", "openai", key) == (
+            "model sk-ant-[REDACTED] not found"
+        )
 
-    MODEL = f" sk-ant-api03-{SECRET}/claude-sonnet-4-20250514"
-
-    def test_llm_call(self, no_stub, monkeypatch):
-        def refuse(*args, **kwargs):
-            raise ConnectionRefusedError("[Errno 111] Connection refused")
-
-        monkeypatch.setattr("nthlayer_common.llm._call_openai_compat", refuse)
-
-        with pytest.raises(LLMError) as raised:
-            llm_call("sys", "user", model=self.MODEL, retry=0)
-
-        assert raised.value.provider == "sk-ant-[REDACTED]"
-        assert raised.value.model == "claude-sonnet-4-20250514"
-        assert SECRET not in str(raised.value)
+    def test_text_about_a_model_name_is_left_alone(self):
+        text = "anthropic/claude-sonnet-4-20250514 timed out"
+        assert scrub_call(text, "anthropic", "claude-sonnet-4-20250514") == text
 
 
 class TestEmitLLMEvent:

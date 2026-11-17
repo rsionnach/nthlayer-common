@@ -32,7 +32,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from nthlayer_common._api_keys import looks_like_api_key, redact_model, scrub_model
+from nthlayer_common._api_keys import key_refusal, looks_like_api_key, redact_model, scrub_call
 
 DEFAULT_MODEL = os.environ.get("NTHLAYER_MODEL", "anthropic/claude-sonnet-4-20250514")
 try:
@@ -103,8 +103,9 @@ class LLMError(Exception):
         self.model = redact_model(model)
         self.cause = cause
         self.status_code = status_code
-        message = scrub_model(scrub_model(message, model), provider)
-        super().__init__(f"[{self.provider}/{self.model}] {message}")
+        super().__init__(
+            f"[{self.provider}/{self.model}] {scrub_call(message, provider, model)}"
+        )
 
 
 def llm_call(
@@ -145,7 +146,7 @@ def llm_call(
     # Guard: detect API keys accidentally used as model names
     if looks_like_api_key(model):
         raise LLMError(
-            f"'{redact_model(model)}' looks like an API key, not a model name. "
+            f"{key_refusal(model)} "
             "Set NTHLAYER_MODEL to a model (e.g. 'anthropic/claude-sonnet-4-20250514') "
             "and ANTHROPIC_API_KEY or OPENAI_API_KEY to your key.",
             "unknown", model,
