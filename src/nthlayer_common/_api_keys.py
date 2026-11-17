@@ -4,7 +4,8 @@ telemetry (opensrm-7um7).
 ``NTHLAYER_MODEL`` set to a key instead of a model is a known slip: the model
 guards in ``llm.py`` and ``llm_structured.py`` refuse it. The model string
 also travels into ``LLMError`` and ``emit_llm_event``, and from there into
-logs and OTel, so those show the redacted form built here.
+logs and OTel, so those show the redacted form built here. The guards
+refuse exactly what the redaction recognises (opensrm-ua2m).
 
 Package-internal: not re-exported, and not a general secret scanner. It
 knows only the shapes below.
@@ -29,8 +30,27 @@ _MIN_BARE_SECRET = 8
 
 
 def looks_like_api_key(model: str) -> bool:
-    """The model guards' test: the whole model string starts like a key."""
-    return model.startswith(API_KEY_PREFIXES)
+    """The model guards' test: ``model``, or what follows one of its
+    slashes, starts like a key. The same test redaction uses, so nothing
+    that would be shown redacted is ever sent to a provider."""
+    return _key_in(model) is not None
+
+
+def key_refusal(model: str) -> str:
+    """What a guard says when it refuses ``model``, quoting only the
+    redacted form."""
+    return (
+        f"'{redact_model(model)}' looks like an API key, not a model name: "
+        "a model, or a path segment of one, starting sk-, key- or 'Bearer ' "
+        "is refused."
+    )
+
+
+def scrub_call(text: str, provider: str, model: str) -> str:
+    """``text`` scrubbed of a key-shaped ``model`` and ``provider``. Both,
+    because splitting ``<key>/name`` at its slash puts the key in the
+    provider slot."""
+    return scrub_model(scrub_model(text, model), provider)
 
 
 def _key_in(model: str) -> tuple[str, str, str] | None:
@@ -39,10 +59,9 @@ def _key_in(model: str) -> tuple[str, str, str] | None:
     whitespace; ``lead`` is what stands before it, ``"provider/"``, a longer
     path, or nothing.
 
-    Wider than the guard on purpose: it also sees a key pasted with
-    surrounding whitespace and a key where a model name goes, after any
-    slash (``provider/<key>``, ``openrouter/anthropic/<key>``). Showing a
-    model name as redacted costs little; showing a key costs the key.
+    A key counts wherever a pasted one ends up: with surrounding whitespace,
+    and where a model name goes, after any slash (``provider/<key>``,
+    ``openrouter/anthropic/<key>``).
     """
     if not isinstance(model, str):
         return None

@@ -45,7 +45,7 @@ from typing import Any
 from opentelemetry import _logs
 from opentelemetry._logs import SeverityNumber
 
-from nthlayer_common._api_keys import redact_model, scrub_model
+from nthlayer_common._api_keys import redact_model, scrub_call
 
 logger = logging.getLogger(__name__)
 
@@ -360,9 +360,7 @@ def emit_llm_event(
             "nthlayer.llm.duration_ms": duration_ms,
             "nthlayer.llm.success": success,
             # `or None`: an empty error string is no error, as before.
-            "nthlayer.llm.error": (
-                scrub_model(scrub_model(error, model), provider) if error else None
-            ),
+            "nthlayer.llm.error": scrub_call(error, provider, model) if error else None,
         },
     )
 

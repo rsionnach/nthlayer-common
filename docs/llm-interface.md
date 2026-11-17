@@ -53,10 +53,10 @@ Two public surfaces in `nthlayer_common.llm` and
   alongside the message. An API key mis-set as the model never appears in
   it: `model` and the message show `sk-ant-[REDACTED]` (the prefix that
   gave it away, then `[REDACTED]`). `emit_llm_event` does the same for
-  `gen_ai.request.model`, `gen_ai.provider.name` and `nthlayer.llm.error`. The redaction is wider
-  than the guard below: it also catches a key pasted with whitespace and
-  one after a provider (`openai/sk-...`), and it treats `provider` the
-  same way, since a key followed by a slash is split into that slot.
+  `gen_ai.request.model`, `gen_ai.provider.name` and `nthlayer.llm.error`.
+  A key counts wherever a pasted one ends up: with surrounding
+  whitespace, after any slash (`openai/sk-...`), or in `provider`, since
+  splitting `<key>/name` at the slash puts the key there.
   `cause` is not scrubbed.
 
 ## Retry behaviour (`llm_call` default `retry=3`)
@@ -67,10 +67,13 @@ Two public surfaces in `nthlayer_common.llm` and
 - `Retry-After` header parsed and respected; the timeout budget is
   checked before each sleep.
 - Pass `retry=0` to disable retries.
-- **API-key guard**: raises `LLMError` if the `model` string starts
-  with `sk-ant-`, `sk-`, `key-`, or `Bearer ` — caught common foot-gun
-  where the env var content gets passed as the model name. The error
-  quotes the redacted form, never part of the key.
+- **API-key guard**: raises `LLMError` if the `model` string, or what
+  follows any slash in it, starts with `sk-ant-`, `sk-`, `key-`, or
+  `Bearer ` (surrounding whitespace ignored) — the common foot-gun where
+  the env var content gets passed as the model name. It refuses exactly
+  what the redaction above recognises, so a key is never sent to a
+  provider as a model name. The error quotes the redacted form, never
+  part of the key, and says which shapes are refused.
 
 ## Structured calls (`llm_structured.py`)
 
