@@ -204,30 +204,32 @@ class TestEmitLLMEvent:
             assert key not in attrs
 
 
-class TestInitTelemetry:
-    @pytest.fixture
-    def installed(self, monkeypatch):
-        """Capture the provider init_telemetry installs, without installing it
-        globally."""
-        captured: dict = {}
-        monkeypatch.setattr(telemetry, "_installed_provider", None)
-        monkeypatch.setattr(
-            telemetry._logs, "set_logger_provider", lambda p: captured.setdefault("provider", p)
-        )
-        monkeypatch.setattr(
-            telemetry._logs, "get_logger_provider", lambda: captured.get("provider")
-        )
-        for var in (
-            "OTEL_EXPORTER_OTLP_ENDPOINT",
-            "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-            "OTEL_SERVICE_NAME",
-        ):
-            monkeypatch.delenv(var, raising=False)
-        yield captured
-        # Stop the batch thread of any provider the test built.
-        if "provider" in captured:
-            captured["provider"].shutdown()
+@pytest.fixture
+def installed(monkeypatch):
+    """Capture the provider init_telemetry installs, without installing it
+    globally."""
+    captured: dict = {}
+    monkeypatch.setattr(telemetry, "_installed_provider", None)
+    monkeypatch.setattr(
+        telemetry._logs, "set_logger_provider", lambda p: captured.setdefault("provider", p)
+    )
+    monkeypatch.setattr(
+        telemetry._logs, "get_logger_provider", lambda: captured.get("provider")
+    )
+    for var in (
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "OTEL_SERVICE_NAME",
+        "OTEL_SDK_DISABLED",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    yield captured
+    # Stop the batch thread of any provider the test built.
+    if "provider" in captured:
+        captured["provider"].shutdown()
 
+
+class TestInitTelemetry:
     def test_without_an_endpoint_it_installs_nothing(self, installed):
         assert init_telemetry("nthlayer-workers") is TelemetryStatus.NO_ENDPOINT
         assert installed == {}
@@ -365,6 +367,108 @@ class TestInitTelemetry:
         assert telemetry._installed_provider is None
 
 
+# OTEL_SDK_DISABLED, per the OTel spec (configuration/sdk-environment-variables.md,
+# "Boolean": only the case-insensitive string "true" means true; anything
+# else, empty and unset included, is false) and as the Python SDK reads it
+# in LoggerProvider.__init__ (``.lower().strip() == "true"``).
+_SDK_DISABLED_SPELLINGS = ["true", "TRUE", "True", " true "]
+_SDK_NOT_DISABLED_SPELLINGS = ["false", "", "1", "yes", "t", "truee"]
+
+
+def _sdk_drops_events(monkeypatch) -> bool:
+    """Whether a real SDK provider, built under the current environment,
+    drops an emitted event."""
+    exporter = InMemoryLogRecordExporter()
+    provider = LoggerProvider(shutdown_on_exit=False)
+    provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
+    with monkeypatch.context() as m:
+        m.setattr(telemetry._logs, "get_logger", provider.get_logger)
+        emit_event("nthlayer.reversal", {"k": "v"})
+    dropped = not exporter.get_finished_logs()
+    provider.shutdown()
+    return dropped
+
+
+class TestSdkDisabled:
+    """OTEL_SDK_DISABLED=true: the SDK drops every record, so init_telemetry
+    must not report an exporting status (opensrm-q3np)."""
+
+    @pytest.mark.parametrize("value", _SDK_DISABLED_SPELLINGS)
+    def test_disabled_is_not_exporting_and_installs_nothing(self, installed, monkeypatch, value):
+        monkeypatch.setenv("OTEL_SDK_DISABLED", value)
+
+        status = init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+
+        assert status is TelemetryStatus.DISABLED
+        assert not status.exporting
+        assert installed == {}
+        assert telemetry._installed_provider is None
+        # The claim the status makes, checked against the SDK itself.
+        assert _sdk_drops_events(monkeypatch)
+
+    @pytest.mark.parametrize("value", _SDK_NOT_DISABLED_SPELLINGS)
+    def test_any_other_value_does_not_disable(self, installed, monkeypatch, value):
+        monkeypatch.setenv("OTEL_SDK_DISABLED", value)
+
+        status = init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+
+        assert status is TelemetryStatus.INSTALLED
+        assert status.exporting
+        assert not _sdk_drops_events(monkeypatch)
+
+    def test_disabled_without_an_endpoint_is_still_disabled(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+        assert init_telemetry("w") is TelemetryStatus.DISABLED
+
+    def test_disabled_without_the_sdk_is_still_disabled(self, installed, monkeypatch):
+        monkeypatch.setitem(
+            sys.modules, "opentelemetry.exporter.otlp.proto.grpc._log_exporter", None
+        )
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+        assert init_telemetry("w", endpoint="http://c:4317") is TelemetryStatus.DISABLED
+
+    def test_a_provider_installed_before_the_flag_keeps_exporting(self, installed, monkeypatch):
+        # The SDK reads the flag when a provider is built, so one installed
+        # earlier still exports: INSTALLED stays the true answer.
+        exporter = InMemoryLogRecordExporter()
+        init_telemetry("w", endpoint="http://c:4317", exporter=exporter)
+        provider = installed["provider"]
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+
+        status = init_telemetry("w", endpoint="http://c:4317")
+        monkeypatch.setattr(telemetry._logs, "get_logger", provider.get_logger)
+        emit_event("nthlayer.reversal", {"k": "v"})
+        provider.force_flush()
+
+        assert status is TelemetryStatus.INSTALLED
+        assert [_record(d).event_name for d in exporter.get_finished_logs()] == [
+            "nthlayer.reversal"
+        ]
+
+    def test_a_call_after_the_flag_is_cleared_installs(self, installed, monkeypatch):
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+        assert (
+            init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+            is TelemetryStatus.DISABLED
+        )
+        monkeypatch.delenv("OTEL_SDK_DISABLED")
+
+        status = init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+
+        assert status is TelemetryStatus.INSTALLED
+        assert telemetry._installed_provider is installed["provider"]
+
+    def test_disabled_does_not_report_an_external_provider(self, installed, monkeypatch):
+        # Nothing is installed, so the global slot is never probed: the flag
+        # wins over whoever owns it.
+        monkeypatch.setattr(telemetry._logs, "get_logger_provider", lambda: object())
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+
+        status = init_telemetry("w", endpoint="http://c:4317", exporter=InMemoryLogRecordExporter())
+
+        assert status is TelemetryStatus.DISABLED
+
+
 class TestSdkMissing:
     def test_an_endpoint_without_the_sdk_says_so(self, monkeypatch):
         # Make the exporter unimportable whatever extras this venv has, so the
@@ -373,6 +477,7 @@ class TestSdkMissing:
             sys.modules, "opentelemetry.exporter.otlp.proto.grpc._log_exporter", None
         )
         monkeypatch.setattr(telemetry, "_installed_provider", None)
+        monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
         status = init_telemetry("w", endpoint="http://c:4317")
         assert status is TelemetryStatus.SDK_MISSING
         assert not status.exporting

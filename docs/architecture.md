@@ -422,9 +422,12 @@ env sets default deployment ID (default `"default"`).
     `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, else `OTEL_EXPORTER_OTLP_ENDPOINT`;
     none means a no-op. `service.name` from `OTEL_SERVICE_NAME`, else the
     argument. `TelemetryStatus`: `INSTALLED`, `NO_ENDPOINT`,
-    `SDK_MISSING` (endpoint set, `otel` extra absent; warns) or
+    `SDK_MISSING` (endpoint set, `otel` extra absent; warns),
     `EXTERNAL_PROVIDER` (another provider holds the global slot; events go
-    to it, assumed to export); `.exporting` is True for `INSTALLED` and
+    to it, assumed to export) or `DISABLED` (`OTEL_SDK_DISABLED=true` at
+    the first call: nothing is installed, whatever the endpoint; a provider
+    installed before the variable was set keeps exporting and stays
+    `INSTALLED`); `.exporting` is True for `INSTALLED` and
     `EXTERNAL_PROVIDER`, i.e. events are handed to an exporting provider
     (whether a collector is reachable is not known here).
   - `capture_events()` — context manager for tests: yields an
