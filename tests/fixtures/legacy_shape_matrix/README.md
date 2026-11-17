@@ -5,9 +5,9 @@
 the last one before `load_manifest` stopped leaking `AttributeError`,
 `TypeError`, `OverflowError` and `RecursionError` for a malformed legacy
 manifest (opensrm-wo62.4.10). On that
-commit, of the 3,979 cells, 2,236 loaded, 686 raised `ManifestLoadError` or
-`ValueError`, and 1,057 crashed: 840 with `AttributeError` or `TypeError`, 209
-with `RecursionError` and 8 with `OverflowError`.
+commit, of the 4,255 cells, 2,320 loaded, 728 raised `ManifestLoadError` or
+`ValueError`, and 1,207 crashed: 974 with `AttributeError` or `TypeError`, 221
+with `RecursionError` and 12 with `OverflowError`.
 
 It was produced by running the matrix against the loader as it was on
 `ec44215`, not written from the fix: `git archive ec44215 src` unpacked
