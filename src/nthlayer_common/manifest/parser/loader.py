@@ -92,8 +92,10 @@ def load_manifest(
     holds whatever the shape of the file: a position the loader reads as a
     mapping or a list and finds to be something else is a
     ``ManifestLoadError`` naming it, never a bare ``AttributeError`` or
-    ``TypeError`` (opensrm-wo62.4.10; tests/test_legacy_loader_shape_contract.py
-    crosses every such position with every wrong type).
+    ``TypeError``; so is a number too large to be one, and a document that
+    nests without end (opensrm-wo62.4.10;
+    tests/test_legacy_loader_shape_contract.py crosses every such position
+    with every wrong type).
 
     Legacy SLOs also carry a latency ``threshold_ms`` (from
     ``indicator.threshold_ms``, else ``threshold_ms``, else
@@ -163,13 +165,24 @@ def load_manifest(
         # generate's legacy order (opensrm-wo62.4.1, parser/legacy.py):
         # overlay, environment pass, template, then the per-spec pass.
         try:
-            data = legacy.apply_environment_overlay(data, path, environment)
-            data = legacy.substitute_environment(data, environment)
-            data = legacy.expand_template(data, path, _find_template_dir(path))
-            data = legacy.substitute_resource_specs(data, environment)
-        except ValueError as e:
-            raise ManifestLoadError(str(e)) from e
-        manifest = _parse_legacy_to_manifest(data, str(path), environment)
+            try:
+                data = legacy.apply_environment_overlay(data, path, environment)
+                data = legacy.substitute_environment(data, environment)
+                data = legacy.expand_template(data, path, _find_template_dir(path))
+                data = legacy.substitute_resource_specs(data, environment)
+            except ValueError as e:
+                raise ManifestLoadError(str(e)) from e
+            # Outside the ValueError wrap above, as it always was: a
+            # ValueError from the parse or the model reaches the caller as one.
+            manifest = _parse_legacy_to_manifest(data, str(path), environment)
+        except RecursionError as e:
+            # These passes walk the whole document. A YAML alias to its own
+            # anchor (``spec: &a {indicator: *a}``) never ends, and nesting
+            # thousands deep runs out of stack the same way.
+            raise ManifestLoadError(
+                f"{file_path} is nested too deeply to load, or a YAML alias in it "
+                "refers to its own anchor"
+            ) from e
 
     # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits
     # warnings via the warnings module; never rejects. See module docstring
@@ -361,6 +374,11 @@ def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
             check_finite(name, threshold, what=f"Latency {key_path}")
         except ValueError as e:
             raise ManifestLoadError(str(e)) from e
+        except OverflowError as e:
+            # An integer too large for a float (YAML integers are unbounded).
+            raise ManifestLoadError(
+                f"Latency {key_path} for '{name}' is too large to be a number of milliseconds"
+            ) from e
         if threshold <= 0:
             raise ManifestLoadError(
                 f"Latency {key_path} for '{name}' must be positive, got {node!r}"
@@ -554,6 +572,11 @@ def _extract_slos_from_resources(
             raise ManifestLoadError(
                 f"Legacy SLO resource {name!r}: objective must be a number, "
                 f"not {_shape(target)}"
+            ) from exc
+        except OverflowError as exc:
+            # An integer too large for a float (YAML integers are unbounded).
+            raise ManifestLoadError(
+                f"Legacy SLO resource {name!r}: objective is too large to be a number"
             ) from exc
 
         slo = SLODefinition(

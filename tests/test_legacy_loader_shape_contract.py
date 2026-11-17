@@ -37,6 +37,11 @@ from nthlayer_common.manifest import ManifestLoadError, load_manifest
 
 LOADED_BEFORE = Path(__file__).parent / "fixtures" / "legacy_shape_matrix" / "loaded_before.json"
 
+_RECURSIVE_LIST: list[Any] = []
+_RECURSIVE_LIST.append(_RECURSIVE_LIST)
+_RECURSIVE_MAPPING: dict[str, Any] = {}
+_RECURSIVE_MAPPING["again"] = _RECURSIVE_MAPPING
+
 # One value of each wrong type, and the empty or zero value of each: the
 # loader iterates and truth-tests what it reads, so ``databases: {}`` and
 # ``databases: {x: 1}`` take different paths. A node is also replaced by a
@@ -66,6 +71,12 @@ WRONG_VALUES: dict[str, Any] = {
     "date": datetime.date(2024, 1, 1),
     "list-of-none": [None],
     "int-keyed-mapping": {1: "x"},
+    # A number float() cannot hold, and values that contain themselves (a
+    # YAML alias to its own anchor): the edge-cases review found
+    # OverflowError and RecursionError getting out.
+    "huge-int": 10**400,
+    "recursive-list": _RECURSIVE_LIST,
+    "recursive-mapping": _RECURSIVE_MAPPING,
 }
 
 # Every key the legacy loader reads (parser/loader.py's legacy half and
@@ -273,7 +284,7 @@ POSITIONS = sorted({cell_id.rsplit("=", 1)[0] for cell_id in CELL_IDS})
 
 # The matrix is generated at import; an empty one would collect no tests and
 # pass. FULL alone has well over a hundred positions.
-assert len(CELL_IDS) >= 3000
+assert len(CELL_IDS) >= 3900
 assert len(POSITIONS) >= 170
 
 
@@ -395,6 +406,9 @@ NAMED = [
     ("full:service=list", "service"),
     ("full:service.metadata=number", "service.metadata"),
     ("full:service.tier=mapping", "service.tier"),
+    ("full:resources.0.spec.objective=huge-int", "availability"),
+    ("full:resources.1.spec.indicator.threshold_ms=huge-int", "latency-p99"),
+    ("full:resources.4.spec.databases=recursive-list", "service.yaml"),
 ]
 
 
