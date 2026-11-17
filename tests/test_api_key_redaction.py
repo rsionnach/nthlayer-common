@@ -34,6 +34,9 @@ KEY_SHAPED = [
     # A key where the model name goes, after a provider.
     (f"anthropic/sk-ant-api03-{SECRET}", "anthropic/sk-ant-[REDACTED]"),
     (f"openai/sk-{SECRET}", "openai/sk-[REDACTED]"),
+    # ...and after a nested provider path, as openai-compatible routers take.
+    (f"openrouter/anthropic/sk-ant-api03-{SECRET}", "openrouter/anthropic/sk-ant-[REDACTED]"),
+    (f"openai/ sk-{SECRET}", "openai/sk-[REDACTED]"),
 ]
 
 # What the guard itself refuses: the key is the whole model string.

@@ -28,25 +28,24 @@ def looks_like_api_key(model: str) -> bool:
 
 def _key_in(model: str) -> tuple[str, str, str] | None:
     """``(lead, key, prefix)`` when ``model`` holds a key-shaped string, else
-    None. ``key`` is the key as written; ``lead`` is what stands before it,
-    ``"provider/"`` or nothing.
+    None. ``key`` is the key as written, to the end of the string; ``lead``
+    is what stands before it, ``"provider/"``, a longer path, or nothing.
 
     Wider than the guard on purpose: it also sees a key pasted with
-    surrounding whitespace and a key where the model name goes
-    (``provider/<key>``). Showing a model name as redacted costs little;
-    showing a key costs the key.
+    surrounding whitespace and a key where a model name goes, after any
+    slash (``provider/<key>``, ``openrouter/anthropic/<key>``). Showing a
+    model name as redacted costs little; showing a key costs the key.
     """
     if not isinstance(model, str):
         return None
-    whole = model.strip()
-    for prefix in API_KEY_PREFIXES:
-        if whole.startswith(prefix):
-            return "", whole, prefix
-    provider, slash, name = model.partition("/")
-    name = name.strip()
-    for prefix in API_KEY_PREFIXES:
-        if slash and name.startswith(prefix):
-            return provider.strip() + "/", name, prefix
+    # The whole string first, then what follows each slash, left to right:
+    # the earliest start gives the longest key, so nothing after it shows.
+    starts = [0] + [i + 1 for i, char in enumerate(model) if char == "/"]
+    for start in starts:
+        rest = model[start:].strip()
+        for prefix in API_KEY_PREFIXES:
+            if rest.startswith(prefix):
+                return model[:start].strip(), rest, prefix
     return None
 
 
