@@ -92,8 +92,9 @@ def load_manifest(
     holds whatever the shape of the file: a position the loader reads as a
     mapping or a list and finds to be something else is a
     ``ManifestLoadError`` naming it, never a bare ``AttributeError`` or
-    ``TypeError``; so is a number too large to be one, and a document that
-    nests without end (opensrm-wo62.4.10;
+    ``TypeError``; so is a number too large to be one, a YAML alias to its
+    own anchor, and (for every format) a file nested too deeply for the
+    YAML reader (opensrm-wo62.4.10;
     tests/test_legacy_loader_shape_contract.py crosses every such position
     with every wrong type).
 
@@ -112,6 +113,10 @@ def load_manifest(
             data = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ManifestLoadError(f"Invalid YAML in {file_path}: {e}") from e
+    except RecursionError as e:
+        # PyYAML builds nested nodes recursively: a few hundred levels of
+        # nesting run it out of stack before anything here sees the data.
+        raise ManifestLoadError(f"{file_path} is nested too deeply to load") from e
 
     if not isinstance(data, dict):
         raise ManifestLoadError(f"Expected YAML object in {file_path}")
@@ -176,12 +181,13 @@ def load_manifest(
             # ValueError from the parse or the model reaches the caller as one.
             manifest = _parse_legacy_to_manifest(data, str(path), environment)
         except RecursionError as e:
-            # These passes walk the whole document. A YAML alias to its own
-            # anchor (``spec: &a {indicator: *a}``) never ends, and nesting
-            # thousands deep runs out of stack the same way.
+            # These passes walk the whole document, and a YAML alias to its
+            # own anchor (``spec: &a {indicator: *a}``) never ends. An
+            # overlay or template nested too deeply for PyYAML is read in
+            # here too; the manifest itself was read above.
             raise ManifestLoadError(
-                f"{file_path} is nested too deeply to load, or a YAML alias in it "
-                "refers to its own anchor"
+                f"{file_path} cannot be loaded: a YAML alias in it refers to its own "
+                "anchor, or its overlay or template is nested too deeply"
             ) from e
 
     # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits

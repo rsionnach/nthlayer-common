@@ -418,3 +418,67 @@ def test_the_error_names_the_resource_or_the_position(cell_id, named, tmp_path):
         load_cell(cell_id, tmp_path)
 
     assert named in str(raised.value)
+
+
+# What only YAML text can say: the matrix replaces nodes with Python values,
+# so it cannot nest a file past the YAML reader's stack, and it writes a
+# self-reference only as the alias yaml.safe_dump chooses.
+SERVICE_TEXT = "service: {name: deep, team: t, tier: standard, type: api}\n"
+DEPTH = 2000  # PyYAML gives out a few hundred levels down
+
+
+def _nested(depth: int) -> str:
+    return "[" * depth + "]" * depth
+
+
+def test_a_manifest_nested_too_deeply_for_the_yaml_reader_is_refused(tmp_path):
+    path = tmp_path / "service.yaml"
+    path.write_text(
+        SERVICE_TEXT
+        + "resources:\n"
+        + "  - kind: SLO\n    name: availability\n"
+        + f"    spec: {{objective: 99, indicator: {_nested(DEPTH)}}}\n"
+    )
+
+    with pytest.raises(ManifestLoadError):
+        load_manifest(path, suppress_deprecation_warning=True)
+
+
+def test_an_overlay_nested_too_deeply_for_the_yaml_reader_is_refused(tmp_path):
+    path = tmp_path / "service.yaml"
+    path.write_text(SERVICE_TEXT)
+    (tmp_path / "environments").mkdir()
+    (tmp_path / "environments" / "prod.yaml").write_text(
+        f"service: {{description: {_nested(DEPTH)}}}\n"
+    )
+
+    with pytest.raises(ManifestLoadError):
+        load_manifest(path, environment="prod", suppress_deprecation_warning=True)
+
+
+@pytest.mark.parametrize(
+    "resource",
+    [
+        "  - kind: SLO\n    name: availability\n    spec: &a {objective: 99, indicator: *a}\n",
+        "  - kind: Dependencies\n    name: deps\n    spec: {databases: &a [*a]}\n",
+        "  - &a {kind: Alerts, name: alerts, spec: {again: *a}}\n",
+    ],
+)
+def test_an_alias_to_its_own_anchor_is_refused(resource, tmp_path):
+    path = tmp_path / "service.yaml"
+    path.write_text(SERVICE_TEXT + "resources:\n" + resource)
+
+    with pytest.raises(ManifestLoadError):
+        load_manifest(path, suppress_deprecation_warning=True)
+
+
+def test_nesting_the_yaml_reader_can_hold_still_loads(tmp_path):
+    # The refusals above are about running out of stack, not about depth as
+    # such: a description nested 20 deep loaded before and still does.
+    path = tmp_path / "service.yaml"
+    path.write_text(
+        "service: {name: deep, team: t, tier: standard, type: api, "
+        f"description: {_nested(20)}}}\n"
+    )
+
+    assert load_manifest(path, suppress_deprecation_warning=True).name == "deep"
