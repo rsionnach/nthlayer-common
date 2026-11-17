@@ -266,7 +266,15 @@ def _shape(value: Any) -> str:
         return "a list"
     if isinstance(value, dict):
         return "a mapping"
-    return type(value).__name__
+    if isinstance(value, set | frozenset):
+        return "a set"
+    if isinstance(value, bytes):
+        return "binary data"
+    return f"a {type(value).__name__}"
+
+
+# What YAML can put where a list goes that iterates to nothing when empty.
+_EMPTY_AS_NO_ENTRIES = (str, bytes, dict, set, frozenset)
 
 
 def _legacy_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -283,12 +291,13 @@ def _legacy_mapping(value: Any, what: str) -> dict[str, Any]:
 def _legacy_entries(value: Any, what: str) -> list[dict[str, Any]]:
     """*value* as a list of mappings, else ManifestLoadError naming *what*.
 
-    An empty string or an empty mapping counts as no entries: the loader
-    used to iterate these positions, so both loaded as nothing, and a file
-    that loads must keep loading. Every other non-list, and any entry that
-    is not a mapping, used to end in a bare AttributeError or TypeError.
+    An empty string, mapping, set or binary counts as no entries: the
+    loader used to iterate these positions, so each loaded as nothing, and
+    a file that loads must keep loading. Every other non-list, and any
+    entry that is not a mapping, used to end in a bare AttributeError or
+    TypeError.
     """
-    if isinstance(value, str | dict) and not value:
+    if isinstance(value, _EMPTY_AS_NO_ENTRIES) and not value:
         return []
     if not isinstance(value, list):
         raise ManifestLoadError(f"{what} must be a list, not {_shape(value)}")
