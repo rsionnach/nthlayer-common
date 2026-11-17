@@ -11,4 +11,4 @@ written beside the parser agrees with the parser, bugs included.
 This is a snapshot, so a change to the demo does not reach it. To refresh,
 copy the files again and update the commit above. The live check, that the
 demo's current specs load through this package, belongs to the front door
-(opensrm-t93o).
+(opensrm-gx3e).
