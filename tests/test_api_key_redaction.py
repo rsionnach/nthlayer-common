@@ -174,6 +174,7 @@ class TestGuards:
 
         assert raised.value.model == shown
         assert raised.value.provider == "unknown"
+        assert key_refusal(model) in str(raised.value)
         assert SECRET[:6] not in str(raised.value)
 
     @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
@@ -190,6 +191,7 @@ class TestGuards:
 
         assert raised.value.model == shown
         assert raised.value.provider == "unknown"
+        assert key_refusal(model) in str(raised.value)
         assert SECRET[:6] not in str(raised.value)
 
     @pytest.mark.parametrize(("model", "shown"), KEY_SHAPED)
@@ -206,6 +208,7 @@ class TestGuards:
 
         assert raised.value.model == shown
         assert raised.value.provider == "unknown"
+        assert key_refusal(model) in str(raised.value)
         assert SECRET[:6] not in str(raised.value)
 
 
