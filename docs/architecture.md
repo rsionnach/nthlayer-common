@@ -20,6 +20,7 @@ src/nthlayer_common/
     llm.py               # Raw-text LLM wrapper (httpx-based)
     llm_structured.py    # Structured LLM outputs via Instructor
     llm_stub.py          # CI stub (NTHLAYER_LLM_STUB=canned) — see llm-interface.md
+    _api_keys.py         # Package-internal: redacts an API key mis-set as the model (opensrm-7um7)
     errors.py            # Error hierarchy + @main_with_error_handling + @retry
     tiers.py             # Tier, TIER_CONFIGS, normalize_tier, get_slo_targets
     slo_models.py        # SLO, ErrorBudget, SLOStatus, TimeWindow

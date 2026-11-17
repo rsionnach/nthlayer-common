@@ -45,6 +45,8 @@ from typing import Any
 from opentelemetry import _logs
 from opentelemetry._logs import SeverityNumber
 
+from nthlayer_common._api_keys import redact_model, scrub_model
+
 logger = logging.getLogger(__name__)
 
 _OTEL_LOGGER_NAME = "nthlayer"
@@ -322,7 +324,10 @@ def emit_llm_event(
     of which model. Every LLM call should emit this.
 
     Args:
-        model: The model name (e.g., "claude-sonnet-4-20250514").
+        model: The model name (e.g., "claude-sonnet-4-20250514"). An API
+            key mis-set as the model is emitted redacted, and redacted
+            wherever ``error`` quotes it (opensrm-7um7). So is ``provider``,
+            where a key followed by a slash ends up.
         provider: The provider (e.g., "anthropic", "openai").
         caller: The calling component/module (e.g., "measure.evaluator").
         input_tokens: Number of input tokens.
@@ -340,10 +345,10 @@ def emit_llm_event(
     emit_event(
         "nthlayer.llm.call",
         {
-            "gen_ai.request.model": model,
+            "gen_ai.request.model": redact_model(model),
             # Addendum A1 §5 P4: gen_ai.system MUST NOT be emitted (dropped
             # from the upstream registry).
-            "gen_ai.provider.name": provider,
+            "gen_ai.provider.name": redact_model(provider),
             "nthlayer.llm.caller": caller,
             "gen_ai.usage.input_tokens": input_tokens,
             "gen_ai.usage.output_tokens": output_tokens,
@@ -355,7 +360,9 @@ def emit_llm_event(
             "nthlayer.llm.duration_ms": duration_ms,
             "nthlayer.llm.success": success,
             # `or None`: an empty error string is no error, as before.
-            "nthlayer.llm.error": error or None,
+            "nthlayer.llm.error": (
+                scrub_model(scrub_model(error, model), provider) if error else None
+            ),
         },
     )
 

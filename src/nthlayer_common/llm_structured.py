@@ -16,6 +16,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
+from nthlayer_common._api_keys import looks_like_api_key, redact_model
 from nthlayer_common.llm import DEFAULT_MODEL, TIMEOUT, LLMError
 
 T = TypeVar("T", bound=BaseModel)
@@ -104,9 +105,9 @@ def structured_call(
     if is_stub_enabled():
         return stub_structured_response(response_model)
 
-    if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
+    if looks_like_api_key(model):
         raise LLMError(
-            f"'{model[:20]}...' looks like an API key, not a model name. "
+            f"'{redact_model(model)}' looks like an API key, not a model name. "
             f"Set NTHLAYER_MODEL or pass model='provider/model-name'.",
             provider="unknown",
             model=model,
@@ -203,9 +204,9 @@ def structured_call_with_usage(
             usage=StructuredCallUsage(input_tokens=0, output_tokens=0),
         )
 
-    if model.startswith(("sk-ant-", "sk-", "key-", "Bearer ")):
+    if looks_like_api_key(model):
         raise LLMError(
-            f"'{model[:20]}...' looks like an API key, not a model name.",
+            f"'{redact_model(model)}' looks like an API key, not a model name.",
             provider="unknown",
             model=model,
         )
