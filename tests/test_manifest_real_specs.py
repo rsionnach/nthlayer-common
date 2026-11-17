@@ -68,8 +68,8 @@ def test_demo_spec_parses_with_indicator_query_populated(spec_name: str):
     """
     spec_path = DEMO_SPECS_DIR / spec_name
     declared = _declared_queries(spec_path)
-    # Every demo spec declares at least one; without this the loop below
-    # could pass having compared nothing.
+    # Every demo spec declares at least one; without this the equality
+    # below would pass on two empty dicts.
     assert declared, f"{spec_name}: no SLO declares an indicator block"
     assert all(q.strip() for q in declared.values()), f"{spec_name}: an empty declared query"
 
