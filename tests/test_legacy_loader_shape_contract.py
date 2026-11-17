@@ -273,14 +273,6 @@ def test_the_full_document_exercises_every_resource_kind(tmp_path):
     assert manifest.labels == {"domain": "commerce"}
 
 
-@pytest.mark.parametrize("cell_id", CELL_IDS)
-def test_a_malformed_legacy_manifest_loads_or_raises_a_contract_error(cell_id, tmp_path):
-    try:
-        load_cell(cell_id, tmp_path)
-    except (OSError, ManifestLoadError, ValueError):
-        pass
-
-
 def test_the_baseline_names_only_cells_of_this_matrix():
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
 
@@ -289,7 +281,37 @@ def test_the_baseline_names_only_cells_of_this_matrix():
 
 
 @pytest.mark.parametrize("cell_id", CELL_IDS)
-def test_a_cell_loads_exactly_when_it_loaded_before(cell_id, tmp_path):
+def test_a_cell_raises_only_contract_errors_and_loads_as_before(cell_id, tmp_path):
+    # Both halves in one load: loads() lets anything but OSError,
+    # ManifestLoadError and ValueError out, which fails the test (the
+    # contract); its answer must match the baseline (nothing that loaded
+    # stops loading, nothing that failed starts to).
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
 
     assert loads(cell_id, tmp_path) == (cell_id in loaded_before)
+
+
+# A few cells that used to crash, and what the error must let the author
+# find: the resource by its name, or the top-level key.
+NAMED = [
+    ("full:resources.0.spec=number", "availability"),
+    ("full:resources.1.spec.indicator=string", "latency-p99"),
+    ("full:resources.1.spec.target=list", "latency-p99"),
+    ("full:resources.4.spec=none", "deps"),
+    ("full:resources.4.spec.databases.0.slo=string", "deps"),
+    ("full:resources.4.spec.queues=number", "deps"),
+    ("full:resources.7.spec=list", "pagerduty"),
+    ("full:resources=number", "resources"),
+    ("full:resources.5=string", "resources[5]"),
+    ("full:service=list", "service"),
+    ("full:service.metadata=number", "service.metadata"),
+    ("full:service.tier=mapping", "service.tier"),
+]
+
+
+@pytest.mark.parametrize(("cell_id", "named"), NAMED)
+def test_the_error_names_the_resource_or_the_position(cell_id, named, tmp_path):
+    with pytest.raises(ManifestLoadError) as raised:
+        load_cell(cell_id, tmp_path)
+
+    assert named in str(raised.value)
