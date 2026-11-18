@@ -206,6 +206,27 @@ LATENCY_THRESHOLD_KEYS: tuple[tuple[str, ...], ...] = (
 )
 
 
+def indicators_thresholds(indicators: Any) -> list[Any]:
+    """Each ``threshold_ms`` the entries of a plural ``indicators:`` list
+    declare (None is undeclared), in order [opensrm-wo62.4.24]. Anything
+    that is not a list, and any entry that is not a mapping, declares none:
+    the shape is the loader's to refuse."""
+    if not isinstance(indicators, list):
+        return []
+    return [
+        entry["threshold_ms"]
+        for entry in indicators
+        if isinstance(entry, dict) and entry.get("threshold_ms") is not None
+    ]
+
+
+def declares_latency_threshold(spec: Any) -> bool:
+    """Whether *spec* declares a latency threshold anywhere the loader reads one."""
+    return any(lookup_path(spec, path) is not None for path in LATENCY_THRESHOLD_KEYS) or bool(
+        indicators_thresholds(lookup_path(spec, ("indicators",)))
+    )
+
+
 def lookup_path(spec: Any, path: tuple[str, ...]) -> Any:
     """The value at *path* in *spec*, or None if any step is missing or not a mapping."""
     node = spec
@@ -215,12 +236,18 @@ def lookup_path(spec: Any, path: tuple[str, ...]) -> Any:
 
 
 def _without_latency_thresholds(spec: dict[str, Any]) -> dict[str, Any]:
-    """*spec* minus every key in LATENCY_THRESHOLD_KEYS; the rest is untouched."""
+    """*spec* minus every key in LATENCY_THRESHOLD_KEYS and every
+    ``indicators[].threshold_ms``; the rest is untouched."""
     result = deepcopy(spec)
     for path in LATENCY_THRESHOLD_KEYS:
         parent = lookup_path(result, path[:-1])
         if isinstance(parent, dict):
             parent.pop(path[-1], None)
+    indicators = result.get("indicators")
+    if isinstance(indicators, list):
+        for entry in indicators:
+            if isinstance(entry, dict):
+                entry.pop("threshold_ms", None)
     return result
 
 
@@ -258,12 +285,11 @@ def _merge_overlay_resources(
                     f"an environment overlay, not {type(base_spec).__name__}"
                 )
             # R4 (Rob, 2026-10-28): an overlay that declares a latency threshold
-            # replaces the base's, whichever key either uses. A plain deep merge
+            # replaces the base's, whichever key either uses (the plural
+            # indicators[] list included, opensrm-wo62.4.24). A plain deep merge
             # would keep both, and R1's order could then pick the base value
             # [opensrm-wo62.4.7]. Not in generate's merger, which lost it too.
-            if any(
-                lookup_path(resource["spec"], path) is not None for path in LATENCY_THRESHOLD_KEYS
-            ):
+            if declares_latency_threshold(resource["spec"]):
                 base_spec = _without_latency_thresholds(base_spec)
             indexed[key]["spec"] = _merge_dict(base_spec, resource["spec"])
 

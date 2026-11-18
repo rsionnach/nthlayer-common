@@ -222,7 +222,8 @@ FULL: dict[str, Any] = {
             "spec": {
                 "objective": 99.5,
                 "indicators": [
-                    {"type": "throughput"},
+                    # The list's threshold_ms is read too (opensrm-wo62.4.24).
+                    {"type": "throughput", "threshold_ms": 350},
                     {
                         "type": "throughput",
                         "success_ratio": {
@@ -388,6 +389,40 @@ assert len(POSITIONS) >= 465
 assert len([cell_id for cell_id in CELL_IDS if cell_id.startswith("pair:")]) == 11 * 10 * 10
 
 
+# One deliberate departure from "loads exactly when it loaded before". The
+# loader now reads the plural list's threshold_ms (opensrm-wo62.4.24), and
+# a declared threshold must be a finite positive number wherever it is
+# declared (opensrm-wo62.4.7). On ec44215 the key was not read, so any
+# value there loaded; a value that is no threshold is now refused. The
+# cells are derived from the wrong values, not from what the loader does.
+LIST_THRESHOLD_POSITIONS = (
+    "full:resources.10.spec.indicators.0.threshold_ms",
+    "full+overlay:resources.10.spec.indicators.0.threshold_ms",
+)
+
+
+def _is_a_threshold(value: Any) -> bool:
+    """None (undeclared) or a finite positive number. No string among the
+    wrong values spells a number, so strings need no case here."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return 0 < float(value) < float("inf")
+    except OverflowError:
+        return False
+
+
+REFUSED_SINCE_WO62_4_24 = {
+    f"{position}={kind}"
+    for position in LIST_THRESHOLD_POSITIONS
+    for kind, value in WRONG_VALUES.items()
+    if not _is_a_threshold(value)
+}
+assert set(CELL_IDS) >= REFUSED_SINCE_WO62_4_24
+
+
 def _write(tmp_path: Path, document: dict[str, Any], overlay: dict[str, Any] | None) -> Path:
     path = tmp_path / "service.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False))
@@ -474,7 +509,7 @@ def test_the_full_document_exercises_every_resource_kind(tmp_path):
         ("latency-p99", 250),  # indicator.threshold_ms, over the two below it
         ("latency-p95", 300),  # threshold_ms alone
         ("duration-p50", 400),  # latency_threshold alone
-        ("success", None),
+        ("success", 350),  # indicators[].threshold_ms (opensrm-wo62.4.24)
     ]
     assert [slo.slo_type for slo in manifest.slos] == [
         "availability",  # indicator.type
@@ -497,6 +532,21 @@ def test_the_full_document_exercises_every_resource_kind(tmp_path):
     assert manifest.labels == {"domain": "commerce"}
 
 
+def test_the_departure_is_the_unusable_list_thresholds_that_used_to_load():
+    """Not vacuous, and no wider than its rule: 18 wrong values that loaded
+    when the key was unread, at each of the two positions; None and the
+    two real numbers (7 and 1.5) still load."""
+    loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
+    still = {
+        f"{position}={kind}"
+        for position in LIST_THRESHOLD_POSITIONS
+        for kind in ("none", "number", "float")
+    }
+
+    assert len(REFUSED_SINCE_WO62_4_24 & loaded_before) == 36
+    assert still <= loaded_before - REFUSED_SINCE_WO62_4_24
+
+
 def test_the_baseline_names_only_cells_of_this_matrix():
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
 
@@ -509,11 +559,12 @@ def test_every_wrong_value_is_refused_or_loads_as_it_did_before(position, tmp_pa
     # The contract and the baseline in one load per cell: a cell either
     # loads or is refused with OSError, ManifestLoadError or ValueError
     # (never anything else), and it loads exactly when it loaded before
-    # (nothing that loaded stops loading, nothing that failed starts to).
+    # (nothing that loaded stops loading, nothing that failed starts to),
+    # but for the cells of REFUSED_SINCE_WO62_4_24.
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
+    loads = loaded_before - REFUSED_SINCE_WO62_4_24
     expected = {
-        cell_id: "loads" if cell_id in loaded_before else "refused"
-        for cell_id in CELLS_AT[position]
+        cell_id: "loads" if cell_id in loads else "refused" for cell_id in CELLS_AT[position]
     }
 
     assert {cell_id: outcome(cell_id, tmp_path) for cell_id in expected} == expected

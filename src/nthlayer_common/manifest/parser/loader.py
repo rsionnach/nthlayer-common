@@ -118,8 +118,8 @@ def load_manifest(
     its cause.
 
     Legacy SLOs also carry a latency ``threshold_ms`` (from
-    ``indicator.threshold_ms``, else ``threshold_ms``, else
-    ``latency_threshold``), and legacy caches and queues carry their declared
+    ``indicator.threshold_ms``, else the plural ``indicators[].threshold_ms``
+    (opensrm-wo62.4.24), else ``threshold_ms``, else ``latency_threshold``), and legacy caches and queues carry their declared
     ``type`` in ``Dependency.database_type`` (opensrm-wo62.4.7).
     """
     path = Path(file_path)
@@ -392,31 +392,74 @@ def _is_query(value: Any) -> bool:
 def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
     """The first declared latency threshold in *spec*, in milliseconds, or None.
 
-    Only that first value is validated; a lower-priority key beside it is
-    never read. Raises ManifestLoadError, naming the SLO, if it is not a
-    finite positive number.
+    Most specific first: the singular ``indicator.threshold_ms``, the plural
+    ``indicators[].threshold_ms`` (opensrm-wo62.4.24), then the SLO's own
+    ``threshold_ms`` and ``latency_threshold``; the same order as the SLO's
+    type, where the singular indicator outranks the plural list. Only the
+    first one declared is validated; a lower-priority key beside it is never
+    read. Raises ManifestLoadError, naming the SLO, if it is not a finite
+    positive number.
     """
-    for path in legacy.LATENCY_THRESHOLD_KEYS:
+    singular, *own = legacy.LATENCY_THRESHOLD_KEYS
+    node = legacy.lookup_path(spec, singular)
+    if node is not None:
+        return _threshold_number(name, node, ".".join(singular))
+    listed = _legacy_indicators_threshold_ms(name, spec)
+    if listed is not None:
+        return listed
+    for path in own:
         node = legacy.lookup_path(spec, path)
-        if node is None:
-            continue
-        key_path = ".".join(path)
-        try:
-            threshold = require_number(name, node, what=f"Latency {key_path}")
-            check_finite(name, threshold, what=f"Latency {key_path}")
-        except ValueError as e:
-            raise ManifestLoadError(str(e)) from e
-        except OverflowError as e:
-            # An integer too large for a float (YAML integers are unbounded).
-            raise ManifestLoadError(
-                f"Latency {key_path} for '{name}' is too large to be a number of milliseconds"
-            ) from e
-        if threshold <= 0:
-            raise ManifestLoadError(
-                f"Latency {key_path} for '{name}' must be positive, got {node!r}"
-            )
-        return threshold
+        if node is not None:
+            return _threshold_number(name, node, ".".join(path))
     return None
+
+
+def _threshold_number(name: str, node: Any, key_path: str) -> float:
+    """*node* as a latency threshold in milliseconds, else ManifestLoadError."""
+    try:
+        threshold = require_number(name, node, what=f"Latency {key_path}")
+        check_finite(name, threshold, what=f"Latency {key_path}")
+    except ValueError as e:
+        raise ManifestLoadError(str(e)) from e
+    except OverflowError as e:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise ManifestLoadError(
+            f"Latency {key_path} for '{name}' is too large to be a number of milliseconds"
+        ) from e
+    if threshold <= 0:
+        raise ManifestLoadError(f"Latency {key_path} for '{name}' must be positive, got {node!r}")
+    return threshold
+
+
+def _legacy_indicators_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
+    """The one latency threshold a plural ``indicators:`` list declares, or None.
+
+    The rule is the list's rule for its type (``_legacy_indicators_type``):
+    entries with no ``threshold_ms`` are ignored, every declared one is
+    validated, and entries that declare different numbers leave the SLO
+    with no single bound, so the load fails rather than pick one
+    (opensrm-wo62.4.24). ``800`` and ``"800.0"`` are the same number. Real
+    legacy manifests declare the bound only here, and reading only the
+    singular and top-level keys loaded them with no threshold, so
+    nthlayer-generate gave their latency SLOs no error budget.
+
+    Unlike the type, the list's shape is not judged here: a list that is
+    not a list, or an entry that is not a mapping, declares no threshold
+    (as it declares no ``success_ratio``). ``_legacy_indicators_type``
+    refuses that shape when the list is what types the SLO; beside a
+    singular ``indicator.type`` such a file has always loaded, and keeps
+    loading.
+    """
+    declared = legacy.indicators_thresholds(spec.get("indicators"))
+    thresholds = [
+        _threshold_number(name, node, "indicators[].threshold_ms") for node in declared
+    ]
+    if len(set(thresholds)) > 1:
+        raise ManifestLoadError(
+            f"SLO '{name}' declares indicators with different threshold_ms values "
+            f"{sorted(set(thresholds))}; a legacy SLO's indicators must share one threshold"
+        )
+    return thresholds[0] if thresholds else None
 
 
 def _legacy_indicators_type(name: str, spec: dict[str, Any]) -> str | None:
