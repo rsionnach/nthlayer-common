@@ -59,7 +59,23 @@ logger = structlog.get_logger()
 
 
 class ManifestLoadError(Exception):
-    """Error loading manifest file."""
+    """Error loading manifest file.
+
+    ``backstop`` is True only on the error ``load_manifest`` raises when an
+    ``AttributeError`` or ``TypeError`` reached the end of the legacy path
+    unhandled (see ``LEGACY_BACKSTOP_MARKER``).
+    """
+
+    backstop: bool = False
+
+
+# In the message of a backstop ManifestLoadError. The legacy loader checks
+# the shape of each position it reads and names it in the error; the
+# backstop is for the shape those checks miss. It keeps load_manifest's
+# contract, and it marks a missing check: the cause is chained, and
+# tests/test_legacy_loader_shape_contract.py fails on any cell that gets
+# this far (opensrm-wo62.4.10).
+LEGACY_BACKSTOP_MARKER = "[legacy-shape-backstop]"
 
 
 class LegacyFormatWarning(UserWarning):
@@ -87,6 +103,20 @@ def load_manifest(
     manifest, else a ``templates/`` dir beside it) and ``${var}`` substituted
     (parser/legacy.py, opensrm-wo62.4.1). srm/v1 and v2 only record it.
 
+    Raises only ``OSError`` (``FileNotFoundError`` for a missing file),
+    ``ManifestLoadError`` and ``ValueError``. For the legacy format that
+    holds whatever the shape of the file: a position the loader reads as a
+    mapping or a list and finds to be something else is a
+    ``ManifestLoadError`` naming it, never a bare ``AttributeError`` or
+    ``TypeError``; so is a number too large to be one, a YAML alias to its
+    own anchor, and (for every format) a file nested too deeply for the
+    YAML reader (opensrm-wo62.4.10;
+    tests/test_legacy_loader_shape_contract.py crosses every such position
+    with every wrong type).
+    A wrong type that no check names still ends as a
+    ``ManifestLoadError``, with ``backstop`` True and the original error as
+    its cause.
+
     Legacy SLOs also carry a latency ``threshold_ms`` (from
     ``indicator.threshold_ms``, else ``threshold_ms``, else
     ``latency_threshold``), and legacy caches and queues carry their declared
@@ -102,6 +132,10 @@ def load_manifest(
             data = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ManifestLoadError(f"Invalid YAML in {file_path}: {e}") from e
+    except RecursionError as e:
+        # PyYAML builds nested nodes recursively: a few hundred levels of
+        # nesting run it out of stack before anything here sees the data.
+        raise ManifestLoadError(f"{file_path} is nested too deeply to load") from e
 
     if not isinstance(data, dict):
         raise ManifestLoadError(f"Expected YAML object in {file_path}")
@@ -155,13 +189,32 @@ def load_manifest(
         # generate's legacy order (opensrm-wo62.4.1, parser/legacy.py):
         # overlay, environment pass, template, then the per-spec pass.
         try:
-            data = legacy.apply_environment_overlay(data, path, environment)
-            data = legacy.substitute_environment(data, environment)
-            data = legacy.expand_template(data, path, _find_template_dir(path))
-            data = legacy.substitute_resource_specs(data, environment)
-        except ValueError as e:
-            raise ManifestLoadError(str(e)) from e
-        manifest = _parse_legacy_to_manifest(data, str(path), environment)
+            try:
+                data = legacy.apply_environment_overlay(data, path, environment)
+                data = legacy.substitute_environment(data, environment)
+                data = legacy.expand_template(data, path, _find_template_dir(path))
+                data = legacy.substitute_resource_specs(data, environment)
+            except ValueError as e:
+                raise ManifestLoadError(str(e)) from e
+            # Outside the ValueError wrap above, as it always was: a
+            # ValueError from the parse or the model reaches the caller as one.
+            manifest = _parse_legacy_to_manifest(data, str(path), environment)
+        except RecursionError as e:
+            # These passes walk the whole document, and a YAML alias to its
+            # own anchor (``spec: &a {indicator: *a}``) never ends. An
+            # overlay or template nested too deeply for PyYAML is read in
+            # here too; the manifest itself was read above.
+            raise ManifestLoadError(
+                f"{file_path} cannot be loaded: a YAML alias in it refers to its own "
+                "anchor, or its overlay or template is nested too deeply"
+            ) from e
+        except (AttributeError, TypeError) as e:
+            backstop = ManifestLoadError(
+                f"{file_path} cannot be loaded: a value in it is not the type the "
+                f"legacy loader expects ({type(e).__name__}: {e}) {LEGACY_BACKSTOP_MARKER}"
+            )
+            backstop.backstop = True
+            raise backstop from e
 
     # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits
     # warnings via the warnings module; never rejects. See module docstring
@@ -244,6 +297,70 @@ def is_manifest_file(file_path: str | Path) -> bool:
 # =============================================================================
 
 
+def _shape(value: Any) -> str:
+    """What *value* is, for an error message about a wrong shape."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "a boolean"
+    if isinstance(value, str):
+        return "a string"
+    if isinstance(value, int | float):
+        return "a number"
+    if isinstance(value, list):
+        return "a list"
+    if isinstance(value, dict):
+        return "a mapping"
+    if isinstance(value, set | frozenset):
+        return "a set"
+    if isinstance(value, bytes):
+        return "binary data"
+    return f"a {type(value).__name__}"
+
+
+# What YAML can put where a list goes that iterates to nothing when empty.
+_EMPTY_AS_NO_ENTRIES = (str, bytes, dict, set, frozenset)
+
+
+def _legacy_mapping(value: Any, what: str) -> dict[str, Any]:
+    """*value* if it is a mapping, else ManifestLoadError naming *what*.
+
+    The legacy loader reads these positions with ``.get``; anything else
+    used to end in a bare AttributeError (opensrm-wo62.4.10).
+    """
+    if not isinstance(value, dict):
+        raise ManifestLoadError(f"{what} must be a mapping, not {_shape(value)}")
+    return value
+
+
+def _legacy_entries(value: Any, what: str) -> list[dict[str, Any]]:
+    """*value* as a list of mappings, else ManifestLoadError naming *what*.
+
+    An empty string, mapping, set or binary counts as no entries: the
+    loader used to iterate these positions, so each loaded as nothing, and
+    a file that loads must keep loading. Every other non-list, and any
+    entry that is not a mapping, used to end in a bare AttributeError or
+    TypeError.
+    """
+    if isinstance(value, _EMPTY_AS_NO_ENTRIES) and not value:
+        return []
+    if not isinstance(value, list):
+        raise ManifestLoadError(f"{what} must be a list, not {_shape(value)}")
+    for i, entry in enumerate(value):
+        if not isinstance(entry, dict):
+            raise ManifestLoadError(f"{what}[{i}] must be a mapping, not {_shape(entry)}")
+    return value
+
+
+def _legacy_resource_spec(resource: dict[str, Any]) -> dict[str, Any]:
+    """The resource's ``spec`` (``{}`` when the key is absent), which the
+    kinds that read into it need as a mapping."""
+    return _legacy_mapping(
+        resource.get("spec", {}),
+        f"Legacy {resource.get('kind')} resource {resource.get('name')!r}: spec",
+    )
+
+
 def _legacy_success_ratio(spec: dict[str, Any]) -> tuple[str | None, str | None]:
     """``(good_query, total_query)`` from the first plural ``indicators[]``
     entry whose ``success_ratio`` has both as non-blank strings, else
@@ -289,6 +406,11 @@ def _legacy_threshold_ms(name: str, spec: dict[str, Any]) -> float | None:
             check_finite(name, threshold, what=f"Latency {key_path}")
         except ValueError as e:
             raise ManifestLoadError(str(e)) from e
+        except OverflowError as e:
+            # An integer too large for a float (YAML integers are unbounded).
+            raise ManifestLoadError(
+                f"Latency {key_path} for '{name}' is too large to be a number of milliseconds"
+            ) from e
         if threshold <= 0:
             raise ManifestLoadError(
                 f"Latency {key_path} for '{name}' must be positive, got {node!r}"
@@ -328,7 +450,7 @@ def _legacy_indicators_type(name: str, spec: dict[str, Any]) -> str | None:
     return types.pop() if types else None
 
 
-def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
+def _infer_legacy_slo_type(name: str, spec: dict[str, Any], indicator: dict[str, Any]) -> str:
     """Infer slo_type for a legacy SLO resource.
 
     In order: a singular ``indicator.type``; the shared type of a plural
@@ -338,7 +460,6 @@ def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
     the singular key typed lag and freshness SLOs as availability, so
     nthlayer-generate wrote them an error budget from request success.
     """
-    indicator = spec.get("indicator", {})
     explicit = indicator.get("type")
     if explicit:
         return explicit
@@ -346,6 +467,13 @@ def _infer_legacy_slo_type(name: str, spec: dict[str, Any]) -> str:
     if listed:
         return listed
 
+    # Only here is the name read as text. An SLO whose type is declared
+    # loads whatever its name is, as it always has.
+    if not isinstance(name, str):
+        raise ManifestLoadError(
+            f"Legacy SLO resource {name!r} declares no indicator type, so its type is "
+            f"inferred from its name, which must be a string, not {_shape(name)}"
+        )
     name_lower = name.lower()
     if "avail" in name_lower:
         return "availability"
@@ -371,8 +499,8 @@ def _parse_legacy_to_manifest(
     environment: str | None = None,
 ) -> ReliabilityManifest:
     """Parse legacy NthLayer format into a ReliabilityManifest."""
-    service_data = data.get("service", {})
-    resources_data = data.get("resources", [])
+    service_data = _legacy_mapping(data.get("service", {}), "service")
+    resources_data = _legacy_entries(data.get("resources", []), "resources")
 
     name = service_data.get("name")
     if not name:
@@ -383,9 +511,14 @@ def _parse_legacy_to_manifest(
     tier = service_data.get("tier")
     if not tier:
         raise ManifestLoadError("service.tier is required")
+    if isinstance(tier, list | dict):
+        # The model looks the tier up in a set: an unhashable one was a
+        # bare TypeError there.
+        raise ManifestLoadError(f"service.tier must be a string, not {_shape(tier)}")
     service_type = service_data.get("type")
     if not service_type:
         raise ManifestLoadError("service.type is required")
+    metadata = _legacy_mapping(service_data.get("metadata", {}), "service.metadata")
 
     slos, judgment_thresholds = _extract_slos_from_resources(resources_data)
     dependencies = _extract_dependencies_from_resources(resources_data)
@@ -399,8 +532,8 @@ def _parse_legacy_to_manifest(
         tier=tier,
         type=service_type,
         description=service_data.get("description"),
-        labels=service_data.get("metadata", {}).get("labels", {}),
-        annotations=service_data.get("metadata", {}).get("annotations", {}),
+        labels=metadata.get("labels", {}),
+        annotations=metadata.get("annotations", {}),
         slos=slos,
         judgment_thresholds=judgment_thresholds,
         dependencies=dependencies,
@@ -435,7 +568,12 @@ def _extract_slos_from_resources(
             continue
 
         name = resource.get("name", "")
-        spec = resource.get("spec", {})
+        spec = _legacy_resource_spec(resource)
+        if isinstance(name, list | dict):
+            # The name keys a set lookup just below.
+            raise ManifestLoadError(
+                f"Legacy SLO resource name must be a string, not {_shape(name)}"
+            )
 
         # Only calibration and feedback_latency are lifted [opensrm-wo62.1].
         # srm/v1 rejects segments, stability and audit_backlog, but doing so
@@ -449,7 +587,10 @@ def _extract_slos_from_resources(
         if target is None:
             continue
 
-        slo_type = _infer_legacy_slo_type(name, spec)
+        indicator = _legacy_mapping(
+            spec.get("indicator", {}), f"Legacy SLO resource {name!r}: spec.indicator"
+        )
+        slo_type = _infer_legacy_slo_type(name, spec, indicator)
         window = spec.get("window", "30d")
         # Same name-keyed detection as srm/v1 [opensrm-wo62.1]: without it a
         # legacy ai-gate manifest's judgment SLOs load as classical, and
@@ -457,15 +598,28 @@ def _extract_slos_from_resources(
         judgment_type, measurement, statistical_requirements = judgment_slo_fields(name, window)
         good_query, total_query = _legacy_success_ratio(spec)
 
+        try:
+            target_value = float(target)
+        except TypeError as exc:
+            raise ManifestLoadError(
+                f"Legacy SLO resource {name!r}: objective must be a number, "
+                f"not {_shape(target)}"
+            ) from exc
+        except OverflowError as exc:
+            # An integer too large for a float (YAML integers are unbounded).
+            raise ManifestLoadError(
+                f"Legacy SLO resource {name!r}: objective is too large to be a number"
+            ) from exc
+
         slo = SLODefinition(
             name=name,
-            target=float(target),
+            target=target_value,
             slo_type=slo_type,
             window=window,
             unit=spec.get("unit"),
             percentile=spec.get("percentile"),
             threshold_ms=_legacy_threshold_ms(name, spec),
-            indicator_query=spec.get("indicator", {}).get("query"),
+            indicator_query=indicator.get("query"),
             good_query=good_query,
             total_query=total_query,
             description=spec.get("description"),
@@ -524,6 +678,17 @@ def _legacy_threshold(name: str, spec: dict[str, Any]) -> JudgmentThreshold:
         raise ManifestLoadError(f"Legacy SLO resource '{name}': {exc}") from exc
 
 
+def _legacy_dependency_slo(entry: dict[str, Any], what: str) -> DependencySLO | None:
+    """The ``slo`` a database or upstream entry declares, or None."""
+    if "slo" not in entry:
+        return None
+    slo = _legacy_mapping(entry["slo"], f"{what}.slo")
+    return DependencySLO(
+        availability=slo.get("availability"),
+        latency_p99=slo.get("latency_p99"),
+    )
+
+
 def _extract_dependencies_from_resources(
     resources: list[dict[str, Any]],
 ) -> list[Dependency]:
@@ -534,15 +699,15 @@ def _extract_dependencies_from_resources(
         if resource.get("kind") != "Dependencies":
             continue
 
-        spec = resource.get("spec", {})
+        spec = _legacy_resource_spec(resource)
+        where = f"Legacy Dependencies resource {resource.get('name')!r}: spec"
+        listed = {
+            key: _legacy_entries(spec.get(key, []), f"{where}.{key}")
+            for key in ("databases", "upstream", "downstream", "caches", "queues", "services")
+        }
 
-        for db in spec.get("databases", []):
-            dep_slo = None
-            if "slo" in db:
-                dep_slo = DependencySLO(
-                    availability=db["slo"].get("availability"),
-                    latency_p99=db["slo"].get("latency_p99"),
-                )
+        for i, db in enumerate(listed["databases"]):
+            dep_slo = _legacy_dependency_slo(db, f"{where}.databases[{i}]")
 
             criticality = None
             if "criticality" in db:
@@ -558,13 +723,8 @@ def _extract_dependencies_from_resources(
                 slo=dep_slo,
             ))
 
-        for upstream in spec.get("upstream", []):
-            dep_slo = None
-            if "slo" in upstream:
-                dep_slo = DependencySLO(
-                    availability=upstream["slo"].get("availability"),
-                    latency_p99=upstream["slo"].get("latency_p99"),
-                )
+        for i, upstream in enumerate(listed["upstream"]):
+            dep_slo = _legacy_dependency_slo(upstream, f"{where}.upstream[{i}]")
 
             criticality = None
             if "criticality" in upstream:
@@ -579,7 +739,7 @@ def _extract_dependencies_from_resources(
                 slo=dep_slo,
             ))
 
-        for downstream in spec.get("downstream", []):
+        for downstream in listed["downstream"]:
             dependencies.append(Dependency(
                 name=downstream.get("name", ""),
                 type="api",
@@ -588,7 +748,7 @@ def _extract_dependencies_from_resources(
 
         # The declared technology rides in database_type, as for databases
         # [opensrm-wo62.4.7, R2]; generate's legacy dashboard read it from here.
-        for cache in spec.get("caches", []):
+        for cache in listed["caches"]:
             dependencies.append(Dependency(
                 name=cache.get("name", ""),
                 type="cache",
@@ -596,7 +756,7 @@ def _extract_dependencies_from_resources(
                 database_type=cache.get("type"),
             ))
 
-        for queue in spec.get("queues", []):
+        for queue in listed["queues"]:
             dependencies.append(Dependency(
                 name=queue.get("name", ""),
                 type="queue",
@@ -605,7 +765,7 @@ def _extract_dependencies_from_resources(
             ))
 
         # Also handle flat services list (newer legacy format)
-        for svc in spec.get("services", []):
+        for svc in listed["services"]:
             dependencies.append(Dependency(
                 name=svc.get("name", ""),
                 type=svc.get("type", "api"),
@@ -633,7 +793,8 @@ def _extract_observability(resources: list[dict[str, Any]]) -> Observability | N
     (metrics, logs, health) have no Observability field and are not read.
     A non-mapping spec is likewise only presence: it is warned about and
     ignored rather than failing a load that succeeded before this resource
-    was read (malformed-spec errors are opensrm-wo62.4.10).
+    was read. opensrm-wo62.4.10 kept that: it turned the shapes that
+    crashed into ManifestLoadError and left the ones that loaded alone.
     """
     for resource in resources:
         if resource.get("kind") == "Observability":
@@ -680,7 +841,7 @@ def _extract_ownership(
     # pagerduty only then); service.pagerduty keys alone add nothing.
     for resource in resources:
         if resource.get("kind") == "PagerDuty":
-            spec = resource.get("spec", {})
+            spec = _legacy_resource_spec(resource)
             service_pagerduty = _legacy_service_pagerduty(service_data)
             ownership.pagerduty = PagerDutyConfig(
                 service_id=spec.get("service_id"),
