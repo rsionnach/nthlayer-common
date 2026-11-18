@@ -59,7 +59,23 @@ logger = structlog.get_logger()
 
 
 class ManifestLoadError(Exception):
-    """Error loading manifest file."""
+    """Error loading manifest file.
+
+    ``backstop`` is True only on the error ``load_manifest`` raises when an
+    ``AttributeError`` or ``TypeError`` reached the end of the legacy path
+    unhandled (see ``LEGACY_BACKSTOP_MARKER``).
+    """
+
+    backstop: bool = False
+
+
+# In the message of a backstop ManifestLoadError. The legacy loader checks
+# the shape of each position it reads and names it in the error; the
+# backstop is for the shape those checks miss. It keeps load_manifest's
+# contract, and it marks a missing check: the cause is chained, and
+# tests/test_legacy_loader_shape_contract.py fails on any cell that gets
+# this far (opensrm-wo62.4.10).
+LEGACY_BACKSTOP_MARKER = "[legacy-shape-backstop]"
 
 
 class LegacyFormatWarning(UserWarning):
@@ -97,6 +113,9 @@ def load_manifest(
     YAML reader (opensrm-wo62.4.10;
     tests/test_legacy_loader_shape_contract.py crosses every such position
     with every wrong type).
+    A wrong type that no check names still ends as a
+    ``ManifestLoadError``, with ``backstop`` True and the original error as
+    its cause.
 
     Legacy SLOs also carry a latency ``threshold_ms`` (from
     ``indicator.threshold_ms``, else ``threshold_ms``, else
@@ -189,6 +208,13 @@ def load_manifest(
                 f"{file_path} cannot be loaded: a YAML alias in it refers to its own "
                 "anchor, or its overlay or template is nested too deeply"
             ) from e
+        except (AttributeError, TypeError) as e:
+            backstop = ManifestLoadError(
+                f"{file_path} cannot be loaded: a value in it is not the type the "
+                f"legacy loader expects ({type(e).__name__}: {e}) {LEGACY_BACKSTOP_MARKER}"
+            )
+            backstop.backstop = True
+            raise backstop from e
 
     # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits
     # warnings via the warnings module; never rejects. See module docstring

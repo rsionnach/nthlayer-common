@@ -246,10 +246,12 @@ def _merge_overlay_resources(
             indexed[key] = deepcopy(resource)
         elif "spec" in resource:
             base_spec = indexed[key].get("spec") or {}
-            if not isinstance(base_spec, dict):
+            if resource["spec"] and not isinstance(base_spec, dict):
                 # The overlay's spec is merged into the manifest's, key by
                 # key; a manifest spec that is not a mapping was a bare
-                # AttributeError here (opensrm-wo62.4.10).
+                # AttributeError here (opensrm-wo62.4.10). An overlay spec
+                # with nothing in it merges nothing, and leaves the
+                # manifest's spec, whatever it is, to the loader as before.
                 kind, name = key
                 raise ValueError(
                     f"{kind} resource {name!r}: spec must be a mapping to take "

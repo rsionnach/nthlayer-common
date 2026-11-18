@@ -12,8 +12,15 @@ replaced, one at a time, by a value of each wrong type (None, a string, a
 number, a list, a mapping, the empty or zero value of each, and the other
 types YAML can build: a boolean, a float, a set, binary data, a date). The
 same is done to an environment overlay merged into the first document, and
-to each document with the unmutated overlay merged into it. A position the loader starts to read belongs in
-the documents below, which adds its cells here.
+to each document with the unmutated overlay merged into it. Last, the merge
+of one resource's spec is tabled in full: every state of the manifest's spec
+against every state of the overlay's spec for the same resource. A position
+the loader starts to read belongs in the documents below, which adds its
+cells here.
+
+No cell may be refused by the backstop (``ManifestLoadError.backstop``):
+that error keeps the contract for a shape nothing here reaches, and a cell
+that ends in it is a position whose check is missing.
 
 The second half pins that nothing which loaded before this contract stopped
 loading, and nothing that failed started to load unnoticed: the cells that
@@ -35,6 +42,7 @@ import pytest
 import yaml
 
 from nthlayer_common.manifest import ManifestLoadError, load_manifest
+from nthlayer_common.manifest.parser import loader
 
 LOADED_BEFORE = Path(__file__).parent / "fixtures" / "legacy_shape_matrix" / "loaded_before.json"
 
@@ -276,6 +284,36 @@ OVERLAY: dict[str, Any] = {
 }
 ENVIRONMENT = "prod"
 
+# The merge of one resource (parser/legacy.py, _merge_overlay_resources)
+# reads two specs at once: the manifest's and the overlay's for the same
+# (kind, name). The cells above change one side and hold the other still,
+# so they never pair, say, a manifest spec that is not a mapping with an
+# overlay spec that is empty. The "pair:" cells are the whole table, for
+# each resource of FULL: each state a spec can be in, on both sides.
+ABSENT = object()  # the resource has no "spec" key
+SPEC_STATES: dict[str, Any] = {
+    "absent": ABSENT,
+    "null": None,
+    "empty-mapping": {},
+    "mapping": "the resource's own spec",  # filled in per resource
+    "string": "text",
+    "empty-string": "",
+    "number": 7,
+    "zero": 0,
+    "list": ["x"],
+    "empty-list": [],
+}
+
+
+def _with_spec(resource: dict[str, Any], state: str, own_spec: Any) -> dict[str, Any]:
+    """*resource*'s kind and name, with its spec in *state*."""
+    result = {"kind": resource["kind"], "name": resource["name"]}
+    if state == "mapping":
+        result["spec"] = copy.deepcopy(own_spec)
+    elif SPEC_STATES[state] is not ABSENT:
+        result["spec"] = copy.deepcopy(SPEC_STATES[state])
+    return result
+
 
 def _paths(node: Any, prefix: tuple = ()) -> list[tuple]:
     """Every position in *node* below the root, parents before children."""
@@ -322,6 +360,15 @@ def _cells() -> dict[str, tuple[dict[str, Any], dict[str, Any] | None]]:
                     _replaced(document, path, value),
                     OVERLAY,
                 )
+    for index, resource in enumerate(FULL["resources"]):
+        for manifest_state in SPEC_STATES:
+            document = copy.deepcopy(FULL)
+            document["resources"][index] = _with_spec(resource, manifest_state, resource["spec"])
+            for overlay_state in SPEC_STATES:
+                overlay = {"resources": [_with_spec(resource, overlay_state, resource["spec"])]}
+                cells[
+                    f"pair:resources.{index}:spec.{manifest_state}:overlay-spec={overlay_state}"
+                ] = (document, overlay)
     return cells
 
 
@@ -329,12 +376,16 @@ CELLS = _cells()
 CELL_IDS = sorted(CELLS)
 # One test per position (its cells differ only in the wrong value), which
 # keeps a failure readable and the run short.
-POSITIONS = sorted({cell_id.rsplit("=", 1)[0] for cell_id in CELL_IDS})
+CELLS_AT: dict[str, list[str]] = {}
+for _cell_id in CELL_IDS:
+    CELLS_AT.setdefault(_cell_id.rsplit("=", 1)[0], []).append(_cell_id)
+POSITIONS = sorted(CELLS_AT)
 
 # The matrix is generated at import; an empty one would collect no tests and
 # pass. FULL alone has well over a hundred positions.
-assert len(CELL_IDS) >= 8200
-assert len(POSITIONS) >= 355
+assert len(CELL_IDS) >= 9300
+assert len(POSITIONS) >= 465
+assert len([cell_id for cell_id in CELL_IDS if cell_id.startswith("pair:")]) == 11 * 10 * 10
 
 
 def _write(tmp_path: Path, document: dict[str, Any], overlay: dict[str, Any] | None) -> Path:
@@ -362,11 +413,14 @@ def load_cell(cell_id: str, tmp_path: Path) -> Any:
 
 
 def outcome(cell_id: str, tmp_path: Path) -> str:
-    """"loads" or "refused" (one of the three contract errors). Anything
-    else that gets out fails the test, naming the cell."""
+    """"loads" or "refused" (one of the three contract errors, raised by a
+    check that names the position). Anything else that gets out fails the
+    test, naming the cell; so does a refusal by the backstop."""
     try:
         load_cell(cell_id, tmp_path)
-    except (OSError, ManifestLoadError, ValueError):
+    except (OSError, ManifestLoadError, ValueError) as exc:
+        if getattr(exc, "backstop", False):
+            pytest.fail(f"{cell_id} was refused by the backstop, not by a check: {exc}")
         return "refused"
     except Exception as exc:
         pytest.fail(f"{cell_id} let a {type(exc).__name__} out of load_manifest: {exc}")
@@ -458,8 +512,8 @@ def test_every_wrong_value_is_refused_or_loads_as_it_did_before(position, tmp_pa
     # (nothing that loaded stops loading, nothing that failed starts to).
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
     expected = {
-        f"{position}={kind}": "loads" if f"{position}={kind}" in loaded_before else "refused"
-        for kind in WRONG_VALUES
+        cell_id: "loads" if cell_id in loaded_before else "refused"
+        for cell_id in CELLS_AT[position]
     }
 
     assert {cell_id: outcome(cell_id, tmp_path) for cell_id in expected} == expected
@@ -498,6 +552,63 @@ def test_the_error_names_the_resource_or_the_position(cell_id, named, tmp_path):
         load_cell(cell_id, tmp_path)
 
     assert named in str(raised.value)
+
+
+# The backstop itself. No shape in the matrix reaches it, so the error is
+# planted where a missed check would raise it: inside the legacy parse.
+@pytest.mark.parametrize("leaked", [AttributeError, TypeError])
+def test_an_unchecked_wrong_type_ends_in_the_backstop(leaked, tmp_path, monkeypatch):
+    def parse(*args, **kwargs):
+        raise leaked("'int' object has no attribute 'get'")
+
+    monkeypatch.setattr(loader, "_parse_legacy_to_manifest", parse)
+    path = _write(tmp_path, FULL, None)
+
+    with pytest.raises(ManifestLoadError) as raised:
+        load_manifest(path, suppress_deprecation_warning=True)
+
+    assert raised.value.backstop is True
+    assert isinstance(raised.value.__cause__, leaked)
+    assert loader.LEGACY_BACKSTOP_MARKER in str(raised.value)
+
+
+def test_a_refusal_by_a_check_is_not_a_backstop_error(tmp_path):
+    with pytest.raises(ManifestLoadError) as raised:
+        load_cell("full:resources.0.spec=number", tmp_path)
+
+    assert raised.value.backstop is False
+    assert loader.LEGACY_BACKSTOP_MARKER not in str(raised.value)
+
+
+def test_the_backstop_is_on_the_legacy_path_only(tmp_path, monkeypatch):
+    def parse(*args, **kwargs):
+        raise AttributeError("a bug in the v2 parser")
+
+    monkeypatch.setattr(loader, "parse_opensrm_v2", parse)
+    path = tmp_path / "service.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "apiVersion": "opensrm.nthlayer.io/v2",
+                "kind": "ServiceManifest",
+                "metadata": {"name": "orders", "team": "commerce", "tier": "standard"},
+                "spec": {"type": "api"},
+            }
+        )
+    )
+
+    with pytest.raises(AttributeError):
+        load_manifest(path)
+
+
+def test_the_matrix_fails_a_cell_the_backstop_refuses(tmp_path, monkeypatch):
+    def parse(*args, **kwargs):
+        raise TypeError("unhashable type: 'list'")
+
+    monkeypatch.setattr(loader, "_parse_legacy_to_manifest", parse)
+
+    with pytest.raises(pytest.fail.Exception):
+        outcome("full:resources.0.spec=number", tmp_path)
 
 
 # What only YAML text can say: the matrix replaces nodes with Python values,
