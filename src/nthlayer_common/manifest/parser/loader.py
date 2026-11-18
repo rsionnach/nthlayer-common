@@ -594,6 +594,46 @@ def _parse_legacy_to_manifest(
     )
 
 
+def _legacy_declared_target(spec: dict[str, Any]) -> Any:
+    """``objective``, else ``target``; None when neither is declared.
+
+    Null is undeclared, and an SLO that declares neither is dropped
+    (opensrm-wo62.4.17). Any other value is the SLO's target, 0 included:
+    this used to be ``objective or target``, so a falsy objective (0, an
+    empty string, list or mapping, false) fell through to ``target`` and,
+    with none there, the SLO vanished from the manifest unreported
+    (opensrm-1lhl).
+    """
+    for key in ("objective", "target"):
+        value = spec.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _legacy_target_number(name: Any, target: Any) -> float:
+    """*target* as a finite number, else ManifestLoadError naming the SLO.
+
+    The fifth writer of ``SLODefinition.target``, guarded like the other
+    four (opensrm-ocvu, opensrm-1lhl): a number or a string spelling one,
+    never a boolean, never NaN or infinite. A NaN target makes every
+    comparison in ``validate_contracts()`` false, so a breached contract
+    reported clean. Range is not checked: a legacy target outside 0-100
+    has always loaded.
+    """
+    try:
+        number = require_number(name, target, what="Legacy SLO objective")
+        check_finite(name, number, what="Legacy SLO objective")
+    except ValueError as exc:
+        raise ManifestLoadError(str(exc)) from exc
+    except OverflowError as exc:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise ManifestLoadError(
+            f"Legacy SLO resource {name!r}: objective is too large to be a number"
+        ) from exc
+    return number
+
+
 def _extract_slos_from_resources(
     resources: list[dict[str, Any]],
 ) -> tuple[list[SLODefinition], list[JudgmentThreshold]]:
@@ -626,7 +666,7 @@ def _extract_slos_from_resources(
             thresholds.append(_legacy_threshold(name, spec))
             continue
 
-        target = spec.get("objective") or spec.get("target")
+        target = _legacy_declared_target(spec)
         if target is None:
             continue
 
@@ -641,18 +681,7 @@ def _extract_slos_from_resources(
         judgment_type, measurement, statistical_requirements = judgment_slo_fields(name, window)
         good_query, total_query = _legacy_success_ratio(spec)
 
-        try:
-            target_value = float(target)
-        except TypeError as exc:
-            raise ManifestLoadError(
-                f"Legacy SLO resource {name!r}: objective must be a number, "
-                f"not {_shape(target)}"
-            ) from exc
-        except OverflowError as exc:
-            # An integer too large for a float (YAML integers are unbounded).
-            raise ManifestLoadError(
-                f"Legacy SLO resource {name!r}: objective is too large to be a number"
-            ) from exc
+        target_value = _legacy_target_number(name, target)
 
         slo = SLODefinition(
             name=name,
