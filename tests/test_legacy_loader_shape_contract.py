@@ -31,6 +31,7 @@ beside it).
 
 from __future__ import annotations
 
+import collections
 import copy
 import datetime
 import json
@@ -422,6 +423,51 @@ REFUSED_SINCE_WO62_4_24 = {
 }
 assert set(CELL_IDS) >= REFUSED_SINCE_WO62_4_24
 
+# A second one, of the same kind (opensrm-1lhl): an SLO's target is a
+# finite number. On ec44215 a boolean loaded as 1.0 or 0.0, NaN loaded as
+# NaN, and a falsy ``objective`` (an empty string, list, mapping, set or
+# binary, or false) dropped the SLO and loaded the rest. Those are refused
+# now; 0 is a number and still loads. The positions are every ``objective``
+# or ``target`` of a classical SLO that reaches the loader: not the two
+# judgment thresholds (resources 2 and 3 of FULL, lifted by srm/v1's
+# rules), and not an objective the unmutated overlay replaces
+# (``availability``, in the "+overlay" cells of both documents).
+TARGET_POSITIONS = (
+    "full:resources.0.spec.objective",
+    "full:resources.1.spec.target",
+    "full:resources.8.spec.target",
+    "full:resources.9.spec.target",
+    "full:resources.10.spec.objective",
+    "full+overlay:resources.1.spec.target",
+    "full+overlay:resources.8.spec.target",
+    "full+overlay:resources.9.spec.target",
+    "full+overlay:resources.10.spec.objective",
+    "templated:resources.0.spec.objective",
+    "overlay:resources.0.spec.objective",
+    "overlay:resources.1.spec.objective",
+)
+
+
+def _is_a_target(value: Any) -> bool:
+    """None (undeclared) or a finite number, of any sign and 0 included."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return float("-inf") < float(value) < float("inf")
+    except OverflowError:
+        return False
+
+
+REFUSED_SINCE_1LHL = {
+    f"{position}={kind}"
+    for position in TARGET_POSITIONS
+    for kind, value in WRONG_VALUES.items()
+    if not _is_a_target(value)
+}
+assert set(CELL_IDS) >= REFUSED_SINCE_1LHL
+
 
 def _write(tmp_path: Path, document: dict[str, Any], overlay: dict[str, Any] | None) -> Path:
     path = tmp_path / "service.yaml"
@@ -547,6 +593,27 @@ def test_the_departure_is_the_unusable_list_thresholds_that_used_to_load():
     assert still <= loaded_before - REFUSED_SINCE_WO62_4_24
 
 
+def test_the_target_departure_is_the_non_numbers_that_used_to_load():
+    """Not vacuous, and no wider than its rule. At an ``objective``: true,
+    false, NaN and the five falsy non-numbers that dropped the SLO (8). At
+    a ``target``, which nothing fell back from: true, false and NaN (3).
+    None, 0 and the two real numbers still load everywhere."""
+    loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
+    departed = collections.Counter(
+        cell_id.rsplit("=", 1)[0] for cell_id in REFUSED_SINCE_1LHL & loaded_before
+    )
+    still = {
+        f"{position}={kind}"
+        for position in TARGET_POSITIONS
+        for kind in ("none", "zero", "number", "float")
+    }
+
+    assert departed == {
+        position: 8 if position.endswith(".objective") else 3 for position in TARGET_POSITIONS
+    }
+    assert still <= loaded_before - REFUSED_SINCE_1LHL
+
+
 def test_the_baseline_names_only_cells_of_this_matrix():
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
 
@@ -560,9 +627,9 @@ def test_every_wrong_value_is_refused_or_loads_as_it_did_before(position, tmp_pa
     # loads or is refused with OSError, ManifestLoadError or ValueError
     # (never anything else), and it loads exactly when it loaded before
     # (nothing that loaded stops loading, nothing that failed starts to),
-    # but for the cells of REFUSED_SINCE_WO62_4_24.
+    # but for the cells of REFUSED_SINCE_WO62_4_24 and REFUSED_SINCE_1LHL.
     loaded_before = set(json.loads(LOADED_BEFORE.read_text())["loaded"])
-    loads = loaded_before - REFUSED_SINCE_WO62_4_24
+    loads = loaded_before - REFUSED_SINCE_WO62_4_24 - REFUSED_SINCE_1LHL
     expected = {
         cell_id: "loads" if cell_id in loads else "refused" for cell_id in CELLS_AT[position]
     }

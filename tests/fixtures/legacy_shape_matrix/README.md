@@ -25,3 +25,8 @@ opensrm-wo62.4.24 the loader reads `indicators[].threshold_ms`, so 36 cells
 that put a value that is no threshold there loaded on `ec44215` (the key was
 not read) and are now refused (`REFUSED_SINCE_WO62_4_24`). The baseline
 still records what `ec44215` did.
+
+A second one, the same way (opensrm-1lhl): an SLO's `objective` or `target`
+must be a finite number, so 66 cells that put a boolean, NaN or a falsy
+non-number there loaded on `ec44215` (as 1.0, as NaN, or by dropping the
+SLO) and are now refused (`REFUSED_SINCE_1LHL`).
