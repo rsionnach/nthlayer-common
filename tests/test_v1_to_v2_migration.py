@@ -186,19 +186,18 @@ class TestDemoSpecsRoundTrip:
 
     DEMO_SPECS = ["payment-api.yaml", "fraud-detect.yaml", "order-service.yaml", "checkout-svc.yaml"]
 
-    @pytest.fixture
-    def demo_dir(self) -> Path:
-        # Resolve relative to nthlayer-ecosystem layout: nthlayer/demo/specs/.
-        candidate = Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs"
-        if not candidate.exists():
-            pytest.skip(f"Demo specs directory not found at {candidate}")
-        return candidate
+    # The snapshot in tests/fixtures/demo-specs/ (its README names the
+    # front-door commit), not the front door's live demo/specs: that path
+    # resolved only in an ecosystem checkout, so these four skipped in CI
+    # [opensrm-46rb, opensrm-7pyi]. No skip: a missing file fails in open().
+    DEMO_DIR = Path(__file__).resolve().parent / "fixtures" / "demo-specs"
+
+    def test_the_list_is_the_whole_snapshot(self):
+        assert sorted(p.name for p in self.DEMO_DIR.glob("*.yaml")) == sorted(self.DEMO_SPECS)
 
     @pytest.mark.parametrize("filename", DEMO_SPECS)
-    def test_demo_spec_converts_and_parses(self, demo_dir: Path, filename: str):
-        path = demo_dir / filename
-        if not path.exists():
-            pytest.skip(f"{filename} not present")
+    def test_demo_spec_converts_and_parses(self, filename: str):
+        path = self.DEMO_DIR / filename
 
         with open(path) as f:
             v1_data = yaml.safe_load(f)

@@ -672,23 +672,15 @@ class TestLoader:
         directory would otherwise make the loop body vanish and the test pass
         having loaded nothing, which is the same silent pass the skip produced.
 
-        IT STILL SKIPS IN CI, and saying otherwise was an overclaim in this
-        bead's own commit messages [opensrm-46rb]. The path fix is real and this
-        runs LOCALLY, where the front door is a sibling checkout. But
-        .github/workflows/ci.yml checks out ONE sibling — rsionnach/opensrm —
-        and never rsionnach/nthlayer, so in CI the directory is genuinely absent
-        and the guard below fires. Verified in the PR #71 job log rather than
-        inferred: 1166 passed / 0 skipped locally versus 1155 passed / 8 SKIPPED
-        in CI, those 8 being every test that reads a real shipped manifest.
-        Local-only verification is what hid the difference.
-
-        opensrm-46rb carries the decision, because the obvious fix — checking out
-        the front door too — buys a second cross-repo CI coupling at floating
-        main. Until then this remains a skip rather than an assert, which is why
-        it is NOT the pattern to copy: see
-        tests/test_judgment_targets_against_spec_examples.py, which asserts
-        instead and whose 11 cases do run in CI, because the sibling it needs is
-        the one that gets checked out.
+        It reads the snapshot in ``tests/fixtures/demo-specs/`` (its README
+        names the front-door commit), not the front door's live
+        ``demo/specs``. The live path resolved only in an ecosystem checkout,
+        so in CI, which checks out no front door, this test skipped: 8 tests
+        that read a real shipped manifest never ran there [opensrm-46rb].
+        Rob's choice on opensrm-t93o was a snapshot over a second cross-repo
+        CI coupling at floating main; the live check, that the demo's current
+        specs load through this package, is the front door's (opensrm-gx3e).
+        There is no skip: a missing snapshot fails.
 
         WHAT THIS DOES **NOT** COVER, stated because the first version of this
         docstring overclaimed it. All four shipped specs are v1, so the
@@ -700,14 +692,10 @@ class TestLoader:
         load_manifest, exercised against artefacts nobody wrote for a test.
         The v2 side is covered by tests/test_target_unit_equivalence.py.
         """
-        demo_dir = (
-            Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs"
-        )
-        if not demo_dir.exists():
-            pytest.skip(f"demo/specs not found at {demo_dir}")
+        demo_dir = Path(__file__).resolve().parent / "fixtures" / "demo-specs"
 
         specs = sorted(demo_dir.glob("*.yaml"))
-        assert len(specs) >= 4, f"expected the demo specs, found {specs}"
+        assert len(specs) == 4, f"expected the four demo specs, found {specs}"
 
         for spec_file in specs:
             # No TargetConventionWarning on a REAL shipped spec. This is the
