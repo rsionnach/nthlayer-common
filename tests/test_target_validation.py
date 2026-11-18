@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import warnings
 
-import pytest
-
 from nthlayer_common.manifest.models import (
     JudgmentMeasurement,
     ReliabilityManifest,
@@ -173,9 +171,10 @@ class TestRealDemoSpecs:
 
         from nthlayer_common.manifest import load_manifest
 
-        spec_path = Path(__file__).resolve().parents[2] / "nthlayer" / "demo" / "specs" / "fraud-detect.yaml"
-        if not spec_path.exists():
-            pytest.skip(f"fraud-detect.yaml not present at {spec_path}")
+        # The snapshot of the front door's demo specs, not the live
+        # directory, which CI does not check out: this test skipped there
+        # [opensrm-46rb]. A missing snapshot fails in load_manifest.
+        spec_path = Path(__file__).resolve().parent / "fixtures" / "demo-specs" / "fraud-detect.yaml"
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
