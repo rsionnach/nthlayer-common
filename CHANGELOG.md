@@ -4,6 +4,22 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.12.1](https://github.com/rsionnach/nthlayer-common/compare/v5.12.0...v5.12.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* DISABLED status under OTEL_SDK_DISABLED=true [opensrm-q3np] ([5cc1e07](https://github.com/rsionnach/nthlayer-common/commit/5cc1e07fa09467bed9405db51cb32a6418a1df31))
+* legacy loader reads indicators[].threshold_ms [opensrm-wo62.4.24] ([d1946e8](https://github.com/rsionnach/nthlayer-common/commit/d1946e8dadd27a5269b0bedff44ca7e76b58cd19))
+* legacy shape errors are ManifestLoadError [opensrm-wo62.4.10] ([b8ea0c3](https://github.com/rsionnach/nthlayer-common/commit/b8ea0c3359528b50f979f6efbf57b2fd6bef3fa5))
+* model guards refuse every key shape redaction sees [opensrm-ua2m] ([a7c94d5](https://github.com/rsionnach/nthlayer-common/commit/a7c94d571aa286c466c89317a44b30d211d3e22c))
+* redact a key-shaped model in LLMError and telemetry [opensrm-7um7] ([34f2935](https://github.com/rsionnach/nthlayer-common/commit/34f293532c05b749b0cb8ab238ed88aff4940090))
+
+
+### Documentation
+
+* slo_series docstring states the per-kind budget shipped in zo0o ([6edde83](https://github.com/rsionnach/nthlayer-common/commit/6edde83415d3828d3e8aa9e79280be148a5c9cd3))
+
 ## [5.12.0](https://github.com/rsionnach/nthlayer-common/compare/v5.11.0...v5.12.0) (2026-11-03)
 
 
