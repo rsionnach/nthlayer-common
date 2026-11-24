@@ -534,6 +534,9 @@ def _documents() -> dict[str, tuple[str, dict[str, Any]]]:
 
 
 DOCUMENTS = _documents()
+DOC_IDS = sorted(DOCUMENTS)
+# Six inline documents, the spec's 17 and the ten srm/v1 manifests.
+assert len(DOC_IDS) == 33
 
 # Template id -> (the manifest that extends it, the template's path under
 # the work directory, the template).
@@ -581,9 +584,10 @@ POSITIONS = sorted(CELLS_AT)
 
 # The matrix is generated at import; an empty one would collect no tests
 # and pass.
-assert len(WRONG_VALUES) == 23
+WRONG_KINDS = sorted(WRONG_VALUES)
+assert len(WRONG_KINDS) == 23
 assert len(POSITIONS) >= 1500
-assert len(CELL_IDS) == len(POSITIONS) * len(WRONG_VALUES)
+assert len(CELL_IDS) == len(POSITIONS) * len(WRONG_KINDS)
 
 
 def build_work(root: Path) -> Path:
@@ -632,14 +636,12 @@ def load_cell(cell_id: str, work: Path) -> Any:
 
 
 def classify(load: Any) -> tuple[str, BaseException | None]:
-    """("loads", None), ("refused", the contract error) or ("crashed",
-    whatever else got out)."""
+    """("loads", None) or ("refused", the contract error). Anything else
+    *load* raises is outside the contract and is not caught here."""
     try:
         load()
     except (OSError, ManifestLoadError, ValueError) as exc:
         return "refused", exc
-    except Exception as exc:
-        return "crashed", exc
     return "loads", None
 
 
@@ -647,9 +649,10 @@ def outcome(cell_id: str, work: Path) -> str:
     """"loads" or "refused" by a check that names the position. Anything
     else that gets out fails the test, naming the cell; so does a refusal
     by the backstop."""
-    result, exc = classify(lambda: load_cell(cell_id, work))
-    if result == "crashed":
-        pytest.fail(f"{cell_id} let a {type(exc).__name__} out of load_manifest: {exc}")
+    try:
+        result, exc = classify(lambda: load_cell(cell_id, work))
+    except Exception as crash:
+        pytest.fail(f"{cell_id} let a {type(crash).__name__} out of load_manifest: {crash}")
     if getattr(exc, "backstop", False):
         pytest.fail(f"{cell_id} was refused by the backstop, not by a check: {exc}")
     return result
@@ -677,7 +680,7 @@ LOADS_UNMUTATED = {
 assert set(LOADS_UNMUTATED) == set(DOCUMENTS)
 
 
-@pytest.mark.parametrize("doc_id", sorted(DOCUMENTS))
+@pytest.mark.parametrize("doc_id", DOC_IDS)
 def test_the_unmutated_documents_load_or_are_refused(doc_id, work):
     result, exc = classify(lambda: _load(work / DOCUMENTS[doc_id][0]))
 
@@ -819,7 +822,7 @@ def _same(left: Any, right: Any) -> bool:
     return type(left) is type(right) and left == right
 
 
-@pytest.mark.parametrize("kind", sorted(WRONG_VALUES))
+@pytest.mark.parametrize("kind", WRONG_KINDS)
 def test_a_fed_cell_is_what_the_file_would_load(kind, tmp_path, work):
     """A cell is fed to the loader, not written. For each wrong value: YAML
     can spell it, and a manifest written with it at one position ends as
