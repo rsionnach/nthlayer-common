@@ -35,6 +35,7 @@ from nthlayer_common.manifest.models import (
 )
 from nthlayer_common.manifest.opensrm_v1 import OPENSRM_V1_REJECTION, is_opensrm_v1_format
 from nthlayer_common.manifest.parser import legacy
+from nthlayer_common.manifest.parser._shapes import shape as _shape
 from nthlayer_common.manifest.parser._shared import judgment_slo_fields, parse_observability
 from nthlayer_common.manifest.parser.v1 import (
     OpenSRMParseError,
@@ -62,8 +63,8 @@ class ManifestLoadError(Exception):
     """Error loading manifest file.
 
     ``backstop`` is True only on the error ``load_manifest`` raises when an
-    ``AttributeError`` or ``TypeError`` reached the end of the legacy path
-    unhandled (see ``LEGACY_BACKSTOP_MARKER``).
+    error of a type outside its contract reached the end of a format's path
+    unhandled (see ``LEGACY_BACKSTOP_MARKER`` and ``SHAPE_BACKSTOP_MARKER``).
     """
 
     backstop: bool = False
@@ -76,6 +77,34 @@ class ManifestLoadError(Exception):
 # tests/test_legacy_loader_shape_contract.py fails on any cell that gets
 # this far (opensrm-wo62.4.10).
 LEGACY_BACKSTOP_MARKER = "[legacy-shape-backstop]"
+
+# The same for the srm/v1 and v2 paths (opensrm-wo62.4.28;
+# tests/test_load_manifest_shape_contract.py).
+SHAPE_BACKSTOP_MARKER = "[shape-backstop]"
+
+# What a parser reading a wrong shape lets out: ``.get`` on a list, a loop
+# over a number, ``[0]`` on a mapping, ``float()`` of an integer too large
+# for one.
+_SHAPE_ERRORS = (AttributeError, TypeError, KeyError, IndexError, OverflowError)
+
+
+def _shape_backstop(file_path: str | Path, format_name: str, error: Exception) -> ManifestLoadError:
+    """The ManifestLoadError for a shape error no check named."""
+    backstop = ManifestLoadError(
+        f"{file_path} cannot be loaded: a value in it is not the type the "
+        f"{format_name} parser expects ({type(error).__name__}: {error}) "
+        f"{SHAPE_BACKSTOP_MARKER}"
+    )
+    backstop.backstop = True
+    return backstop
+
+
+def _self_referencing(file_path: str | Path) -> ManifestLoadError:
+    """The ManifestLoadError for a document that never ends."""
+    return ManifestLoadError(
+        f"{file_path} cannot be loaded: a YAML alias in it refers to its own "
+        "anchor, or a file it refers to is nested too deeply"
+    )
 
 
 class LegacyFormatWarning(UserWarning):
@@ -104,14 +133,15 @@ def load_manifest(
     (parser/legacy.py, opensrm-wo62.4.1). srm/v1 and v2 only record it.
 
     Raises only ``OSError`` (``FileNotFoundError`` for a missing file),
-    ``ManifestLoadError`` and ``ValueError``. For the legacy format that
-    holds whatever the shape of the file: a position the loader reads as a
+    ``ManifestLoadError`` and ``ValueError``. That holds for every format,
+    whatever the shape of the file: a position the loader reads as a
     mapping or a list and finds to be something else is a
     ``ManifestLoadError`` naming it, never a bare ``AttributeError`` or
     ``TypeError``; so is a number too large to be one, a YAML alias to its
-    own anchor, and (for every format) a file nested too deeply for the
-    YAML reader (opensrm-wo62.4.10;
-    tests/test_legacy_loader_shape_contract.py crosses every such position
+    own anchor, and a file nested too deeply for the YAML reader
+    (opensrm-wo62.4.10 for the legacy format, opensrm-wo62.4.28 for srm/v1
+    and v2; tests/test_legacy_loader_shape_contract.py and
+    tests/test_load_manifest_shape_contract.py cross every such position
     with every wrong type).
     A wrong type that no check names still ends as a
     ``ManifestLoadError``, with ``backstop`` True and the original error as
@@ -170,6 +200,10 @@ def load_manifest(
             manifest = parse_srm_v1(data, source_file=str(path))
         except (OpenSRMParseError, ValueError) as e:
             raise ManifestLoadError(str(e)) from e
+        except RecursionError as e:
+            raise _self_referencing(file_path) from e
+        except _SHAPE_ERRORS as e:
+            raise _shape_backstop(file_path, "srm/v1", e) from e
 
     elif use_format == SourceFormat.OPENSRM_V2:
         try:
@@ -177,6 +211,10 @@ def load_manifest(
             manifest = parse_opensrm_v2(data, source_file=str(path), base_dir=path.parent)
         except (OpenSRMV2ParseError, ValueError) as e:
             raise ManifestLoadError(str(e)) from e
+        except RecursionError as e:
+            raise _self_referencing(file_path) from e
+        except _SHAPE_ERRORS as e:
+            raise _shape_backstop(file_path, "v2", e) from e
 
     else:
         if not suppress_deprecation_warning:
@@ -297,27 +335,6 @@ def is_manifest_file(file_path: str | Path) -> bool:
 # =============================================================================
 
 
-def _shape(value: Any) -> str:
-    """What *value* is, for an error message about a wrong shape."""
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "a boolean"
-    if isinstance(value, str):
-        return "a string"
-    if isinstance(value, int | float):
-        return "a number"
-    if isinstance(value, list):
-        return "a list"
-    if isinstance(value, dict):
-        return "a mapping"
-    if isinstance(value, set | frozenset):
-        return "a set"
-    if isinstance(value, bytes):
-        return "binary data"
-    return f"a {type(value).__name__}"
-
-
 # What YAML can put where a list goes that iterates to nothing when empty.
 _EMPTY_AS_NO_ENTRIES = (str, bytes, dict, set, frozenset)
 
@@ -420,12 +437,9 @@ def _threshold_number(name: str, node: Any, key_path: str) -> float:
         threshold = require_number(name, node, what=f"Latency {key_path}")
         check_finite(name, threshold, what=f"Latency {key_path}")
     except ValueError as e:
+        # Not a number, not finite, or an integer too large for a float
+        # (YAML integers are unbounded).
         raise ManifestLoadError(str(e)) from e
-    except OverflowError as e:
-        # An integer too large for a float (YAML integers are unbounded).
-        raise ManifestLoadError(
-            f"Latency {key_path} for '{name}' is too large to be a number of milliseconds"
-        ) from e
     if threshold <= 0:
         raise ManifestLoadError(f"Latency {key_path} for '{name}' must be positive, got {node!r}")
     return threshold
@@ -625,12 +639,9 @@ def _legacy_target_number(name: Any, target: Any) -> float:
         number = require_number(name, target, what="Legacy SLO objective")
         check_finite(name, number, what="Legacy SLO objective")
     except ValueError as exc:
+        # Not a number, not finite, or an integer too large for a float
+        # (YAML integers are unbounded).
         raise ManifestLoadError(str(exc)) from exc
-    except OverflowError as exc:
-        # An integer too large for a float (YAML integers are unbounded).
-        raise ManifestLoadError(
-            f"Legacy SLO resource {name!r}: objective is too large to be a number"
-        ) from exc
     return number
 
 

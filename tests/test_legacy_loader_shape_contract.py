@@ -698,27 +698,6 @@ def test_a_refusal_by_a_check_is_not_a_backstop_error(tmp_path):
     assert loader.LEGACY_BACKSTOP_MARKER not in str(raised.value)
 
 
-def test_the_backstop_is_on_the_legacy_path_only(tmp_path, monkeypatch):
-    def parse(*args, **kwargs):
-        raise AttributeError("a bug in the v2 parser")
-
-    monkeypatch.setattr(loader, "parse_opensrm_v2", parse)
-    path = tmp_path / "service.yaml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "apiVersion": "opensrm.nthlayer.io/v2",
-                "kind": "ServiceManifest",
-                "metadata": {"name": "orders", "team": "commerce", "tier": "standard"},
-                "spec": {"type": "api"},
-            }
-        )
-    )
-
-    with pytest.raises(AttributeError):
-        load_manifest(path)
-
-
 def test_the_matrix_fails_a_cell_the_backstop_refuses(tmp_path, monkeypatch):
     def parse(*args, **kwargs):
         raise TypeError("unhashable type: 'list'")

@@ -144,6 +144,11 @@ def require_number(field_name: str, value: object, *, what: str) -> float:
         )
     try:
         return float(value)
+    except OverflowError as exc:
+        # A YAML integer has no upper bound; a float does (opensrm-wo62.4.28).
+        raise ValueError(
+            f"{what} for '{field_name}' is too large to be a number"
+        ) from exc
     except (TypeError, ValueError) as exc:
         raise ValueError(
             f"{what} for '{field_name}' must be a number, got {value!r}"

@@ -711,7 +711,8 @@ class BudgetPolicy:
     def validate(self) -> None:
         """Validate policy configuration."""
         for behavior in self.on_exhausted:
-            if behavior not in VALID_EXHAUSTION_BEHAVIORS:
+            # isinstance first: a YAML list or mapping is unhashable.
+            if not isinstance(behavior, str) or behavior not in VALID_EXHAUSTION_BEHAVIORS:
                 msg = (
                     f"Invalid on_exhausted behavior: {behavior}. "
                     f"Valid values: {', '.join(sorted(VALID_EXHAUSTION_BEHAVIORS))}"
@@ -886,6 +887,17 @@ VALID_FAILURE_CATEGORIES = frozenset({
 VALID_REVENUE_ATTRIBUTIONS = frozenset({"direct", "indirect", "supporting"})
 
 
+def _require_real(value: Any, what: str) -> None:
+    """ValueError unless *value* can be compared with a number.
+
+    The checks below compare with ``<``; a string, list or mapping there
+    was a bare TypeError (opensrm-wo62.4.28). A boolean is an int, compares,
+    and has always been accepted.
+    """
+    if not isinstance(value, int | float):
+        raise ValueError(f"{what} must be a number; got {value!r}")
+
+
 @dataclass
 class FailureCost:
     """Per-failure cost for false-positive / false-negative decisions."""
@@ -894,11 +906,14 @@ class FailureCost:
     category: str | None = None
 
     def __post_init__(self) -> None:
+        _require_real(self.cost, "FailureCost.cost")
         if self.cost < 0:
             raise ValueError(
                 f"FailureCost.cost must be >= 0; got {self.cost}"
             )
-        if self.category is not None and self.category not in VALID_FAILURE_CATEGORIES:
+        if self.category is not None and (
+            not isinstance(self.category, str) or self.category not in VALID_FAILURE_CATEGORIES
+        ):
             raise ValueError(
                 f"FailureCost.category must be one of "
                 f"{sorted(VALID_FAILURE_CATEGORIES)}; got {self.category!r}"
@@ -915,7 +930,7 @@ class DecisionValue:
     false_negative: FailureCost | None = None
 
     def __post_init__(self) -> None:
-        if not _CURRENCY_PATTERN.match(self.currency):
+        if not isinstance(self.currency, str) or not _CURRENCY_PATTERN.match(self.currency):
             raise ValueError(
                 f"DecisionValue.currency must be an ISO 4217 alpha-3 code; "
                 f"got {self.currency!r}"
@@ -930,14 +945,20 @@ class RevenueAttribution:
     signal: str | None = None
 
     def __post_init__(self) -> None:
-        if self.attribution is not None and self.attribution not in VALID_REVENUE_ATTRIBUTIONS:
+        if self.attribution is not None and (
+            not isinstance(self.attribution, str)
+            or self.attribution not in VALID_REVENUE_ATTRIBUTIONS
+        ):
             raise ValueError(
                 f"revenue.attribution must be one of "
                 f"{sorted(VALID_REVENUE_ATTRIBUTIONS)}; got {self.attribution!r}"
             )
         # Signal is mapped to a Prometheus metric (or other backend) by
         # nthlayer-generate; identifier shape only here.
-        if self.signal is not None and not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", self.signal):
+        if self.signal is not None and (
+            not isinstance(self.signal, str)
+            or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", self.signal)
+        ):
             raise ValueError(
                 f"revenue.signal must be a valid identifier (alphanumeric + "
                 f"underscores); got {self.signal!r}"
@@ -952,6 +973,9 @@ class VolumeEstimate:
     peak_multiplier: float = 1.0
 
     def __post_init__(self) -> None:
+        if self.estimated_daily_decisions is not None:
+            _require_real(self.estimated_daily_decisions, "volume.estimated_daily_decisions")
+        _require_real(self.peak_multiplier, "volume.peak_multiplier")
         if self.estimated_daily_decisions is not None and self.estimated_daily_decisions < 0:
             raise ValueError(
                 f"volume.estimated_daily_decisions must be >= 0; "
@@ -1089,7 +1113,9 @@ class ReliabilityManifest:
         if not self.type:
             raise ValueError("Service type is required")
 
-        if self.tier not in VALID_TIERS:
+        # isinstance first: a YAML list or mapping is unhashable, and the
+        # set lookup was a bare TypeError (opensrm-wo62.4.28).
+        if not isinstance(self.tier, str) or self.tier not in VALID_TIERS:
             msg = (
                 f"Invalid tier '{self.tier}'. "
                 f"Must be one of: {', '.join(sorted(VALID_TIERS))}."
