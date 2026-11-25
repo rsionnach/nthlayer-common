@@ -115,11 +115,25 @@ def _expected(manifest: Any) -> Any:
     return manifest.dependencies[0].slo.availability
 
 
-# field id -> (how to write it, how to read it back, what an error names:
-# the position, and the contract or dependency it is in).
+def _raw_promise(document: dict[str, Any]) -> Any:
+    return document["spec"]["contracts"][0]["promise"]["availability"]
+
+
+def _raw_expected(document: dict[str, Any]) -> Any:
+    return document["spec"]["dependencies"][0]["expected_availability"]
+
+
+# field id -> (how to write it, how to read it back from the manifest, what
+# an error names: the position, and the contract or dependency it is in;
+# how to read it from the raw document).
 FIELDS = {
-    "promise": (_set_promise, _promise, ("promise.availability", "payment-api")),
-    "expected": (_set_expected, _expected, ("expected_availability", "postgresql")),
+    "promise": (_set_promise, _promise, ("promise.availability", "payment-api"), _raw_promise),
+    "expected": (
+        _set_expected,
+        _expected,
+        ("expected_availability", "postgresql"),
+        _raw_expected,
+    ),
 }
 FIELD_IDS = sorted(FIELDS)
 assert len(FIELD_IDS) == 2
@@ -155,6 +169,43 @@ def test_anything_else_is_refused_naming_the_field(field, case, tmp_path):
     assert raised.value.backstop is False
     assert position in str(raised.value)
     assert owner in str(raised.value)
+
+
+# What only YAML text can say: an integer with thousands of digits. PyYAML
+# reads hexadecimal with no length limit, and Python will not print such a
+# number, so neither can the test's yaml.safe_dump nor a naive message.
+_HUGE_HEX = "0x" + "f" * 4000
+
+
+@pytest.mark.parametrize("field", FIELD_IDS)
+def test_an_integer_too_large_to_print_is_still_refused_naming_the_field(field, tmp_path):
+    document = copy.deepcopy(EXAMPLE)
+    FIELDS[field][0](document, "HUGE-INTEGER-GOES-HERE")
+    text = yaml.safe_dump(document, sort_keys=False)
+    assert text.count("HUGE-INTEGER-GOES-HERE") == 1
+    path = tmp_path / "service.yaml"
+    path.write_text(text.replace("HUGE-INTEGER-GOES-HERE", _HUGE_HEX))
+    # The file does say an integer there, not a string.
+    written = yaml.safe_load(path.read_text())
+    assert isinstance(FIELDS[field][3](written), int)
+
+    with pytest.raises(ManifestLoadError) as raised:
+        load_manifest(path)
+
+    position, owner = FIELDS[field][2]
+    assert raised.value.backstop is False
+    assert position in str(raised.value)
+    assert owner in str(raised.value)
+
+
+@pytest.mark.parametrize("field", FIELD_IDS)
+def test_a_huge_value_is_not_echoed_whole(field, tmp_path):
+    with pytest.raises(ManifestLoadError) as raised:
+        _load(tmp_path, field, "9" * 200_000)
+
+    position, _ = FIELDS[field][2]
+    assert position in str(raised.value)
+    assert len(str(raised.value)) < 400
 
 
 @pytest.mark.parametrize("field", FIELD_IDS)

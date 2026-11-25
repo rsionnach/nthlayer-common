@@ -114,6 +114,26 @@ def _rate(value: Any, what: str) -> float:
     return require_float(value, what, OpenSRMV2ParseError)
 
 
+_SHOWN_LIMIT = 80
+
+
+def _shown(value: Any) -> str:
+    """*value* for an error message: its repr, cut to a line's length.
+
+    A manifest can put anything where a number goes, and the message must
+    survive it: a string of megabytes is cut, and an integer of thousands
+    of digits (YAML's hex and binary integers have no length limit) has no
+    repr at all, since Python refuses to print one.
+    """
+    try:
+        text = repr(value)
+    except ValueError:
+        return "an integer too large to print"
+    if len(text) > _SHOWN_LIMIT:
+        return text[: _SHOWN_LIMIT - 3] + "..."
+    return text
+
+
 def _ratio(value: Any, what: str) -> Any:
     """*value* if it is schema.json's ``Ratio``, else OpenSRMV2ParseError.
 
@@ -132,7 +152,7 @@ def _ratio(value: Any, what: str) -> Any:
     # outside the range; an integer too large for a float compares as one.
     if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
         raise OpenSRMV2ParseError(
-            f"{what} must be a ratio from 0 to 1 (0.999 for 99.9%), got {value!r}"
+            f"{what} must be a ratio from 0 to 1 (0.999 for 99.9%), got {_shown(value)}"
         )
     return value
 
