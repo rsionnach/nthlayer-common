@@ -59,6 +59,7 @@ from nthlayer_common.manifest.openslo.parser import (
 )
 from nthlayer_common.manifest.parser._shapes import (
     require_entries,
+    require_float,
     require_iterable,
     require_mapping,
     shape,
@@ -102,18 +103,15 @@ def _iterable(value: Any, what: str) -> Any:
     return require_iterable(value, what, OpenSRMV2ParseError)
 
 
+def _entries(value: Any, what: str) -> list[dict[str, Any]]:
+    """*value* as a list of mappings, else OpenSRMV2ParseError."""
+    return require_entries(value, what, OpenSRMV2ParseError)
+
+
 def _rate(value: Any, what: str) -> float:
-    """``float(value)``, as it always was (so ``true`` is still 1.0 and a
-    string that spells no number is still a ValueError), except that a
-    value ``float()`` cannot take at all is an OpenSRMV2ParseError naming
-    *what*, not a bare TypeError or OverflowError."""
-    try:
-        return float(value)
-    except TypeError as exc:
-        raise OpenSRMV2ParseError(f"{what} must be a number, not {shape(value)}") from exc
-    except OverflowError as exc:
-        # An integer too large for a float (YAML integers are unbounded).
-        raise OpenSRMV2ParseError(f"{what} is too large to be a number") from exc
+    """*value* as a float (see ``_shapes.require_float`` for what that
+    admits, and why), else OpenSRMV2ParseError naming *what*."""
+    return require_float(value, what, OpenSRMV2ParseError)
 
 
 def is_opensrm_v2_format(data: dict[str, Any]) -> bool:
@@ -400,14 +398,13 @@ def _resolve_backstage_ref(ref: str, expected_kind: str | tuple[str, ...]) -> st
     Raises OpenSRMV2ParseError on invalid format.
     """
     kinds = (expected_kind,) if isinstance(expected_kind, str) else expected_kind
+    formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
     if not isinstance(ref, str):
-        formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
         raise OpenSRMV2ParseError(
             f"Invalid Backstage entity reference: {ref!r}. Expected a string of "
             f"the format {formats}, not {shape(ref)}"
         )
     if ":" not in ref:
-        formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
         raise OpenSRMV2ParseError(
             f"Invalid Backstage entity reference: '{ref}'. Expected format: {formats}"
         )
@@ -655,11 +652,7 @@ def _parse_judgment_measurement(
         sampling_data = _mapping(sampling_data, "Judgment SLO sampling")
         stratified = []
         for i, s in enumerate(
-            require_entries(
-                sampling_data.get("stratified", []),
-                "Judgment SLO sampling.stratified",
-                OpenSRMV2ParseError,
-            )
+            _entries(sampling_data.get("stratified", []), "Judgment SLO sampling.stratified")
         ):
             stratified.append(StratifiedSample(
                 segment=s.get("segment", ""),

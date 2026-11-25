@@ -102,10 +102,9 @@ def _openslo(name: str, indicator_spec: dict[str, Any], objective: dict[str, Any
 # form that loads. The OpenSLO documents carry each indicator OpenSLO v1
 # defines: ratioMetric as good/total, bad/total and raw, as the vendored
 # excerpt of its spec has them (fixtures/openslo/ratio-metric-v1.md), and
-# thresholdMetric. The thresholdMetric document, ``timeWindow`` and the
-# objective's ``op``, ``value`` and ``targetPercent`` are OpenSLO v1's too,
-# but no excerpt for them is vendored here: those shapes are written from
-# the OpenSLO spec as the author knows it, not checked against a file.
+# thresholdMetric, with ``timeWindow`` and the objective's ``op``, ``value``
+# and ``targetPercent``, as the second excerpt has them
+# (fixtures/openslo/slo-objectives-threshold-v1.md).
 # ``outcomes`` and ``observability`` are not in the schema; the parser
 # reads them.
 V2_FULL: dict[str, Any] = {
@@ -1013,6 +1012,28 @@ def test_an_srm_v1_alias_to_its_own_anchor_is_a_load_error(tmp_path):
 
     assert raised.value.backstop is False
     assert isinstance(raised.value.__cause__, RecursionError)
+
+
+@pytest.mark.parametrize(
+    "error", [AttributeError, TypeError, KeyError, IndexError, OverflowError]
+)
+def test_the_legacy_path_has_the_same_backstop(error, tmp_path, monkeypatch):
+    # One tuple of shape errors for all three formats (opensrm-8his): the
+    # legacy branch used to convert only AttributeError and TypeError.
+    def broken(*args: Any, **kwargs: Any) -> Any:
+        raise error("a position nothing checks")
+
+    monkeypatch.setattr(loader, "_parse_legacy_to_manifest", broken)
+    manifest = _write_tree(
+        tmp_path,
+        {"service.yaml": "service: {name: orders, team: commerce, tier: standard, type: api}\n"},
+    )
+
+    with pytest.raises(ManifestLoadError) as raised:
+        _load(manifest)
+
+    assert raised.value.backstop is True
+    assert isinstance(raised.value.__cause__, error)
 
 
 @pytest.mark.parametrize("doc_id", ["v1-full", "v2-full"])
