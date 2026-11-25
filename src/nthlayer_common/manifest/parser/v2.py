@@ -57,6 +57,12 @@ from nthlayer_common.manifest.openslo.parser import (
     OpenSLOParseError,
     parse_openslo_slos,
 )
+from nthlayer_common.manifest.parser._shapes import (
+    require_entries,
+    require_iterable,
+    require_mapping,
+    shape,
+)
 from nthlayer_common.manifest.parser._shared import parse_observability
 from nthlayer_common.manifest.target_validation import (
     JUDGMENT_TARGET_FIELDS,
@@ -79,6 +85,35 @@ logger = structlog.get_logger()
 
 class OpenSRMV2ParseError(Exception):
     """Error parsing OpenSRM v2 manifest."""
+
+
+def _mapping(value: Any, what: str) -> dict[str, Any]:
+    """*value* if it is a mapping, else OpenSRMV2ParseError naming *what*.
+
+    These positions are read with ``.get``; anything else used to end in a
+    bare AttributeError or TypeError (opensrm-wo62.4.28).
+    """
+    return require_mapping(value, what, OpenSRMV2ParseError)
+
+
+def _iterable(value: Any, what: str) -> Any:
+    """*value* if a loop can walk it, else OpenSRMV2ParseError (see
+    ``_shapes.require_iterable`` for what that admits, and why)."""
+    return require_iterable(value, what, OpenSRMV2ParseError)
+
+
+def _rate(value: Any, what: str) -> float:
+    """``float(value)``, as it always was (so ``true`` is still 1.0 and a
+    string that spells no number is still a ValueError), except that a
+    value ``float()`` cannot take at all is an OpenSRMV2ParseError naming
+    *what*, not a bare TypeError or OverflowError."""
+    try:
+        return float(value)
+    except TypeError as exc:
+        raise OpenSRMV2ParseError(f"{what} must be a number, not {shape(value)}") from exc
+    except OverflowError as exc:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise OpenSRMV2ParseError(f"{what} is too large to be a number") from exc
 
 
 def is_opensrm_v2_format(data: dict[str, Any]) -> bool:
@@ -107,8 +142,8 @@ def parse_opensrm_v2(
             "and kind: ServiceManifest"
         )
 
-    metadata = data.get("metadata", {})
-    spec = data.get("spec", {})
+    metadata = _mapping(data.get("metadata", {}), "metadata")
+    spec = _mapping(data.get("spec", {}), "spec")
 
     # Required metadata
     name = metadata.get("name")
@@ -126,7 +161,7 @@ def parse_opensrm_v2(
     team = ownership.team
 
     # Tier from labels
-    labels = metadata.get("labels", {})
+    labels = _mapping(metadata.get("labels", {}), "metadata.labels")
     tier = labels.get("tier")
     if not tier:
         raise OpenSRMV2ParseError(
@@ -256,14 +291,14 @@ def parse_opensrm_v2(
     outcomes = _parse_outcomes(spec.get("outcomes"))
 
     # Parse observability (non-standard but commonly included)
-    observability = parse_observability(spec.get("observability"))
+    observability = parse_observability(spec.get("observability"), OpenSRMV2ParseError)
 
     # Template ref (§9) — resolved before this function is called.
     # Store the original ref for provenance.
     template_ref = None
     template_block = spec.get("template", {})
     if template_block:
-        template_ref = template_block.get("extends")
+        template_ref = _mapping(template_block, "spec.template").get("extends")
 
     return ReliabilityManifest(
         name=service_name,
@@ -331,6 +366,7 @@ def _parse_v2_owner(owner_data: dict[str, Any]) -> Ownership | None:
     """
     if not owner_data:
         return None
+    owner_data = _mapping(owner_data, "spec.owner")
 
     group_ref = owner_data.get("group")
     if not group_ref:
@@ -364,6 +400,12 @@ def _resolve_backstage_ref(ref: str, expected_kind: str | tuple[str, ...]) -> st
     Raises OpenSRMV2ParseError on invalid format.
     """
     kinds = (expected_kind,) if isinstance(expected_kind, str) else expected_kind
+    if not isinstance(ref, str):
+        formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
+        raise OpenSRMV2ParseError(
+            f"Invalid Backstage entity reference: {ref!r}. Expected a string of "
+            f"the format {formats}, not {shape(ref)}"
+        )
     if ":" not in ref:
         formats = " or ".join(f"'{k}:namespace/name'" for k in kinds)
         raise OpenSRMV2ParseError(
@@ -596,7 +638,7 @@ def _parse_judgment_measurement(
     spec: dict[str, Any],
 ) -> JudgmentMeasurement:
     """Parse measurement config from judgment SLO spec."""
-    m_data = spec.get("measurement", {})
+    m_data = _mapping(spec.get("measurement", {}), "Judgment SLO measurement")
 
     measurement = JudgmentMeasurement(
         source=m_data.get("source"),
@@ -610,14 +652,23 @@ def _parse_judgment_measurement(
     # Sampling config (audit_sampling type)
     sampling_data = spec.get("sampling")
     if sampling_data:
+        sampling_data = _mapping(sampling_data, "Judgment SLO sampling")
         stratified = []
-        for s in sampling_data.get("stratified", []):
+        for i, s in enumerate(
+            require_entries(
+                sampling_data.get("stratified", []),
+                "Judgment SLO sampling.stratified",
+                OpenSRMV2ParseError,
+            )
+        ):
             stratified.append(StratifiedSample(
                 segment=s.get("segment", ""),
-                rate=float(s.get("rate", 0)),
+                rate=_rate(s.get("rate", 0), f"Judgment SLO sampling.stratified[{i}].rate"),
             ))
         measurement.sampling = SamplingConfig(
-            overall_rate=float(sampling_data.get("overall_rate", 0)),
+            overall_rate=_rate(
+                sampling_data.get("overall_rate", 0), "Judgment SLO sampling.overall_rate"
+            ),
             stratified=stratified,
         )
 
@@ -752,7 +803,7 @@ def _parse_breach_actions(actions_data: list[dict[str, Any]]) -> list[BreachActi
     """Parse breach actions from v2 spec §5.4."""
     actions = []
 
-    for action in actions_data:
+    for action in _iterable(actions_data, "breach_actions"):
         if not isinstance(action, dict):
             continue
 
@@ -808,7 +859,7 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
     """Parse v2 reliability contracts from §6."""
     contracts = []
 
-    for c_data in contracts_data:
+    for c_data in _iterable(contracts_data, "spec.contracts"):
         if not isinstance(c_data, dict):
             continue
 
@@ -817,9 +868,11 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
             raise OpenSRMV2ParseError("Contract missing 'name' field")
 
         # Promise
-        promise_data = c_data.get("promise", {})
+        promise_data = _mapping(c_data.get("promise", {}), f"Contract {name!r}: promise")
         judgment_promises = []
-        for jtype, threshold in promise_data.get("judgment", {}).items():
+        for jtype, threshold in _mapping(
+            promise_data.get("judgment", {}), f"Contract {name!r}: promise.judgment"
+        ).items():
             # Threshold and direction decided together, in one place shared with
             # the v1 path — see judgment_promise() [opensrm-ocvu]. Re-raised as
             # this parser's own error type; a `judgment: {reversal_rate:}` typo
@@ -842,6 +895,7 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
         api_ref = None
         api_ref_data = c_data.get("api_ref")
         if api_ref_data:
+            api_ref_data = _mapping(api_ref_data, f"Contract {name!r}: api_ref")
             api_ref = APIRef(
                 openapi=api_ref_data.get("openapi"),
                 asyncapi=api_ref_data.get("asyncapi"),
@@ -852,6 +906,7 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
         breach_semantics = None
         bs_data = c_data.get("breach_semantics")
         if bs_data:
+            bs_data = _mapping(bs_data, f"Contract {name!r}: breach_semantics")
             comp = bs_data.get("compensation")
             comp_desc = comp.get("description") if isinstance(comp, dict) else comp
             sla = bs_data.get("sla_credits", {})
@@ -883,7 +938,7 @@ def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
     """Parse v2 dependencies from §7."""
     dependencies = []
 
-    for dep_data in deps_data:
+    for dep_data in _iterable(deps_data, "spec.dependencies"):
         if not isinstance(dep_data, dict):
             continue
 
@@ -925,6 +980,7 @@ def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
         fallback = None
         fallback_data = dep_data.get("fallback")
         if fallback_data:
+            fallback_data = _mapping(fallback_data, f"Dependency {name!r}: fallback")
             fallback = FallbackDeclaration(
                 kind=fallback_data.get("type", "none"),
                 description=fallback_data.get("description"),
@@ -953,9 +1009,12 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
     """Parse v2 instrumentation requirements from §8."""
     if not instr_data:
         return None
+    instr_data = _mapping(instr_data, "spec.instrumentation")
 
     required_metrics = []
-    for m in instr_data.get("required_metrics", []):
+    for m in _iterable(
+        instr_data.get("required_metrics", []), "spec.instrumentation.required_metrics"
+    ):
         if isinstance(m, dict):
             required_metrics.append(RequiredMetric(
                 name=m.get("name", ""),
@@ -964,7 +1023,9 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
             ))
 
     required_traces = []
-    for t in instr_data.get("required_traces", []):
+    for t in _iterable(
+        instr_data.get("required_traces", []), "spec.instrumentation.required_traces"
+    ):
         if isinstance(t, dict):
             emitted_by = t.get("emitted_by", DEFAULT_TRACE_EMITTER)
             # isinstance first: a YAML list or mapping is unhashable.
@@ -981,7 +1042,7 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
             ))
 
     required_logs = []
-    for lg in instr_data.get("required_logs", []):
+    for lg in _iterable(instr_data.get("required_logs", []), "spec.instrumentation.required_logs"):
         if isinstance(lg, dict):
             required_logs.append(RequiredLog(
                 format=lg.get("format", "structured"),
@@ -989,7 +1050,9 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
             ))
 
     required_events = []
-    for e in instr_data.get("required_events", []):
+    for e in _iterable(
+        instr_data.get("required_events", []), "spec.instrumentation.required_events"
+    ):
         if isinstance(e, dict):
             required_events.append(RequiredEvent(
                 event_type=e.get("type", ""),
@@ -1025,6 +1088,7 @@ def _parse_outcomes(outcomes_data: dict[str, Any] | None) -> Outcomes | None:
         raise OpenSRMV2ParseError(
             "spec.outcomes.decision_value is required when spec.outcomes is declared"
         )
+    dv_data = _mapping(dv_data, "spec.outcomes.decision_value")
 
     try:
         decision_value = DecisionValue(
@@ -1043,6 +1107,7 @@ def _parse_outcomes(outcomes_data: dict[str, Any] | None) -> Outcomes | None:
     revenue_data = outcomes_data.get("revenue")
     revenue: RevenueAttribution | None = None
     if revenue_data is not None:
+        revenue_data = _mapping(revenue_data, "spec.outcomes.revenue")
         try:
             revenue = RevenueAttribution(
                 attribution=revenue_data.get("attribution"),
@@ -1054,6 +1119,7 @@ def _parse_outcomes(outcomes_data: dict[str, Any] | None) -> Outcomes | None:
     volume_data = outcomes_data.get("volume")
     volume: VolumeEstimate | None = None
     if volume_data is not None:
+        volume_data = _mapping(volume_data, "spec.outcomes.volume")
         # Explicit None handling — `null` in YAML lands as Python None
         # and must not slip past the dataclass numeric guard as a TypeError.
         peak = volume_data.get("peak_multiplier")
@@ -1109,15 +1175,20 @@ def resolve_v2_template(
     Templates are resolved at parse time. Missing template reference is
     a parse error. Templates may not extend other templates (one level).
     """
-    spec = manifest_data.get("spec", {})
+    spec = _mapping(manifest_data.get("spec", {}), "spec")
     template_block = spec.get("template", {})
 
     if not template_block:
         return manifest_data
 
-    extends = template_block.get("extends")
+    extends = _mapping(template_block, "spec.template").get("extends")
     if not extends:
         return manifest_data
+    if not isinstance(extends, str):
+        raise OpenSRMV2ParseError(
+            f"spec.template.extends must be a string such as "
+            f"'template:namespace/name', not {shape(extends)}"
+        )
 
     # Resolve Backstage-style template ref: "template:namespace/name"
     if ":" in extends:
@@ -1168,7 +1239,9 @@ def resolve_v2_template(
         )
 
     # No-chaining: templates cannot extend other templates
-    template_spec = template_data.get("spec", {})
+    template_spec = _mapping(
+        template_data.get("spec", {}), f"Template '{template_name}': spec"
+    )
     if template_spec.get("template"):
         raise OpenSRMV2ParseError(
             f"Template '{template_name}' itself extends another template. "

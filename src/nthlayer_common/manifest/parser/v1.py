@@ -43,6 +43,12 @@ from nthlayer_common.manifest.models import (
     SourceFormat,
     TelemetryEvent,
 )
+from nthlayer_common.manifest.parser._shapes import (
+    require_entries,
+    require_iterable,
+    require_mapping,
+    shape,
+)
 from nthlayer_common.manifest.parser._shared import judgment_slo_fields, parse_observability
 from nthlayer_common.manifest.target_validation import (
     check_finite,
@@ -58,6 +64,26 @@ logger = structlog.get_logger()
 
 class OpenSRMParseError(Exception):
     """Error parsing OpenSRM v1 manifest."""
+
+
+def _mapping(value: Any, what: str) -> dict[str, Any]:
+    """*value* if it is a mapping, else OpenSRMParseError naming *what*.
+
+    These positions are read with ``.get``; anything else used to end in a
+    bare AttributeError or TypeError (opensrm-wo62.4.28).
+    """
+    return require_mapping(value, what, OpenSRMParseError)
+
+
+def _iterable(value: Any, what: str) -> Any:
+    """*value* if a loop can walk it, else OpenSRMParseError (see
+    ``_shapes.require_iterable`` for what that admits, and why)."""
+    return require_iterable(value, what, OpenSRMParseError)
+
+
+def _entries(value: Any, what: str) -> list[dict[str, Any]]:
+    """*value* as a list of mappings, else OpenSRMParseError."""
+    return require_entries(value, what, OpenSRMParseError)
 
 
 def is_srm_v1_format(data: dict[str, Any]) -> bool:
@@ -76,8 +102,8 @@ def parse_srm_v1(
             "kind: ServiceReliabilityManifest"
         )
 
-    metadata = data.get("metadata", {})
-    spec = data.get("spec", {})
+    metadata = _mapping(data.get("metadata", {}), "metadata")
+    spec = _mapping(data.get("spec", {}), "spec")
 
     name = metadata.get("name")
     if not name:
@@ -98,7 +124,7 @@ def parse_srm_v1(
     slos, judgment_thresholds = _parse_slos(spec.get("slos", {}), service_type)
     dependencies = _parse_dependencies(spec.get("dependencies", []))
     ownership = _parse_ownership(spec.get("ownership"))
-    observability = parse_observability(spec.get("observability"))
+    observability = parse_observability(spec.get("observability"), OpenSRMParseError)
     deployment = _parse_deployment(spec.get("deployment"))
     instrumentation = _parse_instrumentation(spec.get("instrumentation"))
 
@@ -106,13 +132,22 @@ def parse_srm_v1(
     contracts = []
     contract_data = spec.get("contract")
     if contract_data:
+        contract_data = _mapping(contract_data, "spec.contract")
+        # convert_v1_contract reads latency.p99 and walks judgment, each
+        # only when it is not empty.
+        latency = contract_data.get("latency")
+        if latency:
+            _mapping(latency, "spec.contract.latency")
+        judgment = contract_data.get("judgment")
+        if judgment:
+            _mapping(judgment, "spec.contract.judgment")
         try:
             contracts.append(
                 convert_v1_contract(
                     service_name=name,
                     availability=contract_data.get("availability"),
-                    latency=contract_data.get("latency"),
-                    judgment=contract_data.get("judgment"),
+                    latency=latency,
+                    judgment=judgment,
                 )
             )
         except ValueError as exc:
@@ -229,6 +264,14 @@ def _infer_slo_type(name: str, config: dict[str, Any], service_type: str) -> str
     if name in _NAME_TO_TYPE:
         return _NAME_TO_TYPE[name]
 
+    # Only from here is the name read as text. An SLO whose type is declared,
+    # or whose name is a judgment or standard name, loads whatever its key is.
+    if not isinstance(name, str):
+        raise OpenSRMParseError(
+            f"SLO {name!r} declares no type, so its type is inferred from its "
+            f"name, which must be a string, not {shape(name)}"
+        )
+
     # Keyword search in name
     name_lower = name.lower()
     for keyword, slo_type in _NAME_KEYWORDS:
@@ -278,7 +321,7 @@ def _parse_slos(
     slos = []
     thresholds: list[JudgmentThreshold] = []
 
-    for name, config in slos_data.items():
+    for name, config in _mapping(slos_data, "spec.slos").items():
         if not isinstance(config, dict):
             config = {"target": config}
 
@@ -347,7 +390,7 @@ def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
     """Parse dependencies from srm/v1 spec.dependencies section."""
     dependencies = []
 
-    for dep_data in deps_data:
+    for i, dep_data in enumerate(_iterable(deps_data, "spec.dependencies")):
         if not isinstance(dep_data, dict):
             continue
 
@@ -357,10 +400,15 @@ def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
 
         slo = None
         if "slo" in dep_data:
-            slo_data = dep_data["slo"]
+            where = f"spec.dependencies[{i}].slo"
+            slo_data = _mapping(dep_data["slo"], where)
+            # latency.p99 is the older spelling, read only without latency_p99.
+            latency_p99 = slo_data.get("latency_p99")
+            if not latency_p99:
+                latency_p99 = _mapping(slo_data.get("latency", {}), f"{where}.latency").get("p99")
             slo = DependencySLO(
                 availability=slo_data.get("availability"),
-                latency_p99=slo_data.get("latency_p99") or slo_data.get("latency", {}).get("p99"),
+                latency_p99=latency_p99,
             )
         # v2 top-level fields mapped into DependencySLO
         elif "expected_availability" in dep_data or "expected_latency_p99" in dep_data:
@@ -399,13 +447,14 @@ def _parse_ownership(ownership_data: dict[str, Any] | None) -> Ownership | None:
     if not ownership_data:
         return None
 
+    ownership_data = _mapping(ownership_data, "spec.ownership")
     team = ownership_data.get("team")
     if not team:
         return None
 
     pagerduty = None
     if "pagerduty" in ownership_data:
-        pd_data = ownership_data["pagerduty"]
+        pd_data = _mapping(ownership_data["pagerduty"], "spec.ownership.pagerduty")
         pagerduty = PagerDutyConfig(
             service_id=pd_data.get("service_id"),
             escalation_policy_id=pd_data.get("escalation_policy_id"),
@@ -430,10 +479,13 @@ def _parse_oncall(oncall_data: dict[str, Any] | None) -> OnCallConfig | None:
     if not oncall_data:
         return None
 
-    rotation_data = oncall_data.get("rotation", {})
+    oncall_data = _mapping(oncall_data, "spec.ownership.oncall")
+    rotation_data = _mapping(oncall_data.get("rotation", {}), "oncall.rotation")
 
     roster = []
-    for i, raw_member in enumerate(rotation_data.get("roster", [])):
+    for i, raw_member in enumerate(
+        _entries(rotation_data.get("roster", []), "oncall.rotation.roster")
+    ):
         try:
             roster.append(
                 RosterMember(
@@ -449,7 +501,7 @@ def _parse_oncall(oncall_data: dict[str, Any] | None) -> OnCallConfig | None:
             ) from e
 
     overrides = []
-    for i, raw_override in enumerate(oncall_data.get("overrides", [])):
+    for i, raw_override in enumerate(_entries(oncall_data.get("overrides", []), "oncall.overrides")):
         try:
             overrides.append(
                 Override(
@@ -465,7 +517,7 @@ def _parse_oncall(oncall_data: dict[str, Any] | None) -> OnCallConfig | None:
             ) from e
 
     escalation = []
-    for i, raw_step in enumerate(oncall_data.get("escalation", [])):
+    for i, raw_step in enumerate(_entries(oncall_data.get("escalation", []), "oncall.escalation")):
         try:
             escalation.append(
                 ManifestEscalationStep(
@@ -486,7 +538,8 @@ def _parse_oncall(oncall_data: dict[str, Any] | None) -> OnCallConfig | None:
     try:
         from zoneinfo import ZoneInfo
         ZoneInfo(tz_name)
-    except (KeyError, ValueError, OSError):
+    except (KeyError, ValueError, OSError, TypeError):
+        # TypeError: a timezone that is not a string.
         raise OpenSRMParseError(
             f"oncall.timezone: invalid IANA timezone: {tz_name!r}"
         ) from None
@@ -509,9 +562,10 @@ def _parse_deployment(deploy_data: dict[str, Any] | None) -> DeploymentConfig | 
     if not deploy_data:
         return None
 
+    deploy_data = _mapping(deploy_data, "spec.deployment")
     gates = None
     if "gates" in deploy_data:
-        gates_data = deploy_data["gates"]
+        gates_data = _mapping(deploy_data["gates"], "spec.deployment.gates")
         gates = DeploymentGates(
             error_budget=_parse_error_budget_gate(gates_data.get("error_budget")),
             slo_compliance=_parse_slo_compliance_gate(gates_data.get("slo_compliance")),
@@ -520,16 +574,17 @@ def _parse_deployment(deploy_data: dict[str, Any] | None) -> DeploymentConfig | 
 
     rollback = None
     if "rollback" in deploy_data:
-        rb_data = deploy_data["rollback"]
+        rb_data = _mapping(deploy_data["rollback"], "spec.deployment.rollback")
+        criteria = _mapping(rb_data.get("criteria", {}), "spec.deployment.rollback.criteria")
         rollback = RollbackConfig(
             automatic=rb_data.get("automatic", False),
-            error_rate_increase=rb_data.get("criteria", {}).get("error_rate_increase"),
-            latency_increase=rb_data.get("criteria", {}).get("latency_increase"),
+            error_rate_increase=criteria.get("error_rate_increase"),
+            latency_increase=criteria.get("latency_increase"),
         )
 
     audit = None
     if "audit" in deploy_data:
-        audit_data = deploy_data["audit"]
+        audit_data = _mapping(deploy_data["audit"], "spec.deployment.audit")
         audit = AuditConfig(
             enabled=audit_data.get("enabled", True),
             retention_days=audit_data.get("retention_days", 90),
@@ -543,6 +598,21 @@ def _parse_deployment(deploy_data: dict[str, Any] | None) -> DeploymentConfig | 
     )
 
 
+def _budget_fraction(value: Any, key: str) -> float:
+    """``float(value)``, as it always was (so ``true`` is still 1.0 and a
+    string that spells no number is still a ValueError), except that a
+    value ``float()`` cannot take at all is an OpenSRMParseError naming the
+    threshold, not a bare TypeError or OverflowError."""
+    what = f"spec.deployment.gates.error_budget.policy.thresholds.{key}"
+    try:
+        return float(value)
+    except TypeError as exc:
+        raise OpenSRMParseError(f"{what} must be a number, not {shape(value)}") from exc
+    except OverflowError as exc:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise OpenSRMParseError(f"{what} is too large to be a number") from exc
+
+
 def _parse_budget_policy(data: dict[str, Any]) -> BudgetPolicy | None:
     """Parse budget policy from error_budget gate config."""
     policy_data = data.get("policy")
@@ -553,8 +623,8 @@ def _parse_budget_policy(data: dict[str, Any]) -> BudgetPolicy | None:
     thresh_data = policy_data.get("thresholds")
     if thresh_data and isinstance(thresh_data, dict):
         thresholds = BudgetThresholds(
-            warning=float(thresh_data.get("warning", 0.20)),
-            critical=float(thresh_data.get("critical", 0.10)),
+            warning=_budget_fraction(thresh_data.get("warning", 0.20), "warning"),
+            critical=_budget_fraction(thresh_data.get("critical", 0.10), "critical"),
         )
 
     on_exhausted = policy_data.get("on_exhausted", [])
@@ -573,6 +643,7 @@ def _parse_budget_policy(data: dict[str, Any]) -> BudgetPolicy | None:
 def _parse_error_budget_gate(gate_data: dict[str, Any] | None) -> ErrorBudgetGate | None:
     if not gate_data:
         return None
+    gate_data = _mapping(gate_data, "spec.deployment.gates.error_budget")
     return ErrorBudgetGate(
         enabled=gate_data.get("enabled", True),
         threshold=gate_data.get("threshold"),
@@ -583,12 +654,14 @@ def _parse_error_budget_gate(gate_data: dict[str, Any] | None) -> ErrorBudgetGat
 def _parse_slo_compliance_gate(gate_data: dict[str, Any] | None) -> SLOComplianceGate | None:
     if not gate_data:
         return None
+    gate_data = _mapping(gate_data, "spec.deployment.gates.slo_compliance")
     return SLOComplianceGate(threshold=gate_data.get("threshold", 0.99))
 
 
 def _parse_recent_incidents_gate(gate_data: dict[str, Any] | None) -> RecentIncidentsGate | None:
     if not gate_data:
         return None
+    gate_data = _mapping(gate_data, "spec.deployment.gates.recent_incidents")
     return RecentIncidentsGate(
         p1_max=gate_data.get("p1_max", 0),
         p2_max=gate_data.get("p2_max", 2),
@@ -601,8 +674,11 @@ def _parse_instrumentation(instr_data: dict[str, Any] | None) -> Instrumentation
     if not instr_data:
         return None
 
+    instr_data = _mapping(instr_data, "spec.instrumentation")
     events = []
-    for event_data in instr_data.get("telemetry_events", []):
+    for event_data in _iterable(
+        instr_data.get("telemetry_events", []), "spec.instrumentation.telemetry_events"
+    ):
         if isinstance(event_data, dict):
             events.append(
                 TelemetryEvent(
@@ -633,7 +709,7 @@ def resolve_template(
     (backward compat); v2 makes it a parse error.
     """
     warnings: list[str] = []
-    metadata = manifest_data.get("metadata", {})
+    metadata = _mapping(manifest_data.get("metadata", {}), "metadata")
     template_name = metadata.get("template")
 
     if not template_name:
@@ -664,7 +740,9 @@ def resolve_template(
         return manifest_data, warnings
 
     # No-chaining rule
-    template_metadata = template_data.get("metadata", {})
+    template_metadata = _mapping(
+        template_data.get("metadata", {}), f"Template '{template_name}': metadata"
+    )
     if template_metadata.get("template"):
         warnings.append(
             f"Template '{template_name}' itself references template "
@@ -673,8 +751,8 @@ def resolve_template(
         return manifest_data, warnings
 
     template_spec = template_data.get("spec", {})
-    manifest_spec = manifest_data.get("spec", {})
-    merged_spec = _deep_merge_spec(template_spec, manifest_spec)
+    manifest_spec = _mapping(manifest_data.get("spec", {}), "spec")
+    merged_spec = _deep_merge_spec(template_spec, manifest_spec, f"Template '{template_name}': spec")
 
     result = dict(manifest_data)
     result["spec"] = merged_spec
@@ -682,19 +760,35 @@ def resolve_template(
     return result, warnings
 
 
-def _deep_merge_spec(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Deep merge two spec dicts with override-wins semantics."""
-    result = dict(base)
+def _copied(value: Any, what: str) -> dict[str, Any]:
+    """``dict(value)``, as the merge always took its template side (so an
+    empty list still counts as an empty mapping), except that a value
+    ``dict()`` cannot take at all is an OpenSRMParseError naming it, not a
+    bare TypeError."""
+    try:
+        return dict(value)
+    except TypeError as exc:
+        raise OpenSRMParseError(f"{what} must be a mapping, not {shape(value)}") from exc
+
+
+def _deep_merge_spec(
+    base: dict[str, Any], override: dict[str, Any], what: str = "spec"
+) -> dict[str, Any]:
+    """Deep merge two spec dicts with override-wins semantics.
+
+    *what* names *base* (the template's side) in an error.
+    """
+    result = _copied(base, what)
 
     for key, value in override.items():
         if key == "slos":
-            base_slos = dict(result.get("slos", {}))
+            base_slos = _copied(result.get("slos", {}), f"{what}.slos")
             if isinstance(value, dict):
                 for slo_name, slo_def in value.items():
                     base_slos[slo_name] = slo_def
             result["slos"] = base_slos
         elif key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge_spec(result[key], value)
+            result[key] = _deep_merge_spec(result[key], value, f"{what}.{key}")
         else:
             result[key] = value
 

@@ -16,6 +16,12 @@ from typing import Any
 import yaml
 
 from nthlayer_common.manifest.models import SLODefinition
+from nthlayer_common.manifest.parser._shapes import (
+    require_iterable,
+    require_mapping,
+    require_string,
+    shape,
+)
 from nthlayer_common.manifest.target_validation import (
     check_finite,
     require_number,
@@ -24,6 +30,23 @@ from nthlayer_common.manifest.target_validation import (
 
 class OpenSLOParseError(Exception):
     """Error parsing an OpenSLO document."""
+
+
+def _mapping(value: Any, what: str) -> dict[str, Any]:
+    """*value* if it is a mapping, else OpenSLOParseError naming *what*.
+
+    These positions are read with ``.get``; anything else used to end in a
+    bare AttributeError or TypeError (opensrm-wo62.4.28).
+    """
+    return require_mapping(value, what, OpenSLOParseError)
+
+
+def _first(value: Any, what: str) -> Any:
+    """``value[0]``, else OpenSLOParseError naming *what* as a list."""
+    try:
+        return value[0]
+    except (TypeError, KeyError, IndexError) as exc:
+        raise OpenSLOParseError(f"{what} must be a list, not {shape(value)}") from exc
 
 
 def parse_openslo_slos(
@@ -41,13 +64,13 @@ def parse_openslo_slos(
     """
     results = []
 
-    for entry in slo_list:
+    for entry in require_iterable(slo_list, "spec.slo", OpenSLOParseError):
         if not isinstance(entry, dict):
             raise OpenSLOParseError(f"Expected dict in slo list, got {type(entry).__name__}")
 
         # $ref resolution
         if "$ref" in entry:
-            ref_path = entry["$ref"]
+            ref_path = require_string(entry["$ref"], "$ref", OpenSLOParseError)
             if base_dir is None:
                 raise OpenSLOParseError(
                     f"Cannot resolve $ref '{ref_path}' — no base directory"
@@ -104,12 +127,14 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
             f"Expected kind: SLO, got: {kind}"
         )
 
-    metadata = data.get("metadata", {})
-    spec = data.get("spec", {})
+    metadata = _mapping(data.get("metadata", {}), "OpenSLO document: metadata")
+    spec = _mapping(data.get("spec", {}), "OpenSLO document: spec")
 
     name = metadata.get("name")
     if not name:
         raise OpenSLOParseError("OpenSLO document missing metadata.name")
+    # The name is read as text, for the SLO's type and its percentile.
+    require_string(name, "OpenSLO document: metadata.name", OpenSLOParseError)
 
     # Parse objectives — take the first one (OpenSLO supports multiple but
     # we normalise to one SLODefinition per objective)
@@ -117,12 +142,14 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     if not objectives:
         raise OpenSLOParseError(f"OpenSLO '{name}' has no objectives")
 
-    objective = objectives[0]
+    objective = _mapping(
+        _first(objectives, f"OpenSLO '{name}': objectives"), f"OpenSLO '{name}': objectives[0]"
+    )
     target = _objective_target_percent(objective, name)
 
     # Parse indicator
-    indicator = spec.get("indicator", {})
-    indicator_spec = indicator.get("spec", {})
+    indicator = _mapping(spec.get("indicator", {}), f"OpenSLO '{name}': indicator")
+    indicator_spec = _mapping(indicator.get("spec", {}), f"OpenSLO '{name}': indicator.spec")
 
     indicator_query = None
     total_query = None
@@ -187,12 +214,23 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     # thresholdMetric indicator
     threshold = indicator_spec.get("thresholdMetric")
     if threshold and not ratio:
-        metric_source = threshold.get("metricSource", {})
+        threshold = _mapping(threshold, f"OpenSLO '{name}': thresholdMetric")
+        metric_source = _mapping(
+            threshold.get("metricSource", {}), f"OpenSLO '{name}': thresholdMetric.metricSource"
+        )
         indicator_query = _extract_query(metric_source)
 
     # Direct query (non-standard but common extension)
     if not indicator_query:
-        direct = indicator_spec.get("query") or indicator_spec.get("metricSource", {}).get("spec", {}).get("query")
+        direct = indicator_spec.get("query")
+        if not direct:
+            source = _mapping(
+                indicator_spec.get("metricSource", {}),
+                f"OpenSLO '{name}': indicator.spec.metricSource",
+            )
+            direct = _mapping(
+                source.get("spec", {}), f"OpenSLO '{name}': indicator.spec.metricSource.spec"
+            ).get("query")
         if direct:
             indicator_query = direct
 
@@ -205,13 +243,20 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     window = "30d"
     time_windows = spec.get("timeWindow", [])
     if time_windows:
-        tw = time_windows[0]
+        tw = _mapping(
+            _first(time_windows, f"OpenSLO '{name}': timeWindow"),
+            f"OpenSLO '{name}': timeWindow[0]",
+        )
         duration = tw.get("duration")
         if duration:
             window = duration
 
     # Extract unit and percentile hints
-    display_name = objective.get("displayName", "")
+    display_name = require_string(
+        objective.get("displayName", ""),
+        f"OpenSLO '{name}': objectives[0].displayName",
+        OpenSLOParseError,
+    )
     unit = None
     percentile = None
 
@@ -220,11 +265,20 @@ def _parse_openslo_document(data: dict[str, Any]) -> SLODefinition:
     elif " s " in display_name.lower() or "seconds" in display_name.lower():
         unit = "s"
 
-    indicator_name = indicator.get("metadata", {}).get("name", "")
-    for p in ("p50", "p95", "p99", "p999"):
-        if p in indicator_name or p in name:
-            percentile = p
-            break
+    indicator_name = _mapping(
+        indicator.get("metadata", {}), f"OpenSLO '{name}': indicator.metadata"
+    ).get("name", "")
+    try:
+        for p in ("p50", "p95", "p99", "p999"):
+            if p in indicator_name or p in name:
+                percentile = p
+                break
+    except TypeError as exc:
+        # A name ``in`` cannot search: a number, a boolean, null.
+        raise OpenSLOParseError(
+            f"OpenSLO '{name}': indicator.metadata.name must be a string, "
+            f"not {shape(indicator_name)}"
+        ) from exc
 
     description = objective.get("displayName") or metadata.get("displayName")
 
@@ -372,7 +426,14 @@ def _infer_openslo_type(
 
     # Query hints
     query = indicator_query or ""
-    if "histogram_quantile" in query or "duration" in query:
+    try:
+        latency_query = "histogram_quantile" in query or "duration" in query
+    except TypeError as exc:
+        # A query ``in`` cannot search: a number, a boolean, binary data.
+        raise OpenSLOParseError(
+            f"OpenSLO '{name}': the indicator's query must be a string, not {shape(query)}"
+        ) from exc
+    if latency_query:
         return "latency"
     if "latency" in name_lower or "duration" in name_lower:
         return "latency"

@@ -10,16 +10,26 @@ from nthlayer_common.manifest.models import (
     Observability,
     StatisticalRequirements,
 )
+from nthlayer_common.manifest.parser._shapes import require_mapping
 from nthlayer_common.manifest.v1_compat import (
     default_measurement,
     default_statistical_requirements,
 )
 
 
-def parse_observability(obs_data: dict[str, Any] | None) -> Observability | None:
-    """Parse observability section (common to v1 and v2 formats)."""
+def parse_observability(
+    obs_data: dict[str, Any] | None,
+    error: type[Exception] = ValueError,
+) -> Observability | None:
+    """Parse observability section (common to v1 and v2 formats).
+
+    An empty section is no section. Any other value that is not a mapping
+    raises *error* (the calling parser's own), where it used to be a bare
+    AttributeError (opensrm-wo62.4.28).
+    """
     if not obs_data:
         return None
+    obs_data = require_mapping(obs_data, "spec.observability", error)
 
     return Observability(
         metrics_prefix=obs_data.get("metrics_prefix"),
