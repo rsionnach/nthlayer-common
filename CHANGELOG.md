@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.12.2](https://github.com/rsionnach/nthlayer-common/compare/v5.12.1...v5.12.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* legacy SLO target must be a finite number [opensrm-1lhl] ([903d46a](https://github.com/rsionnach/nthlayer-common/commit/903d46a260f6f447ec978af363de60ede139b961))
+* srm/v1 and v2 loads raise only contract errors [opensrm-wo62.4.28] ([6d7913a](https://github.com/rsionnach/nthlayer-common/commit/6d7913a47a93462d26a925d8673a3877720d9285))
+
 ## [5.12.1](https://github.com/rsionnach/nthlayer-common/compare/v5.12.0...v5.12.1) (2026-11-18)
 
 
