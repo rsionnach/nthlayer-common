@@ -45,6 +45,7 @@ from nthlayer_common.manifest.models import (
 )
 from nthlayer_common.manifest.parser._shapes import (
     require_entries,
+    require_float,
     require_iterable,
     require_mapping,
     shape,
@@ -479,7 +480,9 @@ def _parse_oncall(oncall_data: dict[str, Any] | None) -> OnCallConfig | None:
     if not oncall_data:
         return None
 
-    oncall_data = _mapping(oncall_data, "spec.ownership.oncall")
+    # Positions below are named from ``oncall``, as this function's
+    # messages always were ("oncall.timezone is required").
+    oncall_data = _mapping(oncall_data, "oncall")
     rotation_data = _mapping(oncall_data.get("rotation", {}), "oncall.rotation")
 
     roster = []
@@ -599,18 +602,13 @@ def _parse_deployment(deploy_data: dict[str, Any] | None) -> DeploymentConfig | 
 
 
 def _budget_fraction(value: Any, key: str) -> float:
-    """``float(value)``, as it always was (so ``true`` is still 1.0 and a
-    string that spells no number is still a ValueError), except that a
-    value ``float()`` cannot take at all is an OpenSRMParseError naming the
-    threshold, not a bare TypeError or OverflowError."""
-    what = f"spec.deployment.gates.error_budget.policy.thresholds.{key}"
-    try:
-        return float(value)
-    except TypeError as exc:
-        raise OpenSRMParseError(f"{what} must be a number, not {shape(value)}") from exc
-    except OverflowError as exc:
-        # An integer too large for a float (YAML integers are unbounded).
-        raise OpenSRMParseError(f"{what} is too large to be a number") from exc
+    """A budget policy threshold as a float (see ``_shapes.require_float``
+    for what that admits, and why), else OpenSRMParseError naming it."""
+    return require_float(
+        value,
+        f"spec.deployment.gates.error_budget.policy.thresholds.{key}",
+        OpenSRMParseError,
+    )
 
 
 def _parse_budget_policy(data: dict[str, Any]) -> BudgetPolicy | None:

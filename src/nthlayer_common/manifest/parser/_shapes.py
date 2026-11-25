@@ -74,6 +74,24 @@ def require_entries(value: Any, what: str, error: type[Exception]) -> list[dict[
     return entries
 
 
+def require_float(value: Any, what: str, error: type[Exception]) -> float:
+    """``float(value)``, else *error* naming *what*.
+
+    For a position the parser has always passed to ``float()``. What that
+    accepts is unchanged: ``true`` is still 1.0, and a string that spells
+    no number is still the ``ValueError`` ``float()`` raises. A value
+    ``float()`` cannot take at all (a list, a mapping, null), or an integer
+    too large for one, used to be a bare TypeError or OverflowError.
+    """
+    try:
+        return float(value)
+    except TypeError as exc:
+        raise error(f"{what} must be a number, not {shape(value)}") from exc
+    except OverflowError as exc:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise error(f"{what} is too large to be a number") from exc
+
+
 def require_string(value: Any, what: str, error: type[Exception]) -> str:
     """*value* if it is a string, else *error* naming *what*."""
     if not isinstance(value, str):

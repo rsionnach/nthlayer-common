@@ -84,23 +84,34 @@ SHAPE_BACKSTOP_MARKER = "[shape-backstop]"
 
 # What a parser reading a wrong shape lets out: ``.get`` on a list, a loop
 # over a number, ``[0]`` on a mapping, ``float()`` of an integer too large
-# for one.
+# for one. One tuple for all three formats: the legacy branch caught only
+# the first two until opensrm-8his.
 _SHAPE_ERRORS = (AttributeError, TypeError, KeyError, IndexError, OverflowError)
 
 
-def _shape_backstop(file_path: str | Path, format_name: str, error: Exception) -> ManifestLoadError:
-    """The ManifestLoadError for a shape error no check named."""
+def _shape_backstop(
+    file_path: str | Path, reader: str, error: Exception, marker: str = SHAPE_BACKSTOP_MARKER
+) -> ManifestLoadError:
+    """The ManifestLoadError for a shape error no check named.
+
+    *reader* is who met the value ("the srm/v1 parser"); *marker* is the
+    format's backstop marker.
+    """
     backstop = ManifestLoadError(
-        f"{file_path} cannot be loaded: a value in it is not the type the "
-        f"{format_name} parser expects ({type(error).__name__}: {error}) "
-        f"{SHAPE_BACKSTOP_MARKER}"
+        f"{file_path} cannot be loaded: a value in it is not the type "
+        f"{reader} expects ({type(error).__name__}: {error}) {marker}"
     )
     backstop.backstop = True
     return backstop
 
 
-def _self_referencing(file_path: str | Path) -> ManifestLoadError:
-    """The ManifestLoadError for a document that never ends."""
+def _recursion_error(file_path: str | Path) -> ManifestLoadError:
+    """The ManifestLoadError for a RecursionError on the srm/v1 or v2 path.
+
+    Two causes, which the error cannot tell apart: a YAML alias to its own
+    anchor (a walk over the document never ends), or a template or ``$ref``
+    file nested too deeply for the YAML reader.
+    """
     return ManifestLoadError(
         f"{file_path} cannot be loaded: a YAML alias in it refers to its own "
         "anchor, or a file it refers to is nested too deeply"
@@ -201,9 +212,9 @@ def load_manifest(
         except (OpenSRMParseError, ValueError) as e:
             raise ManifestLoadError(str(e)) from e
         except RecursionError as e:
-            raise _self_referencing(file_path) from e
+            raise _recursion_error(file_path) from e
         except _SHAPE_ERRORS as e:
-            raise _shape_backstop(file_path, "srm/v1", e) from e
+            raise _shape_backstop(file_path, "the srm/v1 parser", e) from e
 
     elif use_format == SourceFormat.OPENSRM_V2:
         try:
@@ -212,9 +223,9 @@ def load_manifest(
         except (OpenSRMV2ParseError, ValueError) as e:
             raise ManifestLoadError(str(e)) from e
         except RecursionError as e:
-            raise _self_referencing(file_path) from e
+            raise _recursion_error(file_path) from e
         except _SHAPE_ERRORS as e:
-            raise _shape_backstop(file_path, "v2", e) from e
+            raise _shape_backstop(file_path, "the v2 parser", e) from e
 
     else:
         if not suppress_deprecation_warning:
@@ -246,13 +257,10 @@ def load_manifest(
                 f"{file_path} cannot be loaded: a YAML alias in it refers to its own "
                 "anchor, or its overlay or template is nested too deeply"
             ) from e
-        except (AttributeError, TypeError) as e:
-            backstop = ManifestLoadError(
-                f"{file_path} cannot be loaded: a value in it is not the type the "
-                f"legacy loader expects ({type(e).__name__}: {e}) {LEGACY_BACKSTOP_MARKER}"
-            )
-            backstop.backstop = True
-            raise backstop from e
+        except _SHAPE_ERRORS as e:
+            raise _shape_backstop(
+                file_path, "the legacy loader", e, LEGACY_BACKSTOP_MARKER
+            ) from e
 
     # Cross-subsystem target-convention drift check (opensrm-pa2w). Emits
     # warnings via the warnings module; never rejects. See module docstring
