@@ -100,9 +100,14 @@ def _openslo(name: str, indicator_spec: dict[str, Any], objective: dict[str, Any
 
 # An api service with every block the schema gives a ServiceManifest, in a
 # form that loads. The OpenSLO documents carry each indicator OpenSLO v1
-# defines (fixtures/openslo/ratio-metric-v1.md): ratioMetric as good/total,
-# bad/total and raw, and thresholdMetric. ``outcomes`` and ``observability``
-# are not in the schema; the parser reads them.
+# defines: ratioMetric as good/total, bad/total and raw, as the vendored
+# excerpt of its spec has them (fixtures/openslo/ratio-metric-v1.md), and
+# thresholdMetric. The thresholdMetric document, ``timeWindow`` and the
+# objective's ``op``, ``value`` and ``targetPercent`` are OpenSLO v1's too,
+# but no excerpt for them is vendored here: those shapes are written from
+# the OpenSLO spec as the author knows it, not checked against a file.
+# ``outcomes`` and ``observability`` are not in the schema; the parser
+# reads them.
 V2_FULL: dict[str, Any] = {
     "apiVersion": "opensrm.nthlayer.io/v2",
     "kind": "ServiceManifest",
