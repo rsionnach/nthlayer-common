@@ -23,7 +23,7 @@ jobs:
       # this step the whole module, including the strict-xfail divergence
       # ledger, silently does not run in CI.
       - name: Check out the opensrm spec repo as a sibling
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: rsionnach/opensrm
           path: opensrm-spec
