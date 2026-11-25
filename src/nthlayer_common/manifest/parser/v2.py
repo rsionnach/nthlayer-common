@@ -109,8 +109,11 @@ def _rate(value: Any, what: str) -> float:
     *what*, not a bare TypeError or OverflowError."""
     try:
         return float(value)
-    except (TypeError, OverflowError) as exc:
+    except TypeError as exc:
         raise OpenSRMV2ParseError(f"{what} must be a number, not {shape(value)}") from exc
+    except OverflowError as exc:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise OpenSRMV2ParseError(f"{what} is too large to be a number") from exc
 
 
 def is_opensrm_v2_format(data: dict[str, Any]) -> bool:

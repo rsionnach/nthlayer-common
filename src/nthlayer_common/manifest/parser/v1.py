@@ -603,13 +603,14 @@ def _budget_fraction(value: Any, key: str) -> float:
     string that spells no number is still a ValueError), except that a
     value ``float()`` cannot take at all is an OpenSRMParseError naming the
     threshold, not a bare TypeError or OverflowError."""
+    what = f"spec.deployment.gates.error_budget.policy.thresholds.{key}"
     try:
         return float(value)
-    except (TypeError, OverflowError) as exc:
-        raise OpenSRMParseError(
-            f"spec.deployment.gates.error_budget.policy.thresholds.{key} "
-            f"must be a number, not {shape(value)}"
-        ) from exc
+    except TypeError as exc:
+        raise OpenSRMParseError(f"{what} must be a number, not {shape(value)}") from exc
+    except OverflowError as exc:
+        # An integer too large for a float (YAML integers are unbounded).
+        raise OpenSRMParseError(f"{what} is too large to be a number") from exc
 
 
 def _parse_budget_policy(data: dict[str, Any]) -> BudgetPolicy | None:
