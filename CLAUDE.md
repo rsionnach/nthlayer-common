@@ -72,6 +72,13 @@ These are load-bearing — wrong-side mistakes cause silent breakage.
          (`openslo/parser.py::_objective_target_percent`); `target` is a
          ratio and multiplied by 100, `targetPercent` is already 0-100
          and taken as-is. Exactly one of the two, per OpenSLO.
+       - v2 contract and dependency availabilities are RATIOS, checked at
+         parse time (opensrm-f0co): `contracts[].promise.availability` and
+         `dependencies[].expected_availability` must be the schema's
+         `Ratio`, a number from 0 to 1 (`parser/v2.py::_ratio`). Unlike
+         `require_number`, a string that spells a number is refused, as
+         the schema's `type: number` says. srm/v1's fields of the same
+         meaning are not checked yet (opensrm-ev8r).
        - OpenSLO `ratioMetric` is {good, total}, {bad, total} or raw with
          a `rawType`, enforced by the parser (opensrm-zo0o; spec vendored
          at `tests/fixtures/openslo/ratio-metric-v1.md`). `bad` fills

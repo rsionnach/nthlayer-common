@@ -114,6 +114,29 @@ def _rate(value: Any, what: str) -> float:
     return require_float(value, what, OpenSRMV2ParseError)
 
 
+def _ratio(value: Any, what: str) -> Any:
+    """*value* if it is schema.json's ``Ratio``, else OpenSRMV2ParseError.
+
+    A Ratio is a number from 0 to 1, both included: not a string that
+    spells one, not a boolean, not NaN, and not a percentage. *value* is
+    returned as written. ``None`` is returned too: a key with no value has
+    always read as undeclared, as an absent key does.
+
+    The parser used to store whatever was written (opensrm-f0co). A string
+    then crashed the comparison in ``validate_contracts()`` or passed it by
+    accident, and a v1-style ``99.95`` was reported as 9995.0%.
+    """
+    if value is None:
+        return None
+    # NaN fails both comparisons, so it is refused with everything else
+    # outside the range; an integer too large for a float compares as one.
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
+        raise OpenSRMV2ParseError(
+            f"{what} must be a ratio from 0 to 1 (0.999 for 99.9%), got {value!r}"
+        )
+    return value
+
+
 def is_opensrm_v2_format(data: dict[str, Any]) -> bool:
     """Check if data is in opensrm.nthlayer.io/v2 format."""
     return (
@@ -878,7 +901,9 @@ def _parse_contracts(contracts_data: list[dict[str, Any]]) -> list[ReliabilityCo
                 ) from exc
 
         promise = ContractPromise(
-            availability=promise_data.get("availability"),
+            availability=_ratio(
+                promise_data.get("availability"), f"Contract {name!r}: promise.availability"
+            ),
             latency_p99=promise_data.get("latency_p99"),
             throughput=promise_data.get("throughput"),
             judgment=judgment_promises,
@@ -948,7 +973,10 @@ def _parse_dependencies(deps_data: list[dict[str, Any]]) -> list[Dependency]:
         slo = None
         if any(k in dep_data for k in ("expected_availability", "expected_latency_p99")):
             slo = DependencySLO(
-                availability=dep_data.get("expected_availability"),
+                availability=_ratio(
+                    dep_data.get("expected_availability"),
+                    f"Dependency {service_ref!r}: expected_availability",
+                ),
                 latency_p99=dep_data.get("expected_latency_p99"),
             )
 
