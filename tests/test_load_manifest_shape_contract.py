@@ -26,8 +26,9 @@ this parser did not write:
 
 Each node of each document is replaced, one at a time, by each value of
 ``WRONG_VALUES`` (the legacy matrix's table: one of every type YAML can
-build, and the empty or zero value of each). Template files are mutated the
-same way under an unmutated manifest.
+build, and the empty or zero value of each). The files a manifest refers
+to (its template, an OpenSLO ``$ref`` target) are mutated the same way
+under an unmutated manifest.
 
 No cell may be refused by the backstop (``ManifestLoadError.backstop``):
 that error keeps the contract for a shape nothing here reaches, and a cell
@@ -337,6 +338,25 @@ V2_TEMPLATED: dict[str, Any] = {
     },
 }
 
+# A manifest whose one SLO is an OpenSLO document in a file of its own
+# (``$ref``), and that file. The spec's examples refer to ``./slos/*.yaml``
+# files it does not ship, so none of them reaches a referenced document.
+V2_REF_TARGET: dict[str, Any] = _openslo(
+    "checkout-availability",
+    {"ratioMetric": {"good": _metric(_QUERY), "total": _metric(_QUERY)}},
+    {"displayName": "99.9% of requests succeed", "target": 0.999},
+)
+V2_REF: dict[str, Any] = {
+    "apiVersion": "opensrm.nthlayer.io/v2",
+    "kind": "ServiceManifest",
+    "metadata": {"name": "checkout", "labels": {"tier": "critical"}},
+    "spec": {
+        "owner": {"group": "group:default/payments"},
+        "service": {"name": "checkout", "type": "api"},
+        "slo": [{"$ref": "./slos/checkout-availability.yaml"}],
+    },
+}
+
 # --------------------------------------------------------------------------
 # srm/v1 documents
 # --------------------------------------------------------------------------
@@ -487,8 +507,8 @@ V1_TEMPLATED: dict[str, Any] = {
 # The matrix
 # --------------------------------------------------------------------------
 
-# Document id -> (path under the work directory, document, template path
-# and document or None).
+# Document id -> (path under the work directory, document, and the path
+# and content of the file it refers to (a template, a $ref target) or None).
 INLINE: dict[str, tuple[str, dict[str, Any], tuple[str, dict[str, Any]] | None]] = {
     "v2-full": ("inline/v2-full/service.yaml", V2_FULL, None),
     "v2-ai-gate": ("inline/v2-ai-gate/service.yaml", V2_AI_GATE, None),
@@ -498,6 +518,11 @@ INLINE: dict[str, tuple[str, dict[str, Any], tuple[str, dict[str, Any]] | None]]
         ("inline/v2-templated/templates/ai-gate-base.yaml", V2_TEMPLATE),
     ),
     "v2-schema-form": ("inline/v2-schema-form/service.yaml", V2_SCHEMA_FORM, None),
+    "v2-ref": (
+        "inline/v2-ref/service.yaml",
+        V2_REF,
+        ("inline/v2-ref/slos/checkout-availability.yaml", V2_REF_TARGET),
+    ),
     "v1-full": ("inline/v1-full/service.yaml", V1_FULL, None),
     "v1-templated": (
         "inline/v1-templated/service.yaml",
@@ -535,12 +560,13 @@ def _documents() -> dict[str, tuple[str, dict[str, Any]]]:
 
 DOCUMENTS = _documents()
 DOC_IDS = sorted(DOCUMENTS)
-# Six inline documents, the spec's 17 and the ten srm/v1 manifests.
-assert len(DOC_IDS) == 33
+# Seven inline documents, the spec's 17 and the ten srm/v1 manifests.
+assert len(DOC_IDS) == 34
 
-# Template id -> (the manifest that extends it, the template's path under
-# the work directory, the template).
-TEMPLATES: dict[str, tuple[str, str, dict[str, Any]]] = {
+# Id -> (the manifest that refers to the file, the file's path under the
+# work directory, its content): the templates, and the $ref target.
+REFERRED_FILES: dict[str, tuple[str, str, dict[str, Any]]] = {
+    "v2-ref/slo": ("v2-ref", *INLINE["v2-ref"][2]),
     "v2-templated/template": ("v2-templated", *INLINE["v2-templated"][2]),
     "v1-templated/template": ("v1-templated", *INLINE["v1-templated"][2]),
     "v2-spec:template-extension/template": (
@@ -554,14 +580,14 @@ TEMPLATES: dict[str, tuple[str, str, dict[str, Any]]] = {
 def _cells() -> dict[str, tuple[str, str, dict[str, Any]]]:
     """Cell id -> (the manifest to load, the file whose content is
     replaced, what replaces it): every position of every document, and of
-    every template, crossed with every wrong value."""
+    every file one refers to, crossed with every wrong value."""
     cells: dict[str, tuple[str, str, dict[str, Any]]] = {}
     for doc_id, (rel, document) in DOCUMENTS.items():
         for path in _paths(document):
             where = ".".join(str(key) for key in path)
             for kind, value in WRONG_VALUES.items():
                 cells[f"{doc_id}:{where}={kind}"] = (rel, rel, _replaced(document, path, value))
-    for template_id, (doc_id, template_rel, template) in TEMPLATES.items():
+    for template_id, (doc_id, template_rel, template) in REFERRED_FILES.items():
         manifest_rel = DOCUMENTS[doc_id][0]
         for path in _paths(template):
             where = ".".join(str(key) for key in path)
@@ -727,6 +753,11 @@ def test_the_inline_documents_reach_every_block(work):
     assert [d.name for d in templated.dependencies] == ["identity", "ledger"]
     assert [t.type for t in templated.judgment_thresholds] == [
         "calibration", "feedback_latency", "audit_backlog",
+    ]
+
+    ref = _load(work / INLINE["v2-ref"][0])
+    assert [(slo.name, slo.source_ref) for slo in ref.slos] == [
+        ("checkout-availability", "./slos/checkout-availability.yaml")
     ]
 
     v1 = _load(work / INLINE["v1-full"][0])
@@ -903,6 +934,80 @@ def test_a_shape_no_check_names_is_still_a_load_error(doc_id, parser, error, wor
 
     assert raised.value.backstop is True
     assert isinstance(raised.value.__cause__, error)
+
+
+# What only YAML text can say: the matrix replaces nodes with Python values,
+# so it cannot nest a file past the YAML reader's stack, and a value that
+# contains itself never reaches a walk that follows it. Both are a
+# RecursionError inside the parsers, on files they read themselves.
+_DEEP = "[" * 3000 + "]" * 3000
+
+
+def _write_tree(root: Path, files: dict[str, str]) -> Path:
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return root / "service.yaml"
+
+
+def test_a_v2_template_nested_too_deeply_is_a_load_error(tmp_path):
+    manifest = _write_tree(
+        tmp_path,
+        {
+            "service.yaml": yaml.safe_dump(V2_TEMPLATED),
+            "templates/ai-gate-base.yaml": f"kind: ServiceManifestTemplate\nspec: {_DEEP}\n",
+        },
+    )
+
+    with pytest.raises(ManifestLoadError) as raised:
+        _load(manifest)
+
+    assert raised.value.backstop is False
+    assert isinstance(raised.value.__cause__, RecursionError)
+
+
+def test_a_v2_slo_ref_nested_too_deeply_is_a_load_error(tmp_path):
+    manifest = _write_tree(
+        tmp_path,
+        {
+            "service.yaml": yaml.safe_dump(V2_REF),
+            "slos/checkout-availability.yaml": f"spec: {_DEEP}\n",
+        },
+    )
+
+    with pytest.raises(ManifestLoadError) as raised:
+        _load(manifest)
+
+    assert raised.value.backstop is False
+    assert isinstance(raised.value.__cause__, RecursionError)
+
+
+def test_an_srm_v1_alias_to_its_own_anchor_is_a_load_error(tmp_path):
+    # The template merge descends wherever both sides hold a mapping, and
+    # here both hold one that contains itself.
+    looping = "  deployment: &loop\n    again: *loop\n"
+    manifest = _write_tree(
+        tmp_path,
+        {
+            "service.yaml": (
+                "apiVersion: srm/v1\n"
+                "kind: ServiceReliabilityManifest\n"
+                "metadata: {name: orders, team: commerce, tier: standard, template: standard-api}\n"
+                "spec:\n"
+                "  type: api\n" + looping
+            ),
+            "templates/standard-api.yaml": (
+                "apiVersion: srm/v1\nmetadata: {name: standard-api}\nspec:\n" + looping
+            ),
+        },
+    )
+
+    with pytest.raises(ManifestLoadError) as raised:
+        _load(manifest)
+
+    assert raised.value.backstop is False
+    assert isinstance(raised.value.__cause__, RecursionError)
 
 
 @pytest.mark.parametrize("doc_id", ["v1-full", "v2-full"])

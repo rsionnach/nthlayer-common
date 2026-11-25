@@ -32,9 +32,9 @@ and schema agree with this parser is `tests/test_manifest_v2_archetypes.py`.
 
 Position -> the wrong values (space-separated names from `WRONG_VALUES`)
 that loaded at that position on commit `adaa35b`, the last one before the
-fix. On that commit, of the 47,702 cells, 15,703 loaded, 25,893 raised
-`ManifestLoadError` or `ValueError`, and 6,106 crashed: 4,451 with
-`AttributeError`, 1,527 with `TypeError`, 77 with `OverflowError` and 51
+fix. On that commit, of the 48,737 cells, 15,948 loaded, 26,375 raised
+`ManifestLoadError` or `ValueError`, and 6,414 crashed: 4,671 with
+`AttributeError`, 1,608 with `TypeError`, 78 with `OverflowError` and 57
 with `KeyError`.
 
 It was produced by running the matrix against the parsers as they were on
