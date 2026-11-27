@@ -192,9 +192,13 @@ def test_a_miscased_type_still_counts():
 @pytest.mark.parametrize(
     "promise", ["0.9995", "99.95%", [0.9995], True], ids=["quoted", "percent", "list", "true"]
 )
-def test_a_promise_that_is_not_a_number_is_reported_not_raised(promise):
-    # The parsers store the promise as written. `"0.9995" * 100` is a
-    # string, and comparing a target with it raised TypeError.
+def test_a_promise_that_is_not_a_number_is_a_type_error_naming_the_contract(promise):
+    # The parsers store the promise as written. Comparing a target with a
+    # string has always raised TypeError, and nthlayer-generate's validator
+    # catches that type to report the manifest as invalid
+    # (specs/validator.py). The type stays; the message now says which
+    # contract and what value, where it used to be Python's own
+    # "'<' not supported between instances of 'float' and 'str'".
     manifest = _manifest(
         [
             SLODefinition(name="read-availability", target=99.0, slo_type="availability"),
@@ -203,16 +207,39 @@ def test_a_promise_that_is_not_a_number_is_reported_not_raised(promise):
         ContractPromise(availability=promise),
     )
 
-    errors = manifest.validate_contracts()
+    with pytest.raises(TypeError) as raised:
+        manifest.validate_contracts()
 
-    # One finding for the contract, not one per SLO, and no comparison.
-    assert len(errors) == 1
-    assert "'svc-api'" in errors[0]
-    assert "not a number" in errors[0]
+    assert "'svc-api'" in str(raised.value)
+    assert repr(promise) in str(raised.value)
+
+
+def test_a_bad_promise_is_a_type_error_for_an_srm_v1_manifest_too(tmp_path):
+    # The case that raised before this change: srm/v1's SLO is named
+    # "availability". Loaded through the parser, not built by hand.
+    path = tmp_path / "svc.reliability.yaml"
+    path.write_text(
+        "apiVersion: srm/v1\n"
+        "kind: ServiceReliabilityManifest\n"
+        "metadata: {name: svc, team: t, tier: critical}\n"
+        "spec:\n"
+        "  type: api\n"
+        "  slos:\n"
+        "    availability: {target: 99.9}\n"
+        "  contract:\n"
+        '    availability: "0.999"\n'
+    )
+    manifest = load_manifest(path)
+
+    with pytest.raises(TypeError) as raised:
+        manifest.validate_contracts()
+
+    assert "'0.999'" in str(raised.value)
 
 
 def test_a_bad_promise_with_no_availability_slo_says_nothing():
-    # As before this change: with nothing to compare, the promise is not read.
+    # As before this change: with nothing to compare, the promise is not
+    # read, so it does not raise either.
     manifest = _manifest(
         [SLODefinition(name="latency", target=99.0, slo_type="latency")],
         ContractPromise(availability="0.9995"),
