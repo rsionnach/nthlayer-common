@@ -123,6 +123,22 @@ def test_a_percent_target_just_below_five_nines_is_still_looser(tmp_path):
     ]
 
 
+def test_a_promise_too_large_for_a_float_is_still_a_finding_not_a_crash(tmp_path):
+    # YAML reads an integer of any length as an int, and the v2 parser
+    # stores the promise as written. Comparing an int with a float is
+    # exact; turning this one into a float to ask "is it close" is an
+    # OverflowError, which nthlayer-generate's validator does not catch.
+    document = copy.deepcopy(EXAMPLE)
+    document["spec"]["contracts"][0]["promise"]["availability"] = 10**400
+
+    manifest = _load(tmp_path, document)
+    assert manifest.contracts[0].promise.availability == 10**400
+    errors = manifest.validate_contracts()
+
+    assert len(errors) == 1
+    assert "payment-api-availability" in errors[0]
+
+
 def _manifest(slos: list[SLODefinition], promise: ContractPromise) -> ReliabilityManifest:
     return ReliabilityManifest(
         name="svc",

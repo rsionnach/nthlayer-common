@@ -901,6 +901,22 @@ def _is_real_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
+def _is_below_beyond_rounding(target: float, promised: float) -> bool:
+    """True when *target* is below *promised* by more than float rounding.
+
+    A target written in percent and a promise written as a ratio can be
+    the same number and differ in the last bit: 0.99999 * 100 is
+    99.99900000000001, and 99.999 is not looser than that.
+    """
+    if not target < promised:
+        return False
+    try:
+        return not math.isclose(target, promised)
+    except OverflowError:
+        # An integer too large to be a float; no target is close to it.
+        return True
+
+
 def _is_availability_type(slo_type: Any) -> bool:
     """True when *slo_type* says availability, however it is cased.
 
@@ -1220,12 +1236,9 @@ class ReliabilityManifest:
                     # and the promise is known to be a number: with no
                     # availability SLO the promise is not read at all.
                     promised = promise.availability * 100
-                    # A target written in percent and a promise written as
-                    # a ratio can be the same number and differ in the
-                    # last bit (0.99999 * 100 is 99.99900000000001). A
-                    # target is looser only if it is below the promise by
-                    # more than that rounding; the message rounds it away.
-                    if slo.target < promised and not math.isclose(slo.target, promised):
+                    # The message rounds away the last-bit noise the
+                    # comparison allows for (99.99900000000001).
+                    if _is_below_beyond_rounding(slo.target, promised):
                         errors.append(
                             f"Availability SLO '{slo.name}' ({slo.target}%) is looser than "
                             f"contract '{contract.name}' ({round(promised, 10)}%)"
