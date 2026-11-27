@@ -216,6 +216,29 @@ def test_a_miscased_type_still_counts():
     assert "'edge'" in errors[1]
 
 
+def test_a_type_that_is_not_a_string_is_not_an_availability_slo(tmp_path):
+    # srm/v1 stores an explicit `type` as written (parser/v1.py,
+    # _infer_slo_type), so a number there reaches the comparison. It is
+    # not an availability SLO, and asking must not raise: the SLO is
+    # named "availability", the one the old name filter compared.
+    path = tmp_path / "svc.reliability.yaml"
+    path.write_text(
+        "apiVersion: srm/v1\n"
+        "kind: ServiceReliabilityManifest\n"
+        "metadata: {name: svc, team: t, tier: critical}\n"
+        "spec:\n"
+        "  type: api\n"
+        "  slos:\n"
+        "    availability: {target: 99.0, type: 7}\n"
+        "  contract:\n"
+        "    availability: 0.999\n"
+    )
+    manifest = load_manifest(path)
+
+    assert [(slo.name, slo.slo_type) for slo in manifest.slos] == [("availability", 7)]
+    assert manifest.validate_contracts() == []
+
+
 @pytest.mark.parametrize(
     "promise", ["0.9995", "99.95%", [0.9995], True], ids=["quoted", "percent", "list", "true"]
 )
