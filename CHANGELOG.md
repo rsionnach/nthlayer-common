@@ -4,6 +4,14 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.12.3](https://github.com/rsionnach/nthlayer-common/compare/v5.12.2...v5.12.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* one shape backstop for all three manifest formats [opensrm-8his] ([dc52982](https://github.com/rsionnach/nthlayer-common/commit/dc529823533275741c46e75b678f5e84be784b35))
+* PagerDuty integration keys stay out of reprs [opensrm-wo62.4.14] ([308ae0a](https://github.com/rsionnach/nthlayer-common/commit/308ae0aeacde81b655bc989eee94a20a44b51ab9))
+
 ## [5.12.2](https://github.com/rsionnach/nthlayer-common/compare/v5.12.1...v5.12.2) (2026-11-25)
 
 
