@@ -48,3 +48,10 @@ and nothing that failed starts to load".
 A new document, position or wrong value adds cells. Give the new cells
 their answer the same way, from `adaa35b`. Do not regenerate the file from
 the current parsers: it would then agree with whatever they do.
+
+One departure is deliberate and lives in the test, not in this file
+(opensrm-f0co): a v2 contract's `promise.availability` and a dependency's
+`expected_availability` must be the schema's Ratio, a number from 0 to 1.
+On `adaa35b` the parser stored anything written there, so 168 cells that
+put a value that is no Ratio at one of eight such positions loaded and are
+now refused. The baseline still records what `adaa35b` did.

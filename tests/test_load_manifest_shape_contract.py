@@ -37,7 +37,8 @@ that ends in it is a position whose check is missing.
 The second half pins that nothing which loaded before this contract stopped
 loading, and nothing that failed started to load:
 ``fixtures/load_shape_matrix/loaded_before.json`` lists the cells that
-loaded on the commit before the fix.
+loaded on the commit before the fix. One later departure is listed beside
+that test: v2 availability ratios (opensrm-f0co).
 
 Cells are fed to the loader in place of what ``yaml.safe_load`` returns for
 the file (writing 40,000 YAML files takes minutes).
@@ -907,6 +908,47 @@ def test_a_wrong_shape_is_a_named_error_never_a_crash(position, work):
         assert outcome(cell_id, work) in ("loads", "refused")
 
 
+# One deliberate departure from "loads exactly when it loaded before"
+# (opensrm-f0co). A contract's ``promise.availability`` and a dependency's
+# ``expected_availability`` are schema.json's Ratio: a number from 0 to 1.
+# On adaa35b the v2 parser stored whatever was written there, so every
+# wrong value loaded; a value that is no Ratio is now refused. The cells
+# are derived from the wrong values and the schema's rule, not from what
+# the parser does.
+#
+# The positions are every one of those two fields that a v2 document which
+# loads unmutated declares, in the manifest or in what it merges in. Not
+# srm/v1's field of the same name (v1-full: its convention is undecided,
+# opensrm-ev8r), and not the one in v2-templated's template, whose
+# contracts the manifest's ``replace`` override discards unread.
+_RATIO_FIELDS = (".promise.availability", ".expected_availability")
+_RATIO_NEVER_PARSED = {"v2-templated/template:spec.contracts.0.promise.availability"}
+
+
+def _ratio_positions() -> list[str]:
+    found = []
+    for position in POSITIONS:
+        owner = position.rsplit(":", 1)[0]
+        doc_id = REFERRED_FILES[owner][0] if owner in REFERRED_FILES else owner
+        if (
+            position.endswith(_RATIO_FIELDS)
+            and doc_id.startswith("v2-")
+            and LOADS_UNMUTATED[doc_id]
+            and position not in _RATIO_NEVER_PARSED
+        ):
+            found.append(position)
+    return found
+
+
+def _is_a_ratio(value: Any) -> bool:
+    """None (undeclared) or a number from 0 to 1 that is not a boolean."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return 0 <= value <= 1
+
+
 def test_what_loaded_before_still_loads_and_nothing_else_does(work):
     loaded_before = {
         f"{position}={kind}"
@@ -923,7 +965,20 @@ def test_what_loaded_before_still_loads_and_nothing_else_does(work):
         if classify(lambda cell_id=cell_id: load_cell(cell_id, work))[0] == "loads"
     }
 
-    assert sorted(loaded_before - loads_now) == []
+    ratio_positions = _ratio_positions()
+    refused_since_f0co = {
+        f"{position}={kind}"
+        for position in ratio_positions
+        for kind, value in WRONG_VALUES.items()
+        if not _is_a_ratio(value)
+    }
+    # Eight positions; of the 23 wrong values only null and 0 are Ratios.
+    assert len(ratio_positions) == 8
+    assert len(refused_since_f0co) == 8 * 21
+    # Each of them did load before: the departure is real, not vacuous.
+    assert refused_since_f0co <= loaded_before
+
+    assert sorted(loaded_before - loads_now) == sorted(refused_since_f0co)
     assert sorted(loads_now - loaded_before) == []
 
 
