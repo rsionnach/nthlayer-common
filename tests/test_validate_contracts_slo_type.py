@@ -115,8 +115,12 @@ def test_a_percent_target_just_below_five_nines_is_still_looser(tmp_path):
 
     errors = manifest.validate_contracts()
 
-    assert len(errors) == 1
-    assert "payment-api-availability" in errors[0]
+    # The promise is shown as written, in percent: 0.99999 * 100 is
+    # 99.99900000000001, and that is not what the message says.
+    assert errors == [
+        "Availability SLO 'payment-api-availability' (99.998%) is looser than "
+        "contract 'payment-api' (99.999%)"
+    ]
 
 
 def _manifest(slos: list[SLODefinition], promise: ContractPromise) -> ReliabilityManifest:
@@ -287,12 +291,16 @@ def test_a_bad_promise_is_a_type_error_for_an_srm_v1_manifest_too(tmp_path):
     assert "'0.999'" in str(raised.value)
 
 
-def test_a_bad_promise_with_no_availability_slo_says_nothing():
+@pytest.mark.parametrize(
+    "promise", ["0.9995", [0.9995], {"target": 0.9995}], ids=["quoted", "list", "mapping"]
+)
+def test_a_bad_promise_with_no_availability_slo_says_nothing(promise):
     # As before this change: with nothing to compare, the promise is not
-    # read, so it does not raise either.
+    # read, so it does not raise either. A mapping is the one that tells:
+    # a string or a list can be multiplied by 100, a mapping cannot.
     manifest = _manifest(
         [SLODefinition(name="latency", target=99.0, slo_type="latency")],
-        ContractPromise(availability="0.9995"),
+        ContractPromise(availability=promise),
     )
 
     assert manifest.validate_contracts() == []

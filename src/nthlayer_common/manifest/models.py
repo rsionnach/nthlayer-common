@@ -893,7 +893,11 @@ VALID_REVENUE_ATTRIBUTIONS = frozenset({"direct", "indirect", "supporting"})
 
 
 def _is_real_number(value: Any) -> bool:
-    """True for an int or float that is not a boolean."""
+    """True for an int or float that is not a boolean.
+
+    Stricter than ``_require_real`` below, which accepts a boolean: a
+    promise of ``true`` is not an availability (opensrm-kgec).
+    """
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
@@ -1211,16 +1215,20 @@ class ReliabilityManifest:
                         f"{promise.availability!r}, which is not a number, so its "
                         f"availability SLOs cannot be checked against it"
                     )
-                promised = promise.availability * 100
                 for slo in avail_slos:
+                    # Worked out here, where there is an SLO to compare
+                    # and the promise is known to be a number: with no
+                    # availability SLO the promise is not read at all.
+                    promised = promise.availability * 100
                     # A target written in percent and a promise written as
                     # a ratio can be the same number and differ in the
-                    # last bit (0.99999 * 100 is 99.99900000000001), so
-                    # "looser" means below it and not merely that.
+                    # last bit (0.99999 * 100 is 99.99900000000001). A
+                    # target is looser only if it is below the promise by
+                    # more than that rounding; the message rounds it away.
                     if slo.target < promised and not math.isclose(slo.target, promised):
                         errors.append(
                             f"Availability SLO '{slo.name}' ({slo.target}%) is looser than "
-                            f"contract '{contract.name}' ({promise.availability * 100}%)"
+                            f"contract '{contract.name}' ({round(promised, 10)}%)"
                         )
 
             for jp in promise.judgment:
