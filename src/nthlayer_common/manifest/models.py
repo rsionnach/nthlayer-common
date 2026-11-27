@@ -1171,11 +1171,20 @@ class ReliabilityManifest:
             promise = contract.promise
 
             if promise.availability:
-                avail_slos = [s for s in self.slos if s.name == "availability"]
+                # By type, not by name (opensrm-kgec): this used to match
+                # only an SLO named exactly "availability", so a v2 SLO
+                # such as "checkout-availability" was never compared. A
+                # judgment SLO also carries slo_type "availability" (it
+                # tracks a rate); its promise is checked below, by
+                # judgment type.
+                avail_slos = [
+                    s for s in self.slos
+                    if s.slo_type == "availability" and not s.is_judgment_slo()
+                ]
                 for slo in avail_slos:
                     if slo.target < promise.availability * 100:
                         errors.append(
-                            f"Availability SLO ({slo.target}%) is looser than "
+                            f"Availability SLO '{slo.name}' ({slo.target}%) is looser than "
                             f"contract '{contract.name}' ({promise.availability * 100}%)"
                         )
 
