@@ -13,6 +13,7 @@ The keys below are made up for this test.
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -92,13 +93,26 @@ def test_the_raw_document_is_kept_but_not_shown(tmp_path):
     assert "raw_data" not in repr(manifest)
 
 
-def test_configs_with_different_keys_are_still_different():
-    # repr=False must not have become compare=False.
-    one = PagerDutyConfig(integration_key=INTEGRATION_KEY)
-    other = PagerDutyConfig(integration_key=SRE_INTEGRATION_KEY)
+@pytest.mark.parametrize("key_field", ["integration_key", "sre_integration_key"])
+def test_configs_with_different_keys_are_still_different(key_field):
+    # repr=False must not have become compare=False, on either key.
+    one = PagerDutyConfig(**{key_field: INTEGRATION_KEY})
+    other = PagerDutyConfig(**{key_field: SRE_INTEGRATION_KEY})
 
     assert one != other
-    assert one == PagerDutyConfig(integration_key=INTEGRATION_KEY)
+    assert one == PagerDutyConfig(**{key_field: INTEGRATION_KEY})
+
+
+def test_manifests_with_different_documents_are_still_different(tmp_path):
+    # Nor for raw_data: two manifests alike in every parsed field but
+    # loaded from different documents are not equal.
+    _, manifest = _load(tmp_path, LEGACY)
+    twin = dataclasses.replace(manifest)
+    assert twin == manifest
+
+    twin.raw_data = {**manifest.raw_data, "note": "a key the parser does not read"}
+
+    assert twin != manifest
 
 
 def test_the_pagerduty_warning_names_the_service_and_the_file(tmp_path):
