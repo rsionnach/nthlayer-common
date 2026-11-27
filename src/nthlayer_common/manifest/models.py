@@ -891,6 +891,21 @@ VALID_FAILURE_CATEGORIES = frozenset({
 VALID_REVENUE_ATTRIBUTIONS = frozenset({"direct", "indirect", "supporting"})
 
 
+def _is_real_number(value: Any) -> bool:
+    """True for an int or float that is not a boolean."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _is_availability_type(slo_type: Any) -> bool:
+    """True when *slo_type* says availability, however it is cased.
+
+    srm/v1 stores an explicit ``type`` as written, so ``Availability`` and
+    `` availability`` occur. validate_contracts() must not lose a breach to
+    the spelling of a type it found by name before (opensrm-kgec).
+    """
+    return isinstance(slo_type, str) and slo_type.strip().lower() == "availability"
+
+
 def _require_real(value: Any, what: str) -> None:
     """ValueError unless *value* can be compared with a number.
 
@@ -1179,8 +1194,20 @@ class ReliabilityManifest:
                 # judgment type.
                 avail_slos = [
                     s for s in self.slos
-                    if s.slo_type == "availability" and not s.is_judgment_slo()
+                    if _is_availability_type(s.slo_type) and not s.is_judgment_slo()
                 ]
+                if not _is_real_number(promise.availability):
+                    # The parsers store a promise as written, so a quoted
+                    # "0.9995" gets this far. Multiplying it would repeat
+                    # the string and the comparison would raise; say what
+                    # is wrong instead, once per contract.
+                    if avail_slos:
+                        errors.append(
+                            f"Contract '{contract.name}' promises availability "
+                            f"{promise.availability!r}, which is not a number, so its "
+                            f"availability SLOs cannot be checked against it"
+                        )
+                    avail_slos = []
                 for slo in avail_slos:
                     if slo.target < promise.availability * 100:
                         errors.append(

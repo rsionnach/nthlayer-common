@@ -18,6 +18,7 @@ import copy
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from nthlayer_common.manifest import load_manifest
@@ -168,3 +169,75 @@ def test_an_srm_v1_availability_slo_is_still_found():
 
     assert len(errors) == 1
     assert "'availability'" in errors[0]
+
+
+def test_a_miscased_type_still_counts():
+    # srm/v1 stores an explicit `type` as written. An SLO the old name
+    # filter found must not be lost to how its type is spelled.
+    manifest = _manifest(
+        [
+            SLODefinition(name="availability", target=99.0, slo_type="Availability"),
+            SLODefinition(name="edge", target=99.0, slo_type=" availability "),
+        ],
+        ContractPromise(availability=0.999),
+    )
+
+    errors = manifest.validate_contracts()
+
+    assert len(errors) == 2
+    assert "'availability'" in errors[0]
+    assert "'edge'" in errors[1]
+
+
+@pytest.mark.parametrize(
+    "promise", ["0.9995", "99.95%", [0.9995], True], ids=["quoted", "percent", "list", "true"]
+)
+def test_a_promise_that_is_not_a_number_is_reported_not_raised(promise):
+    # The parsers store the promise as written. `"0.9995" * 100` is a
+    # string, and comparing a target with it raised TypeError.
+    manifest = _manifest(
+        [
+            SLODefinition(name="read-availability", target=99.0, slo_type="availability"),
+            SLODefinition(name="write-availability", target=99.5, slo_type="availability"),
+        ],
+        ContractPromise(availability=promise),
+    )
+
+    errors = manifest.validate_contracts()
+
+    # One finding for the contract, not one per SLO, and no comparison.
+    assert len(errors) == 1
+    assert "'svc-api'" in errors[0]
+    assert "not a number" in errors[0]
+
+
+def test_a_bad_promise_with_no_availability_slo_says_nothing():
+    # As before this change: with nothing to compare, the promise is not read.
+    manifest = _manifest(
+        [SLODefinition(name="latency", target=99.0, slo_type="latency")],
+        ContractPromise(availability="0.9995"),
+    )
+
+    assert manifest.validate_contracts() == []
+
+
+def test_each_contract_is_checked_and_named():
+    manifest = ReliabilityManifest(
+        name="svc",
+        team="t",
+        tier="critical",
+        type="api",
+        slos=[SLODefinition(name="svc-availability", target=99.5, slo_type="availability")],
+        contracts=[
+            ReliabilityContract(name="public", promise=ContractPromise(availability=0.999)),
+            ReliabilityContract(name="internal", promise=ContractPromise(availability=0.99)),
+            ReliabilityContract(name="partner", promise=ContractPromise(availability=0.9999)),
+        ],
+    )
+
+    errors = manifest.validate_contracts()
+
+    # Looser than public and partner, tighter than internal.
+    assert len(errors) == 2
+    assert "'public'" in errors[0]
+    assert "'partner'" in errors[1]
