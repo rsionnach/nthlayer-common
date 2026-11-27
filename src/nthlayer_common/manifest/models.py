@@ -241,8 +241,12 @@ class PagerDutyConfig:
     # (generate owns the default).
     timezone: str | None = None
     sre_escalation_policy_id: str | None = None
-    integration_key: str | None = None
-    sre_integration_key: str | None = None
+    # PagerDuty routing secrets: whoever holds one can open incidents on
+    # the service. Kept out of the repr, so logging a manifest or a
+    # traceback that prints one does not show them (opensrm-wo62.4.14).
+    # They still compare and are read as ordinary attributes.
+    integration_key: str | None = field(default=None, repr=False)
+    sre_integration_key: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -1069,7 +1073,10 @@ class ReliabilityManifest:
     # ==========================================================================
     source_format: SourceFormat = SourceFormat.SRM_V1
     source_file: str | None = None
-    raw_data: dict[str, Any] = field(default_factory=dict)
+    # The document as loaded. Not in the repr: it is the whole file, and
+    # for a legacy manifest it holds the PagerDuty resource's integration
+    # keys as authored (opensrm-wo62.4.14).
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False)
 
     # The service type exactly as authored, before alias resolution
     # (opensrm-z3ab, opensrm-wo62.1). `type` is resolved for comparisons;
