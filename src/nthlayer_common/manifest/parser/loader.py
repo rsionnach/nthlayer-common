@@ -587,9 +587,9 @@ def _parse_legacy_to_manifest(
 
     slos, judgment_thresholds = _extract_slos_from_resources(resources_data)
     dependencies = _extract_dependencies_from_resources(resources_data)
-    ownership = _extract_ownership(service_data, resources_data)
+    ownership = _extract_ownership(service_data, resources_data, source_file)
     alerting = _extract_alerting_from_resources(resources_data)
-    observability = _extract_observability(resources_data)
+    observability = _extract_observability(resources_data, name, source_file)
 
     return ReliabilityManifest(
         name=name,
@@ -875,7 +875,9 @@ def _extract_alerting_from_resources(resources: list[dict[str, Any]]) -> Any:
     return None
 
 
-def _extract_observability(resources: list[dict[str, Any]]) -> Observability | None:
+def _extract_observability(
+    resources: list[dict[str, Any]], service: Any, source_file: str
+) -> Observability | None:
     """Map the first legacy ``kind: Observability`` resource.
 
     generate's legacy detector plans a dashboard for any Observability
@@ -891,13 +893,20 @@ def _extract_observability(resources: list[dict[str, Any]]) -> Observability | N
         if resource.get("kind") == "Observability":
             spec = resource.get("spec")
             if spec is not None and not isinstance(spec, dict):
-                logger.warning("legacy_observability_spec_not_mapping", spec_type=type(spec).__name__)
+                # Names the manifest: a scan loads many, and the warning
+                # is no use without knowing which one (opensrm-wo62.4.14).
+                logger.warning(
+                    "legacy_observability_spec_not_mapping",
+                    spec_type=type(spec).__name__,
+                    service=service,
+                    source_file=source_file,
+                )
                 spec = None
             return parse_observability(spec) or Observability()
     return None
 
 
-def _legacy_service_pagerduty(service_data: dict[str, Any]) -> dict[str, Any]:
+def _legacy_service_pagerduty(service_data: dict[str, Any], source_file: str) -> dict[str, Any]:
     """Return ``service.pagerduty`` as a mapping (``{}`` when unset).
 
     It was never read before opensrm-wo62.4.13, so a non-mapping value is
@@ -907,7 +916,12 @@ def _legacy_service_pagerduty(service_data: dict[str, Any]) -> dict[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        logger.warning("legacy_service_pagerduty_not_mapping", value_type=type(value).__name__)
+        logger.warning(
+            "legacy_service_pagerduty_not_mapping",
+            value_type=type(value).__name__,
+            service=service_data.get("name"),
+            source_file=source_file,
+        )
         return {}
     return value
 
@@ -915,6 +929,7 @@ def _legacy_service_pagerduty(service_data: dict[str, Any]) -> dict[str, Any]:
 def _extract_ownership(
     service_data: dict[str, Any],
     resources: list[dict[str, Any]],
+    source_file: str,
 ) -> Ownership | None:
     """Extract ownership info from legacy service data and resources."""
     team = service_data.get("team")
@@ -933,7 +948,7 @@ def _extract_ownership(
     for resource in resources:
         if resource.get("kind") == "PagerDuty":
             spec = _legacy_resource_spec(resource)
-            service_pagerduty = _legacy_service_pagerduty(service_data)
+            service_pagerduty = _legacy_service_pagerduty(service_data, source_file)
             ownership.pagerduty = PagerDutyConfig(
                 service_id=spec.get("service_id"),
                 escalation_policy_id=spec.get("escalation_policy"),
