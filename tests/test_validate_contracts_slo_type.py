@@ -92,6 +92,33 @@ def test_a_v2_availability_slo_tighter_than_the_contract_is_not(tmp_path):
     assert _load(tmp_path, document).validate_contracts() == []
 
 
+def _five_nines(target: dict[str, float]) -> dict[str, Any]:
+    document = copy.deepcopy(EXAMPLE)
+    document["spec"]["contracts"][0]["promise"]["availability"] = 0.99999
+    _slo(document, "payment-api-availability")["spec"]["objectives"][0] = target
+    return document
+
+
+def test_a_percent_target_equal_to_a_ratio_promise_is_not_looser(tmp_path):
+    # An OpenSLO objective takes `target` (a ratio) or `targetPercent`
+    # (OpenSLO v1, spec.objectives[]). The promise is the schema's Ratio.
+    # The same five nines written both ways differ in the last bit:
+    # 0.99999 * 100 is 99.99900000000001, and 99.999 is below that.
+    manifest = _load(tmp_path, _five_nines({"targetPercent": 99.999}))
+
+    assert manifest.slos[0].target == 99.999
+    assert manifest.validate_contracts() == []
+
+
+def test_a_percent_target_just_below_five_nines_is_still_looser(tmp_path):
+    manifest = _load(tmp_path, _five_nines({"targetPercent": 99.998}))
+
+    errors = manifest.validate_contracts()
+
+    assert len(errors) == 1
+    assert "payment-api-availability" in errors[0]
+
+
 def _manifest(slos: list[SLODefinition], promise: ContractPromise) -> ReliabilityManifest:
     return ReliabilityManifest(
         name="svc",

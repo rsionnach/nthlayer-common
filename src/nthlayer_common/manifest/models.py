@@ -26,6 +26,7 @@ Tech debt (v2, not v1.5):
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -1210,8 +1211,13 @@ class ReliabilityManifest:
                         f"{promise.availability!r}, which is not a number, so its "
                         f"availability SLOs cannot be checked against it"
                     )
+                promised = promise.availability * 100
                 for slo in avail_slos:
-                    if slo.target < promise.availability * 100:
+                    # A target written in percent and a promise written as
+                    # a ratio can be the same number and differ in the
+                    # last bit (0.99999 * 100 is 99.99900000000001), so
+                    # "looser" means below it and not merely that.
+                    if slo.target < promised and not math.isclose(slo.target, promised):
                         errors.append(
                             f"Availability SLO '{slo.name}' ({slo.target}%) is looser than "
                             f"contract '{contract.name}' ({promise.availability * 100}%)"
