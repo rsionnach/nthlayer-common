@@ -26,6 +26,7 @@ Tech debt (v2, not v1.5):
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -891,6 +892,42 @@ VALID_FAILURE_CATEGORIES = frozenset({
 VALID_REVENUE_ATTRIBUTIONS = frozenset({"direct", "indirect", "supporting"})
 
 
+def _is_real_number(value: Any) -> bool:
+    """True for an int or float that is not a boolean.
+
+    Stricter than ``_require_real`` below, which accepts a boolean: a
+    promise of ``true`` is not an availability (opensrm-kgec).
+    """
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _is_below_beyond_rounding(target: float, promised: float) -> bool:
+    """True when *target* is below *promised* by more than float rounding.
+
+    A target written in percent and a promise written as a ratio can be
+    the same number and differ in the last bit: 0.99999 * 100 is
+    99.99900000000001, and 99.999 is not looser than that.
+    """
+    if not target < promised:
+        return False
+    try:
+        return not math.isclose(target, promised)
+    except OverflowError:
+        # An integer too large to be a float; no target is close to it.
+        return True
+
+
+def _is_availability_type(slo_type: Any) -> bool:
+    """True when *slo_type* says availability, however it is cased.
+
+    Compared without regard to case or surrounding whitespace: srm/v1
+    stores an explicit ``type`` as written, so ``Availability`` and
+    `` availability`` occur, and each is an availability SLO
+    (opensrm-kgec).
+    """
+    return isinstance(slo_type, str) and slo_type.strip().lower() == "availability"
+
+
 def _require_real(value: Any, what: str) -> None:
     """ValueError unless *value* can be compared with a number.
 
@@ -1171,12 +1208,40 @@ class ReliabilityManifest:
             promise = contract.promise
 
             if promise.availability:
-                avail_slos = [s for s in self.slos if s.name == "availability"]
+                # By type, not by name (opensrm-kgec): this used to match
+                # only an SLO named exactly "availability", so a v2 SLO
+                # such as "checkout-availability" was never compared. A
+                # judgment SLO also carries slo_type "availability" (it
+                # tracks a rate); it is checked against the contract's
+                # judgment promise below, not against this one.
+                avail_slos = [
+                    s for s in self.slos
+                    if _is_availability_type(s.slo_type) and not s.is_judgment_slo()
+                ]
+                if avail_slos and not _is_real_number(promise.availability):
+                    # The parsers store a promise as written, so a quoted
+                    # "0.9995" gets this far. Comparing it has always been
+                    # a TypeError, and nthlayer-generate's validator
+                    # catches exactly that to report the manifest as
+                    # invalid: keep the type, and say what is wrong
+                    # (multiplying a string by 100 repeats it, and the
+                    # bare error named neither the contract nor the value).
+                    raise TypeError(
+                        f"Contract '{contract.name}' promises availability "
+                        f"{promise.availability!r}, which is not a number, so its "
+                        f"availability SLOs cannot be checked against it"
+                    )
                 for slo in avail_slos:
-                    if slo.target < promise.availability * 100:
+                    # Worked out here, where there is an SLO to compare
+                    # and the promise is known to be a number: with no
+                    # availability SLO the promise is not read at all.
+                    promised = promise.availability * 100
+                    # The message rounds away the last-bit noise the
+                    # comparison allows for (99.99900000000001).
+                    if _is_below_beyond_rounding(slo.target, promised):
                         errors.append(
-                            f"Availability SLO ({slo.target}%) is looser than "
-                            f"contract '{contract.name}' ({promise.availability * 100}%)"
+                            f"Availability SLO '{slo.name}' ({slo.target}%) is looser than "
+                            f"contract '{contract.name}' ({round(promised, 10)}%)"
                         )
 
             for jp in promise.judgment:
