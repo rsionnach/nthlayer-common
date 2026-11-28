@@ -4,6 +4,16 @@
 Imported by `nthlayer-core`, `nthlayer-workers`, and `nthlayer-bench`. License:
 Apache-2.0.
 
+## [5.12.4](https://github.com/rsionnach/nthlayer-common/compare/v5.12.3...v5.12.4) (2026-11-28)
+
+
+### Bug Fixes
+
+* a promise that is not a number stays a TypeError [opensrm-kgec] ([#152](https://github.com/rsionnach/nthlayer-common/issues/152)) ([b5551ba](https://github.com/rsionnach/nthlayer-common/commit/b5551ba368711cd8030122fd0cdcb48db3c1c2b0))
+* no availability SLO, promise not read, mapping too [opensrm-kgec] ([b476e33](https://github.com/rsionnach/nthlayer-common/commit/b476e3344efae805505298fe649cfd60aff2e395))
+* v2 availability ratios are checked at parse time [opensrm-f0co] ([b5551ba](https://github.com/rsionnach/nthlayer-common/commit/b5551ba368711cd8030122fd0cdcb48db3c1c2b0))
+* validate_contracts finds availability SLOs by type [opensrm-kgec] ([#152](https://github.com/rsionnach/nthlayer-common/issues/152)) ([b5551ba](https://github.com/rsionnach/nthlayer-common/commit/b5551ba368711cd8030122fd0cdcb48db3c1c2b0))
+
 ## [5.12.3](https://github.com/rsionnach/nthlayer-common/compare/v5.12.2...v5.12.3) (2026-11-27)
 
 
